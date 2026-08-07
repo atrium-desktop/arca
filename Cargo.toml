@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/lantern-core",
+    "crates/lantern-ui",
+    "crates/lantern",
+]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+# The effective toolchain floor is raised by the optics bindings (edition
+# 2024, rust 1.85), which compile from source in every dependency mode.
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Optics stack (flux/lens/iris) official Rust bindings. The canonical build
+# resolves the binding sources from the tagged optics monorepo and links the
+# C libraries discovered by pkg-config. A linked development worktree can
+# patch these sources to a sibling checkout through .cargo/optics-local.toml
+# without making that checkout mandatory for CI or downstream packagers; see
+# docs/dev/cross-repository-development.md.
+iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.10" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.10" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.10" }
+lantern-core = { path = "crates/lantern-core", version = "0.2.0" }
+lantern-ui = { path = "crates/lantern-ui", version = "0.2.0" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
