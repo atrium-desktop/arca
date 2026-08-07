@@ -12,6 +12,7 @@ and contributor conventions, see [AGENTS.md](../../AGENTS.md).
 | Page | Topic |
 |------|-------|
 | [Optics migration](optics-migration.md) | Port from the legacy flux/flux-ui stack to the optics monorepo, workspace layout, binding mechanics, testing strategy, and known limitations |
+| [Cross-repository development](cross-repository-development.md) | Linked `lantern-dev` worktree on a local `dev` branch, Cargo `[patch]` against the sibling optics checkout, and the canonical tagged-release workflow |
 
 ## Documentation governance
 

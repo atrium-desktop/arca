@@ -52,13 +52,15 @@ immediate-mode UI · **iris** application toolkit).
 
 ## Building
 
-Lantern links against the optics C libraries via their official Rust
-bindings (path dependencies). Build optics once:
+Lantern links against the optics C libraries (iris / lens / flux) via their
+official Rust bindings, resolved from the tagged optics monorepo. Install
+the matching optics release once so `pkg-config` can find it:
 
 ```bash
 cd ../optics
 meson setup build
 meson compile -C build
+sudo meson install -C build
 ```
 
 Then build Lantern:
@@ -69,9 +71,10 @@ cargo build --release  # optimized
 cargo test             # unit + headless-UI tests
 ```
 
-The bindings auto-discover the `../optics` checkout and link the meson
-build tree; the produced binaries carry an rpath into it, so no
-`LD_LIBRARY_PATH` or `meson install` is needed.
+To develop against a live sibling `../optics` checkout instead (no install,
+local `[patch]` resolution), use the linked development worktree described
+in
+[docs/dev/cross-repository-development.md](docs/dev/cross-repository-development.md).
 
 ## Running
 
