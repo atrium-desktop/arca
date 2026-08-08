@@ -626,7 +626,9 @@ fn miller_header(frame: &mut Frame, tones: &Tones, path: &str, current: bool) {
         &LayoutOpts {
             height: 34.0,
             gap: 7.0,
-            pad: 5.0,
+            // 8 + 15 + 7 lands the title at the same inset as the rows'
+            // labels (pad 6 + icon 17 + gap 7).
+            pad: 8.0,
             cross: Align::Center,
             bg: if current { tones.selected } else { tones.card },
             radius: 6.0,
@@ -634,11 +636,16 @@ fn miller_header(frame: &mut Frame, tones: &Tones, path: &str, current: bool) {
         },
         |frame| {
             icons::icon(frame, ids::Folder, 15.0);
-            if current {
-                frame.heading(&name, 4);
+            // Compact labels: the padded label/heading carry theme padding
+            // that breaks row-inset alignment (and padded labels used to
+            // overflow fixed rows downward). The current column's header
+            // reads as a slightly larger title, same left edge as the rows.
+            let size = if current {
+                15.0
             } else {
-                frame.label(&name);
-            }
+                frame.theme().font_size()
+            };
+            frame.label_compact_sized(&name, size);
         },
     );
 }
