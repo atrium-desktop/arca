@@ -29,6 +29,7 @@ pub struct AppState {
     next_tab_id: u64,
     pub bookmarks: Vec<Bookmark>,
     pub show_hidden: bool,
+    pub show_thumbnails: bool,
     pub sort_key: SortKey,
     pub sort_ascending: bool,
     pub theme: ThemeMode,
@@ -94,6 +95,7 @@ impl AppState {
             next_tab_id: 2,
             bookmarks: Vec::new(),
             show_hidden: cfg.show_hidden,
+            show_thumbnails: cfg.show_thumbnails,
             sort_key: cfg.sort_key,
             sort_ascending: cfg.sort_ascending,
             theme: cfg.theme,
@@ -115,6 +117,7 @@ impl AppState {
             next_tab_id: 2,
             bookmarks: Vec::new(),
             show_hidden: cfg.show_hidden,
+            show_thumbnails: cfg.show_thumbnails,
             sort_key: cfg.sort_key,
             sort_ascending: cfg.sort_ascending,
             theme: cfg.theme,
@@ -328,6 +331,13 @@ impl AppState {
         }
         self.active_tab = active;
         self.rebuild_miller_columns();
+        self.save_config();
+    }
+
+    pub fn toggle_thumbnails(&mut self) {
+        self.show_thumbnails = !self.show_thumbnails;
+        let state = if self.show_thumbnails { "on" } else { "off" };
+        self.set_status(format!("Thumbnails {state}"));
         self.save_config();
     }
 
@@ -629,13 +639,12 @@ impl AppState {
         self.save_config();
     }
 
-    /// Cycle theme: System → Light → Dark → System.
-    pub fn cycle_theme(&mut self) {
-        self.theme = match self.theme {
-            ThemeMode::System => ThemeMode::Light,
-            ThemeMode::Light => ThemeMode::Dark,
-            ThemeMode::Dark => ThemeMode::System,
-        };
+    /// Set an explicit colour-scheme preference and persist it.
+    pub fn set_theme(&mut self, mode: ThemeMode) {
+        if self.theme == mode {
+            return;
+        }
+        self.theme = mode;
         self.save_config();
     }
 
@@ -651,7 +660,7 @@ impl AppState {
         self.tabs[self.active_tab].selected = selected;
     }
 
-    /// Persist the current settings (hidden/sort/theme/bookmarks).
+    /// Persist the current settings (hidden/thumbnails/sort/theme/bookmarks).
     pub fn save_config(&self) {
         let user_bookmarks = self
             .bookmarks
@@ -661,6 +670,7 @@ impl AppState {
             .collect();
         let cfg = Config {
             show_hidden: self.show_hidden,
+            show_thumbnails: self.show_thumbnails,
             sort_key: self.sort_key,
             sort_ascending: self.sort_ascending,
             theme: self.theme,
@@ -704,6 +714,23 @@ mod tests {
             dir.to_str().unwrap(),
         );
         (dir, state)
+    }
+
+    #[test]
+    fn set_theme_persists_choice() {
+        let (dir, mut s) = fixture();
+        assert_eq!(s.theme, ThemeMode::System);
+
+        s.set_theme(ThemeMode::Dark);
+        assert_eq!(s.theme, ThemeMode::Dark);
+        let saved = std::fs::read_to_string(dir.join("cfg").join("lantern.conf")).unwrap();
+        assert!(saved.contains("theme = dark"));
+
+        // Re-selecting the active mode is a no-op.
+        s.set_theme(ThemeMode::Dark);
+        assert_eq!(s.theme, ThemeMode::Dark);
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

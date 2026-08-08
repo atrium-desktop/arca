@@ -13,6 +13,66 @@ use crate::theme::{self, Tones};
 const GRID_CARD_WIDTH: f32 = 136.0;
 const GRID_CARD_HEIGHT: f32 = 120.0;
 
+/// Row pitches (row height + the parent column's gap) for the virtualized
+/// listings.
+const GRID_ROW_PITCH: f32 = GRID_CARD_HEIGHT + 10.0;
+const LIST_ROW_PITCH: f32 = 42.0 + 2.0;
+const MILLER_ROW_PITCH: f32 = 36.0 + 2.0;
+/// Extra rows built past each viewport edge so one-frame-stale geometry
+/// never flashes blank while scrolling.
+const OVERSCAN_ROWS: usize = 2;
+
+/// Row range intersecting the scroll viewport: the retained scroll offset
+/// plus the viewport height from last frame's bounds, plus overscan. Falls
+/// back to the first `fallback_rows` rows when no geometry exists yet
+/// (first frame).
+///
+/// lens's per-frame arena is 1 MiB and draw calls past the limit are dropped
+/// silently (blank icons and labels), so a large listing must only ever
+/// build the rows that are actually visible.
+fn visible_rows(
+    frame: &Frame,
+    scroll_id: &str,
+    row_count: usize,
+    pitch: f32,
+    fallback_rows: usize,
+) -> (usize, usize) {
+    if row_count == 0 {
+        return (0, 0);
+    }
+    // Same id scope as the scroll itself, so both queries resolve.
+    let offset = frame.scroll_offset(scroll_id).map(|(_, y)| y);
+    let viewport_h = frame.node_bounds(scroll_id).map(|rect| rect.h);
+    let (Some(offset), Some(viewport_h)) = (offset, viewport_h) else {
+        return (0, row_count.min(fallback_rows));
+    };
+    let first = ((offset / pitch).floor() as usize).saturating_sub(OVERSCAN_ROWS);
+    let last =
+        (((offset + viewport_h) / pitch).ceil() as usize + OVERSCAN_ROWS + 1).min(row_count);
+    if first >= last {
+        // Stale offset right after navigating away from a longer listing:
+        // anchor to the content end — lens clamps the offset during layout,
+        // so the next frame is consistent again.
+        return (row_count.saturating_sub(fallback_rows), row_count);
+    }
+    (first, last)
+}
+
+/// Height a spacer needs to stand in for `rows` elided rows: the rows plus
+/// their gaps, minus the one gap the spacer's own presence already adds.
+/// Never zero so the column's child count — and with it the total content
+/// height — stays constant.
+fn spacer_height(rows: usize, pitch: f32, gap: f32) -> f32 {
+    (rows as f32 * pitch - gap).max(0.001)
+}
+
+/// Fixed-height stand-in for a run of elided rows. The "##" id renders no
+/// text; the node only carries geometry.
+fn row_spacer(frame: &mut Frame, id: &str, height: f32) {
+    frame.size_next(0.0, height);
+    frame.label(id);
+}
+
 pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
     frame.flex(1.0);
     frame.column_ex(
@@ -31,7 +91,7 @@ pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 placeholder(
                     frame,
                     tones,
-                    ids::LENS_ICON_ALERT_CIRCLE,
+                    ids::AlertCircle,
                     "Cannot read this folder",
                     &error,
                 );
@@ -44,7 +104,7 @@ pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                     placeholder(
                         frame,
                         tones,
-                        ids::LENS_ICON_FOLDER,
+                        ids::Folder,
                         "This folder is empty",
                         "Drop files here or create a new folder",
                     );
@@ -52,7 +112,7 @@ pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                     placeholder(
                         frame,
                         tones,
-                        ids::LENS_ICON_SEARCH,
+                        ids::Search,
                         "No matching files",
                         "Try a broader search",
                     );
@@ -93,11 +153,15 @@ fn build_directory_heading(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 12.0,
                 tones.muted,
             );
-            frame.flex(1.0);
+            // The flex must only be staged when the sort links exist to
+            // consume it — in List mode they don't render, and a pending flex
+            // would leak into the next linked widget (the list header row),
+            // letting the column shrink it below its fixed height.
             if app.state.view_mode != ViewMode::List {
-                sort_link(app, frame, SortKey::Name, "Name");
-                sort_link(app, frame, SortKey::Size, "Size");
-                sort_link(app, frame, SortKey::Mtime, "Modified");
+                frame.flex(1.0);
+                sort_cell(app, frame, tones, SortKey::Name, "Name", 0.0);
+                sort_cell(app, frame, tones, SortKey::Size, "Size", 0.0);
+                sort_cell(app, frame, tones, SortKey::Mtime, "Modified", 0.0);
             }
         },
     );
@@ -105,6 +169,8 @@ fn build_directory_heading(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
 
 fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usize]) {
     let columns = app.grid_columns();
+    let row_count = visible.len().div_ceil(columns);
+    let fallback = (app.viewport.1 / GRID_ROW_PITCH).ceil() as usize + OVERSCAN_ROWS + 2;
     frame.flex(1.0);
     frame.scroll("grid-files", |frame| {
         frame.column_ex(
@@ -115,7 +181,12 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                 ..Default::default()
             },
             |frame| {
-                for (row, chunk) in visible.chunks(columns).enumerate() {
+                let (first, last) =
+                    visible_rows(frame, "grid-files", row_count, GRID_ROW_PITCH, fallback);
+                row_spacer(frame, "##grid-vtop", spacer_height(first, GRID_ROW_PITCH, 10.0));
+                for row in first..last {
+                    let start = row * columns;
+                    let chunk = &visible[start..(start + columns).min(visible.len())];
                     frame.push_id(&format!("grid-row-{row}"));
                     frame.row_ex(
                         &LayoutOpts {
@@ -132,6 +203,11 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                     );
                     frame.pop_id();
                 }
+                row_spacer(
+                    frame,
+                    "##grid-vbot",
+                    spacer_height(row_count - last, GRID_ROW_PITCH, 10.0),
+                );
             },
         );
     });
@@ -144,7 +220,12 @@ fn build_grid_card(
     entry_index: usize,
     visible_index: usize,
 ) {
-    let entry = app.state.entries()[entry_index].clone();
+    // A row handler earlier in this frame's build may have navigated and
+    // re-read the directory; the cloned `visible` list then holds stale
+    // indices. Skip such rows — the next frame is consistent again.
+    let Some(entry) = app.state.entries().get(entry_index).cloned() else {
+        return;
+    };
     let selected = app.state.selected() == Some(visible_index);
     let options = LayoutOpts {
         width: GRID_CARD_WIDTH,
@@ -164,7 +245,6 @@ fn build_grid_card(
     frame.push_id(&entry.name);
     if app.renaming.as_deref() == Some(entry.name.as_str()) {
         frame.column_ex(&options, |frame| {
-            frame.size_next(52.0, 52.0);
             icons::icon(frame, icons::entry_icon(&entry), 46.0);
             frame.size_next(0.0, 8.0);
             frame.spacer(8.0);
@@ -189,9 +269,8 @@ fn build_grid_card(
                     ..Default::default()
                 },
                 |frame| {
-                    frame.size_next(54.0, 54.0);
-                    icons::icon(frame, icons::entry_icon(&entry), 48.0);
-                    frame.label_wrapped_sized(&entry.name, 12.5, GRID_CARD_WIDTH - 22.0);
+                    card_art(app, frame, &entry, 48.0);
+                    theme::label_centered(frame, &entry.name, 12.5, GRID_CARD_WIDTH - 22.0, 2);
                 },
             );
         },
@@ -200,12 +279,13 @@ fn build_grid_card(
     if response.clicked {
         app.row_clicked(visible_index, &entry.name);
     } else if response.right_clicked {
-        app.row_right_clicked(frame, visible_index, response.rect);
+        app.row_right_clicked(visible_index, response.rect);
     }
 }
 
 fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usize]) {
-    build_list_header(app, frame, tones);
+    build_list_header(app, frame, tones, header_trailing_inset(app, visible.len()));
+    let fallback = (app.viewport.1 / LIST_ROW_PITCH).ceil() as usize + OVERSCAN_ROWS + 2;
     frame.flex(1.0);
     frame.scroll("list-files", |frame| {
         frame.column_ex(
@@ -216,20 +296,49 @@ fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                 ..Default::default()
             },
             |frame| {
-                for (visible_index, &entry_index) in visible.iter().enumerate() {
+                let (first, last) =
+                    visible_rows(frame, "list-files", visible.len(), LIST_ROW_PITCH, fallback);
+                row_spacer(frame, "##list-vtop", spacer_height(first, LIST_ROW_PITCH, 2.0));
+                for (visible_index, &entry_index) in
+                    visible.iter().enumerate().take(last).skip(first)
+                {
                     build_list_row(app, frame, tones, entry_index, visible_index);
                 }
+                row_spacer(
+                    frame,
+                    "##list-vbot",
+                    spacer_height(visible.len() - last, LIST_ROW_PITCH, 2.0),
+                );
             },
         );
     });
 }
 
-fn build_list_header(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
+/// Trailing inset the header needs so its right-hand columns line up with
+/// the scrolled rows: the scroll column pads content by 2 px, and the layout
+/// pass reserves a scrollbar-wide gutter once the rows overflow.
+fn header_trailing_inset(app: &UiApp, rows: usize) -> f32 {
+    const CHROME_H: f32 = 42.0 + 54.0 + 32.0; // tab strip + toolbar + status bar
+    let content_h = (app.viewport.1 - CHROME_H - 24.0).max(0.0); // content pad 12×2
+    let scroll_h = content_h - 40.0 - 32.0 - 16.0; // heading + header + two 8px gaps
+    let rows_h = rows as f32 * (42.0 + 2.0) - 2.0 + 4.0; // 42px rows, 2px gap, 2×2 pad
+    let gutter = if rows_h > scroll_h {
+        theme::SCROLLBAR_W
+    } else {
+        0.0
+    };
+    2.0 + gutter
+}
+
+fn build_list_header(app: &mut UiApp, frame: &mut Frame, tones: &Tones, trailing: f32) {
     frame.size_next(0.0, 32.0);
     frame.row_ex(
         &LayoutOpts {
             height: 32.0,
-            gap: 10.0,
+            // No container gap: every separation is an explicit spacer so the
+            // scroll-geometry insets (2 px scroll pad, scrollbar gutter) land
+            // exactly instead of being shifted by inter-child gaps.
+            gap: 0.0,
             pad: 7.0,
             cross: Align::Center,
             bg: tones.card,
@@ -237,14 +346,17 @@ fn build_list_header(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             ..Default::default()
         },
         |frame| {
-            frame.size_next(24.0, 16.0);
+            // 24 px icon slot + 2 px the scroll column pads its content with.
+            frame.size_next(26.0, 16.0);
             frame.label("");
+            frame.spacer(10.0);
             frame.flex(1.0);
-            sort_link(app, frame, SortKey::Name, "Name");
-            frame.size_next(86.0, 16.0);
-            sort_link(app, frame, SortKey::Size, "Size");
-            frame.size_next(124.0, 16.0);
-            sort_link(app, frame, SortKey::Mtime, "Modified");
+            sort_cell(app, frame, tones, SortKey::Name, "Name", 0.0);
+            frame.spacer(10.0);
+            sort_cell(app, frame, tones, SortKey::Size, "Size", 86.0);
+            frame.spacer(10.0);
+            sort_cell(app, frame, tones, SortKey::Mtime, "Modified", 124.0);
+            frame.spacer(trailing);
         },
     );
 }
@@ -256,7 +368,11 @@ fn build_list_row(
     entry_index: usize,
     visible_index: usize,
 ) {
-    let entry = app.state.entries()[entry_index].clone();
+    // See build_grid_card: indices from the cloned `visible` list may be
+    // stale after a mid-build navigation.
+    let Some(entry) = app.state.entries().get(entry_index).cloned() else {
+        return;
+    };
     let size = if entry.file_type == FileType::Directory {
         "—".into()
     } else {
@@ -294,7 +410,8 @@ fn build_list_row(
     let (response, ()) = frame.pressable_row(&entry.name, &entry.name, &options, |frame, _| {
         row_icon(frame, &entry);
         frame.flex(1.0);
-        frame.label(&entry.name);
+        let font_size = frame.theme().font_size();
+        frame.label_compact_sized(&entry.name, font_size);
         metadata_label(frame, tones, &size, 86.0);
         metadata_label(frame, tones, &modified, 124.0);
     });
@@ -302,7 +419,7 @@ fn build_list_row(
     if response.clicked {
         app.row_clicked(visible_index, &entry.name);
     } else if response.right_clicked {
-        app.row_right_clicked(frame, visible_index, response.rect);
+        app.row_right_clicked(visible_index, response.rect);
     }
 }
 
@@ -353,6 +470,8 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             miller_header(frame, tones, &column.path, current);
                             frame.flex(1.0);
                             let scroll_id = format!("miller-list-{column_index}");
+                            let fallback =
+                                (column_height / MILLER_ROW_PITCH).ceil() as usize + OVERSCAN_ROWS + 2;
                             frame.scroll(&scroll_id, |frame| {
                                 frame.column_ex(
                                     &LayoutOpts {
@@ -361,9 +480,29 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                         ..Default::default()
                                     },
                                     |frame| {
+                                        let entry_count = if current {
+                                            visible.len()
+                                        } else {
+                                            column.entries.len()
+                                        };
+                                        let (first, last) = visible_rows(
+                                            frame,
+                                            &scroll_id,
+                                            entry_count,
+                                            MILLER_ROW_PITCH,
+                                            fallback,
+                                        );
+                                        row_spacer(
+                                            frame,
+                                            "##miller-vtop",
+                                            spacer_height(first, MILLER_ROW_PITCH, 2.0),
+                                        );
                                         if current {
-                                            for (visible_index, &entry_index) in
-                                                visible.iter().enumerate()
+                                            for (visible_index, &entry_index) in visible
+                                                .iter()
+                                                .enumerate()
+                                                .take(last)
+                                                .skip(first)
                                             {
                                                 if let Some(entry) = column.entries.get(entry_index)
                                                 {
@@ -380,8 +519,12 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                                 }
                                             }
                                         } else {
-                                            for (entry_index, entry) in
-                                                column.entries.iter().enumerate()
+                                            for (entry_index, entry) in column
+                                                .entries
+                                                .iter()
+                                                .enumerate()
+                                                .take(last)
+                                                .skip(first)
                                             {
                                                 miller_row(
                                                     app,
@@ -395,6 +538,15 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                                 );
                                             }
                                         }
+                                        row_spacer(
+                                            frame,
+                                            "##miller-vbot",
+                                            spacer_height(
+                                                entry_count - last,
+                                                MILLER_ROW_PITCH,
+                                                2.0,
+                                            ),
+                                        );
                                     },
                                 );
                             });
@@ -444,13 +596,12 @@ fn miller_row(
         &entry.name,
         &options,
         |frame, _| {
-            frame.size_next(20.0, 20.0);
             icons::icon(frame, icons::entry_icon(entry), 17.0);
             frame.flex(1.0);
-            frame.label(&entry.name);
+            let font_size = frame.theme().font_size();
+            frame.label_compact_sized(&entry.name, font_size);
             if entry.navigable {
-                frame.size_next(15.0, 15.0);
-                icons::icon(frame, ids::LENS_ICON_CHEVRON_RIGHT, 13.0);
+                icons::icon(frame, ids::ChevronRight, 13.0);
             }
         },
     );
@@ -459,7 +610,7 @@ fn miller_row(
         app.miller_clicked(directory, &entry.name);
     } else if response.right_clicked && current {
         if let Some(index) = visible_index {
-            app.row_right_clicked(frame, index, response.rect);
+            app.row_right_clicked(index, response.rect);
         }
     }
 }
@@ -482,7 +633,7 @@ fn miller_header(frame: &mut Frame, tones: &Tones, path: &str, current: bool) {
             ..Default::default()
         },
         |frame| {
-            icons::icon(frame, ids::LENS_ICON_FOLDER, 15.0);
+            icons::icon(frame, ids::Folder, 15.0);
             if current {
                 frame.heading(&name, 4);
             } else {
@@ -493,8 +644,39 @@ fn miller_header(frame: &mut Frame, tones: &Tones, path: &str, current: bool) {
 }
 
 fn row_icon(frame: &mut Frame, entry: &Entry) {
-    frame.size_next(24.0, 24.0);
     icons::icon(frame, icons::entry_icon(entry), 19.0);
+}
+
+/// Grid-card artwork: the entry's decoded thumbnail (album cover, image
+/// file) fitted into a `size` square, or the type glyph while it decodes.
+/// Only built — i.e. visible — cards ever reach here, so requests stay lazy.
+fn card_art(app: &mut UiApp, frame: &mut Frame, entry: &Entry, size: f32) {
+    if app.state.show_thumbnails && crate::thumbs::is_thumbable(&entry.name) {
+        let path = std::path::Path::new(app.state.cwd())
+            .join(&entry.name)
+            .to_string_lossy()
+            .into_owned();
+        if let Some(image) = app.thumbs.image_for(&path) {
+            // SAFETY: the frame is live; the store owns the image and it
+            // outlives the frame. Dimensions of an uploaded image are valid.
+            let (w, h) = unsafe {
+                (
+                    lens_sys::flux_image_width(image),
+                    lens_sys::flux_image_height(image),
+                )
+            };
+            let (dw, dh) = if w >= h {
+                (size, size * h as f32 / w.max(1) as f32)
+            } else {
+                (size * w as f32 / h.max(1) as f32, size)
+            };
+            frame.size_next(dw, dh);
+            // SAFETY: as above.
+            unsafe { lens_sys::lens_image(frame.as_raw(), image, dw, dh) };
+            return;
+        }
+    }
+    icons::icon(frame, icons::entry_icon(entry), size);
 }
 
 fn metadata_label(frame: &mut Frame, tones: &Tones, text: &str, width: f32) {
@@ -502,17 +684,52 @@ fn metadata_label(frame: &mut Frame, tones: &Tones, text: &str, width: f32) {
     theme::label_colored_sized(frame, text, 12.0, tones.muted);
 }
 
-fn sort_link(app: &mut UiApp, frame: &mut Frame, key: SortKey, label: &str) {
-    let marker = if app.state.sort_key == key {
-        if app.state.sort_ascending {
-            " ↑"
-        } else {
-            " ↓"
-        }
-    } else {
-        ""
+/// Clickable column-sort cell: compact label plus a chevron glyph for the
+/// active direction. A pressable row (neutral hover wash) rather than a text
+/// link — the link widget's animated accent underline read as a stray bar
+/// under the header. `width` pins the cell (list columns); 0 leaves it at
+/// its natural width (heading row).
+fn sort_cell(
+    app: &mut UiApp,
+    frame: &mut Frame,
+    tones: &Tones,
+    key: SortKey,
+    label: &str,
+    width: f32,
+) {
+    let active = app.state.sort_key == key;
+    let ascending = app.state.sort_ascending;
+    let options = LayoutOpts {
+        width,
+        height: 22.0,
+        gap: 4.0,
+        pad: 0.0,
+        cross: Align::Center,
+        radius: 6.0,
+        ..Default::default()
     };
-    if frame.link(&format!("{label}{marker}")) {
+    let (response, ()) = frame.pressable_row(
+        &format!("sort-{label}"),
+        label,
+        &options,
+        |frame, _| {
+            let fg = if active {
+                frame.theme().fg()
+            } else {
+                tones.muted
+            };
+            theme::label_colored_sized(frame, label, 12.0, fg);
+            if active {
+                let icon = if ascending {
+                    ids::ChevronUp
+                } else {
+                    ids::ChevronDown
+                };
+                icons::icon(frame, icon, 12.0);
+            }
+        },
+    );
+    if response.clicked {
         app.state.toggle_sort(key);
     }
 }
@@ -526,7 +743,7 @@ fn capture_rename(app: &mut UiApp, frame: &mut Frame) {
 fn placeholder(
     frame: &mut Frame,
     tones: &Tones,
-    icon: icons::IconId,
+    icon: icons::AssetId,
     headline: &str,
     detail: &str,
 ) {
@@ -534,20 +751,20 @@ fn placeholder(
     frame.column_ex(
         &LayoutOpts {
             flex: 1.0,
-            gap: 10.0,
+            gap: 14.0,
             pad: 40.0,
             cross: Align::Center,
             ..Default::default()
         },
         |frame| {
-            frame.size_next(74.0, 74.0);
+            frame.size_next(64.0, 64.0);
             frame.column_ex(
                 &LayoutOpts {
-                    width: 74.0,
-                    height: 74.0,
+                    width: 64.0,
+                    height: 64.0,
                     cross: Align::Center,
                     bg: tones.card,
-                    radius: 18.0,
+                    radius: 16.0,
                     ..Default::default()
                 },
                 |frame| icons::icon(frame, icon, 34.0),

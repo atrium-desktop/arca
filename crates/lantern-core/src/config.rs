@@ -72,6 +72,7 @@ impl ThemeMode {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub show_hidden: bool,
+    pub show_thumbnails: bool,
     pub sort_key: SortKey,
     pub sort_ascending: bool,
     pub theme: ThemeMode,
@@ -84,6 +85,7 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             show_hidden: false,
+            show_thumbnails: true,
             sort_key: SortKey::Name,
             sort_ascending: true,
             theme: ThemeMode::System,
@@ -135,6 +137,7 @@ impl Config {
             let value = value.trim();
             match key {
                 "show_hidden" => self.show_hidden = value == "true",
+                "show_thumbnails" => self.show_thumbnails = value == "true",
                 "sort" => {
                     if let Some(k) = SortKey::parse(value) {
                         self.sort_key = k;
@@ -154,6 +157,7 @@ impl Config {
     fn to_str(&self) -> String {
         let mut out = String::from("# Lantern configuration\n");
         out.push_str(&format!("show_hidden = {}\n", self.show_hidden));
+        out.push_str(&format!("show_thumbnails = {}\n", self.show_thumbnails));
         out.push_str(&format!("sort = {}\n", self.sort_key.as_str()));
         out.push_str(&format!("sort_ascending = {}\n", self.sort_ascending));
         out.push_str(&format!("theme = {}\n", self.theme.as_str()));
@@ -185,6 +189,7 @@ mod tests {
     fn defaults_are_sane() {
         let cfg = Config::default();
         assert!(!cfg.show_hidden);
+        assert!(cfg.show_thumbnails);
         assert_eq!(cfg.sort_key, SortKey::Name);
         assert!(cfg.sort_ascending);
         assert_eq!(cfg.theme, ThemeMode::System);
@@ -197,6 +202,7 @@ mod tests {
         let file = temp_file();
         let cfg = Config {
             show_hidden: true,
+            show_thumbnails: false,
             sort_key: SortKey::Mtime,
             sort_ascending: false,
             theme: ThemeMode::Dark,
@@ -206,6 +212,7 @@ mod tests {
         save(&file, &cfg).unwrap();
         let back = load(&file);
         assert!(back.show_hidden);
+        assert!(!back.show_thumbnails);
         assert_eq!(back.sort_key, SortKey::Mtime);
         assert!(!back.sort_ascending);
         assert_eq!(back.theme, ThemeMode::Dark);

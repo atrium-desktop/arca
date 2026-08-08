@@ -9,9 +9,11 @@ use lantern_core::state::AppState;
 use crate::menus;
 use crate::preview::PreviewOverlay;
 use crate::theme::{self, Tones};
+use crate::thumbs::ThumbStore;
 use crate::{content, preview, sidebar, statusbar, tabs, toolbar};
 
 pub(crate) const CTX_MENU_ID: &str = "lantern-ctx";
+pub(crate) const SETTINGS_MENU_ID: &str = "lantern-settings";
 const DOUBLE_CLICK_MS: u128 = 400;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -23,6 +25,10 @@ pub(crate) enum FocusTarget {
 
 pub(crate) struct CtxMenu {
     pub anchor: Rect,
+    /// Overlay ids hash per id-scope, so the open/begin/close calls must all
+    /// happen in the menu-building scope — a trigger deep in the widget tree
+    /// only records state here, and the builder performs the first open.
+    pub opened: bool,
 }
 
 pub struct UiApp {
@@ -47,8 +53,10 @@ pub struct UiApp {
     pending_focus: Option<FocusTarget>,
     pub(crate) last_click: Option<(usize, Instant)>,
     pub(crate) ctx_menu: Option<CtxMenu>,
+    pub(crate) settings_menu: Option<CtxMenu>,
     pub(crate) viewport: (f32, f32),
     pub(crate) miller_seeded_for: Option<String>,
+    pub(crate) thumbs: ThumbStore,
     observed_tab_id: u64,
     preview: PreviewOverlay,
 }
@@ -76,8 +84,10 @@ impl UiApp {
             pending_focus: None,
             last_click: None,
             ctx_menu: None,
+            settings_menu: None,
             viewport: (1040.0, 700.0),
             miller_seeded_for: None,
+            thumbs: ThumbStore::new(),
             observed_tab_id,
             preview: PreviewOverlay::new(),
         }
@@ -89,6 +99,9 @@ impl UiApp {
         self.apply_theme(frame);
         self.handle_keys(frame, input);
         self.sync_active_tab();
+        self.thumbs.sync_cwd(self.state.cwd());
+        self.thumbs.set_enabled(self.state.show_thumbnails);
+        self.thumbs.drain_uploads();
 
         let tones = Tones::from_theme(&frame.theme());
         frame.size_next(display.x, display.y);
@@ -114,9 +127,10 @@ impl UiApp {
             },
         );
 
-        menus::build_ctx_menu(self, frame, input, &tones);
+        menus::build_ctx_menu(self, frame, &tones);
+        menus::build_settings_menu(self, frame, &tones);
         self.preview.sync_selection(&self.state);
-        preview::build_preview(&mut self.preview, frame, input, &tones);
+        preview::build_preview(&mut self.preview, &mut self.thumbs, frame, input, &tones);
         self.finish_frame(frame);
     }
 
@@ -166,6 +180,7 @@ impl UiApp {
         self.pending_focus = None;
         self.last_click = None;
         self.ctx_menu = None;
+        self.settings_menu = None;
         self.miller_seeded_for = None;
         self.preview.reset();
     }
@@ -188,6 +203,12 @@ impl UiApp {
 
     pub(crate) fn close_active_tab(&mut self) {
         if self.state.close_active_tab() {
+            self.sync_active_tab();
+        }
+    }
+
+    pub(crate) fn close_tab(&mut self, index: usize) {
+        if self.state.close_tab(index) {
             self.sync_active_tab();
         }
     }
@@ -250,15 +271,22 @@ impl UiApp {
         self.state.select_visible(visible_idx);
     }
 
-    pub(crate) fn row_right_clicked(
-        &mut self,
-        frame: &mut Frame,
-        visible_idx: usize,
-        anchor: Rect,
-    ) {
+    pub(crate) fn row_right_clicked(&mut self, visible_idx: usize, anchor: Rect) {
         self.state.select_visible(visible_idx);
-        self.ctx_menu = Some(CtxMenu { anchor });
-        frame.overlay_open(CTX_MENU_ID);
+        self.ctx_menu = Some(CtxMenu {
+            anchor,
+            opened: false,
+        });
+    }
+
+    pub(crate) fn toggle_settings_menu(&mut self, anchor: Rect) {
+        self.settings_menu = match self.settings_menu.take() {
+            Some(_) => None,
+            None => Some(CtxMenu {
+                anchor,
+                opened: false,
+            }),
+        };
     }
 
     pub(crate) fn miller_clicked(&mut self, directory: &str, name: &str) {

@@ -1,6 +1,6 @@
 //! Animated Space-bar Quick Look overlay.
 
-use iris::{Align, Color, Frame, Input, LayoutOpts, OverlayOpts, Rect};
+use iris::{Align, Frame, Input, LayoutOpts, OverlayOpts, Rect};
 use lantern_core::{AppState, Preview, PreviewKind};
 
 use crate::icons::{self, ids};
@@ -79,6 +79,7 @@ impl PreviewOverlay {
 
 pub(crate) fn build_preview(
     preview: &mut PreviewOverlay,
+    thumbs: &mut crate::thumbs::ThumbStore,
     frame: &mut Frame,
     input: &Input,
     tones: &Tones,
@@ -102,6 +103,7 @@ pub(crate) fn build_preview(
     let x = (display.x - width) * 0.5;
     let y = (display.y - height) * 0.5 + (1.0 - ease) * 28.0;
 
+    let scrim_alpha = tones.scrim.components().3;
     frame.layer(
         "preview-backdrop",
         Rect {
@@ -111,7 +113,9 @@ pub(crate) fn build_preview(
             h: display.y,
         },
         &OverlayOpts {
-            bg: Color::rgba(3, 7, 14, (112.0 * ease) as u8),
+            bg: tones
+                .scrim
+                .with_alpha((scrim_alpha as f32 * ease).round() as u8),
             ..Default::default()
         },
         |_| {},
@@ -132,7 +136,7 @@ pub(crate) fn build_preview(
             bg: tones.elevated,
             border: frame.theme().border(),
             border_width: 1.0,
-            radius: 16.0,
+            radius: 18.0,
             min_width: width,
         },
         |frame| {
@@ -147,7 +151,7 @@ pub(crate) fn build_preview(
                 |frame| {
                     build_header(preview, frame, tones, &data);
                     frame.flex(1.0);
-                    build_body(frame, tones, &data, width, height - 132.0);
+                    build_body(thumbs, frame, tones, &data, width, height - 132.0);
                     build_footer(frame, tones, &data);
                 },
             );
@@ -167,7 +171,6 @@ fn build_header(preview: &mut PreviewOverlay, frame: &mut Frame, tones: &Tones, 
             ..Default::default()
         },
         |frame| {
-            frame.size_next(34.0, 34.0);
             icons::icon(frame, preview_icon(data.kind), 30.0);
             frame.flex(1.0);
             frame.column_ex(
@@ -180,15 +183,21 @@ fn build_header(preview: &mut PreviewOverlay, frame: &mut Frame, tones: &Tones, 
                     theme::label_colored_sized(frame, &data.subtitle, 12.0, tones.muted);
                 },
             );
-            frame.size_next(32.0, 32.0);
-            if icons::icon_button(frame, ids::LENS_ICON_X) {
+            if icons::icon_button(frame, ids::X, 32.0) {
                 preview.close();
             }
         },
     );
 }
 
-fn build_body(frame: &mut Frame, tones: &Tones, data: &Preview, width: f32, height: f32) {
+fn build_body(
+    thumbs: &mut crate::thumbs::ThumbStore,
+    frame: &mut Frame,
+    tones: &Tones,
+    data: &Preview,
+    width: f32,
+    height: f32,
+) {
     let facts_width = 190.0;
     frame.size_next(width, height);
     frame.row_ex(
@@ -240,7 +249,34 @@ fn build_body(frame: &mut Frame, tones: &Tones, data: &Preview, width: f32, heig
                                 ..Default::default()
                             },
                             |frame| {
-                                icons::icon(frame, preview_icon(data.kind), 92.0);
+                                // Album cover / the picture itself when the
+                                // thumbnail store has it decoded; the kind
+                                // glyph otherwise.
+                                let art = matches!(data.kind, PreviewKind::Audio | PreviewKind::Image)
+                                    .then(|| thumbs.image_for(&data.path))
+                                    .flatten();
+                                match art {
+                                    Some(image) => {
+                                        let max_w = (width - facts_width - 72.0).max(120.0);
+                                        let max_h = (height - 56.0).max(120.0);
+                                        // SAFETY: the frame is live; the store
+                                        // owns the image.
+                                        let (w, h) = unsafe {
+                                            (
+                                                lens_sys::flux_image_width(image),
+                                                lens_sys::flux_image_height(image),
+                                            )
+                                        };
+                                        let scale = (max_w / w.max(1) as f32)
+                                            .min(max_h / h.max(1) as f32)
+                                            .min(2.0);
+                                        let (dw, dh) = (w as f32 * scale, h as f32 * scale);
+                                        frame.size_next(dw, dh);
+                                        // SAFETY: as above.
+                                        unsafe { lens_sys::lens_image(frame.as_raw(), image, dw, dh) };
+                                    }
+                                    None => icons::icon(frame, preview_icon(data.kind), 92.0),
+                                }
                                 theme::label_colored(frame, &data.subtitle, tones.muted);
                             },
                         );
@@ -299,14 +335,14 @@ fn build_footer(frame: &mut Frame, tones: &Tones, data: &Preview) {
     );
 }
 
-fn preview_icon(kind: PreviewKind) -> icons::IconId {
+fn preview_icon(kind: PreviewKind) -> icons::AssetId {
     match kind {
-        PreviewKind::Directory => ids::LENS_ICON_FOLDER,
-        PreviewKind::Text => ids::LENS_ICON_FILE_TEXT,
-        PreviewKind::Image => ids::LENS_ICON_IMAGE,
-        PreviewKind::Audio => ids::LENS_ICON_MUSIC,
-        PreviewKind::Video => ids::LENS_ICON_FILM,
-        PreviewKind::Archive => ids::LENS_ICON_ARCHIVE,
-        PreviewKind::Generic => ids::LENS_ICON_FILE,
+        PreviewKind::Directory => ids::Folder,
+        PreviewKind::Text => ids::FileText,
+        PreviewKind::Image => ids::Image,
+        PreviewKind::Audio => ids::Music,
+        PreviewKind::Video => ids::Film,
+        PreviewKind::Archive => ids::Archive,
+        PreviewKind::Generic => ids::File,
     }
 }

@@ -1,6 +1,9 @@
 # Lantern
 
-A fast file manager for Wayland, built on the
+A fast file manager for Wayland. Lantern is a companion application for the
+[aegis](../aegis-dev) desktop — its visual language follows the
+[aegis design system](../aegis-dev/docs/dev/design) — but it runs standalone
+on any Wayland compositor. It is built on the
 [optics](../optics) graphics/UI stack (**flux** Vulkan renderer · **lens**
 immediate-mode UI · **iris** application toolkit).
 
@@ -11,19 +14,23 @@ immediate-mode UI · **iris** application toolkit).
 - **Navigation** — back/forward/up history, editable location bar (`Ctrl+L`),
   one-click bookmarks (Home, XDG user dirs, your own pins)
 - **Three views** — an icon grid, a detailed sortable list, and responsive
-  Miller columns that keep the active path in view
+  Miller columns that keep the active path in view; large folders stay
+  fluid thanks to virtualized rows
+- **Thumbnails** — album covers (FLAC/MP3) and images appear in the grid and
+  in Quick Look, decoded off-thread and cached on disk; toggle in settings
 - **Tabs** — independent location, history, selection, and filter state in
   every tab (`Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`)
 - **Quick Look** — press `Space` for an animated preview with bounded text,
   directory, file, and image-metadata inspection
-- **Listing tools** — file-type icons, sort by name / size / modified, live
-  filter (`Ctrl+F`), hidden-file toggle (`Ctrl+H`)
+- **Listing tools** — sort by name / size / modified, live filter
+  (`Ctrl+F`), hidden-file toggle (`Ctrl+H`); icons come from Lantern's own
+  SVG set (`assets/icons/`), registered with lens at runtime
 - **File operations** — open with default app (double-click / `Enter`),
   new folder (`Ctrl+Shift+N`), rename (`Ctrl+E`), move to trash (`Del`,
   freedesktop-compliant, restorable), copy / cut / paste (`Ctrl+C/X/V`),
   right-click context menu
-- **Theme** — follows the system light/dark preference live; the sidebar
-  cycles System → Light → Dark
+- **Theme** — follows the system light/dark preference live; the toolbar
+  settings button opens a System / Light / Dark picker
 - **Persistent** — view mode, hidden-files flag, sort order, theme and bookmarks
   are remembered in `~/.config/lantern/lantern.conf`
 
@@ -99,6 +106,7 @@ sort = name
 sort_ascending = true
 theme = system          # system | light | dark
 view = list             # grid | list | miller
+show_thumbnails = true
 bookmark = /home/you/projects
 ```
 

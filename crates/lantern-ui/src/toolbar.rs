@@ -1,6 +1,6 @@
 //! Primary command bar: navigation, location/search and view controls.
 
-use iris::{Align, Frame, LayoutOpts};
+use iris::{Align, Frame, LayoutOpts, Rect};
 use lantern_core::ViewMode;
 
 use crate::app::UiApp;
@@ -19,20 +19,16 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             ..Default::default()
         },
         |frame| {
-            frame.size_next(32.0, 32.0);
-            if icons::icon_button(frame, ids::LENS_ICON_ARROW_LEFT) {
+            if icons::icon_button(frame, ids::ArrowLeft, 32.0) {
                 app.state.go_back();
             }
-            frame.size_next(32.0, 32.0);
-            if icons::icon_button(frame, ids::LENS_ICON_ARROW_RIGHT) {
+            if icons::icon_button(frame, ids::ArrowRight, 32.0) {
                 app.state.go_forward();
             }
-            frame.size_next(32.0, 32.0);
-            if icons::icon_button(frame, ids::LENS_ICON_ARROW_UP) {
+            if icons::icon_button(frame, ids::ArrowUp, 32.0) {
                 app.state.go_up();
             }
-            frame.size_next(32.0, 32.0);
-            if icons::icon_button(frame, ids::LENS_ICON_REFRESH_CW) {
+            if icons::icon_button(frame, ids::RefreshCw, 32.0) {
                 app.state.refresh();
             }
 
@@ -45,8 +41,7 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                     app.location.set(&cwd);
                 }
             }
-            frame.size_next(18.0, 18.0);
-            icons::icon(frame, ids::LENS_ICON_FOLDER, 15.0);
+            icons::icon(frame, ids::Folder, 16.0);
             frame.flex(1.0);
             frame.textfield("##location", &mut app.location);
             capture(frame, &mut app.location_id, &mut app.location_focused_now);
@@ -54,10 +49,10 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             frame.size_next(7.0, 0.0);
             frame.spacer(7.0);
 
-            frame.size_next(18.0, 18.0);
-            icons::icon(frame, ids::LENS_ICON_SEARCH, 15.0);
+            icons::icon(frame, ids::Search, 16.0);
             frame.size_next(150.0, 0.0);
-            let changed = frame.textfield("##filter", &mut app.filter);
+            let changed =
+                frame.textfield_placeholder("##filter", &mut app.filter, "Filter");
             capture(frame, &mut app.filter_id, &mut app.filter_focused_now);
             if changed {
                 app.state.set_filter(app.filter.as_str().into_owned());
@@ -68,43 +63,54 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             frame.size_next(8.0, 0.0);
             frame.spacer(8.0);
 
-            view_button(app, frame, ViewMode::Grid, ids::LENS_ICON_GRID);
-            view_button(app, frame, ViewMode::List, ids::LENS_ICON_LIST);
-            view_button(app, frame, ViewMode::Miller, ids::LENS_ICON_COLUMNS);
+            view_button(app, frame, ViewMode::Grid, ids::Grid);
+            view_button(app, frame, ViewMode::List, ids::List);
+            view_button(app, frame, ViewMode::Miller, ids::Columns);
 
             frame.size_next(6.0, 0.0);
             frame.spacer(6.0);
 
-            frame.size_next(32.0, 32.0);
             if icons::icon_toggle_button(
                 frame,
-                ids::LENS_ICON_EYE_OFF,
-                ids::LENS_ICON_EYE,
-                16.0,
+                ids::EyeOff,
+                ids::Eye,
+                32.0,
                 app.state.show_hidden,
             ) {
                 app.state.toggle_hidden();
             }
 
-            frame.size_next(32.0, 32.0);
             let cwd = app.state.cwd().to_string();
             let bookmarked = app.state.is_bookmarked(&cwd);
             if icons::icon_toggle_button(
                 frame,
-                ids::LENS_ICON_STAR_ROUNDED,
-                ids::LENS_ICON_STAR_ROUNDED_FILLED,
-                16.0,
+                ids::StarRounded,
+                ids::StarRoundedFilled,
+                32.0,
                 bookmarked,
             ) {
                 app.state.toggle_bookmark(&cwd);
+            }
+
+            frame.size_next(6.0, 0.0);
+            frame.spacer(6.0);
+
+            if icons::icon_button(frame, ids::Settings, 32.0) {
+                let r = unsafe { lens_sys::lens_get_response(frame.as_raw()) };
+                let anchor = Rect {
+                    x: r.rect.x,
+                    y: r.rect.y,
+                    w: r.rect.w,
+                    h: r.rect.h,
+                };
+                app.toggle_settings_menu(anchor);
             }
         },
     );
 }
 
-fn view_button(app: &mut UiApp, frame: &mut Frame, mode: ViewMode, icon: icons::IconId) {
-    frame.size_next(32.0, 32.0);
-    if icons::icon_button_active(frame, icon, app.state.view_mode == mode) {
+fn view_button(app: &mut UiApp, frame: &mut Frame, mode: ViewMode, icon: icons::AssetId) {
+    if icons::icon_button_active_rounded(frame, icon, 32.0, app.state.view_mode == mode) {
         app.state.set_view_mode(mode);
     }
 }

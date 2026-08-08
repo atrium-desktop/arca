@@ -15,6 +15,7 @@ pub mod ops;
 pub mod path;
 pub mod preview;
 pub mod state;
+pub mod thumbs;
 pub mod trash;
 
 pub use bookmarks::{Bookmark, BookmarkKind};
@@ -22,3 +23,4 @@ pub use config::{Config, ThemeMode, ViewMode};
 pub use entry::{Entry, FileType, SortKey};
 pub use preview::{Preview, PreviewKind};
 pub use state::{AppState, Clipboard, MillerColumn, TabState};
+pub use thumbs::{Thumb, ThumbService};
