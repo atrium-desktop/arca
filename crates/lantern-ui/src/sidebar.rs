@@ -42,17 +42,17 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 frame.pop_id();
             }
 
-            let pinned = bookmarks
+            let user_bookmarks = bookmarks
                 .iter()
                 .enumerate()
                 .filter(|(_, bookmark)| bookmark.kind == BookmarkKind::Folder)
                 .collect::<Vec<_>>();
-            if !pinned.is_empty() {
+            if !user_bookmarks.is_empty() {
                 frame.size_next(0.0, 12.0);
                 frame.spacer(12.0);
-                section_label(frame, tones, "PINNED");
-                for (index, bookmark) in pinned {
-                    frame.push_id(&format!("pinned-{index}"));
+                section_label(frame, tones, "BOOKMARKS");
+                for (index, bookmark) in user_bookmarks {
+                    frame.push_id(&format!("bookmark-{index}"));
                     let _ = icons::selectable_icon(
                         frame,
                         ids::Folder,

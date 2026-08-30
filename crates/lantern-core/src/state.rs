@@ -629,7 +629,7 @@ impl AppState {
         self.bookmarks.iter().any(|b| b.path == path)
     }
 
-    /// Pin/unpin a path as a user bookmark. Fixed bookmarks (home, XDG
+    /// Add or remove a path as a user bookmark. Fixed bookmarks (home, XDG
     /// dirs) cannot be removed.
     pub fn toggle_bookmark(&mut self, path: &str) {
         let path = path::normalize(path);
@@ -640,7 +640,7 @@ impl AppState {
             }
         } else {
             self.bookmarks.push(Bookmark::for_path(&path));
-            self.set_status(format!("Bookmarked {path}"));
+            self.set_status(format!("Added bookmark {path}"));
         }
         let home = path::home_dir();
         let _ = bookmarks::save_gtk_bookmarks_file(&home, &self.bookmarks);

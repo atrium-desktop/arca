@@ -80,13 +80,13 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
                 app.new_tab_at(path);
                 keep_open = false;
             }
-            let is_pinned = app.state.is_bookmarked(path);
-            let pin_label = if is_pinned {
-                "Unpin from Sidebar"
+            let is_bookmarked = app.state.is_bookmarked(path);
+            let bookmark_label = if is_bookmarked {
+                "Remove from Bookmarks"
             } else {
-                "Pin to Sidebar"
+                "Add to Bookmarks"
             };
-            if f.selectable(pin_label, false) {
+            if f.selectable(bookmark_label, false) {
                 app.state.toggle_bookmark(path);
                 keep_open = false;
             }
@@ -119,7 +119,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
     }
 }
 
-/// Context menu for items in the places / pinned sidebar.
+/// Context menu for items in the places / bookmarks sidebar.
 pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
     let Some(mut menu) = app.sidebar_menu.take() else {
         return;
@@ -141,7 +141,7 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) 
         }
         if menu.is_folder {
             f.separator();
-            if f.selectable("Unpin from Sidebar", false) {
+            if f.selectable("Remove from Bookmarks", false) {
                 app.state.toggle_bookmark(&menu.path);
                 keep_open = false;
             }

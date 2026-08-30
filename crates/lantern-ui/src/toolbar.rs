@@ -80,18 +80,6 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 app.state.toggle_hidden();
             }
 
-            let cwd = app.state.cwd().to_string();
-            let bookmarked = app.state.is_bookmarked(&cwd);
-            if icons::icon_toggle_button(
-                frame,
-                ids::StarRounded,
-                ids::StarRoundedFilled,
-                32.0,
-                bookmarked,
-            ) {
-                app.state.toggle_bookmark(&cwd);
-            }
-
             frame.size_next(6.0, 0.0);
             frame.spacer(6.0);
 

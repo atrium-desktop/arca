@@ -376,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn context_menu_and_sidebar_pin_unpin_flow() {
+    fn context_menu_and_sidebar_bookmark_flow() {
         let (dir, mut app) = fixture();
         let sub_dir = dir.join("subfolder");
         std::fs::create_dir(&sub_dir).unwrap();
@@ -386,17 +386,17 @@ mod tests {
         let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input);
 
-        // Pin the subfolder
+        // Add subfolder to bookmarks
         let sub_path = sub_dir.to_str().unwrap();
         assert!(!app.state.is_bookmarked(sub_path));
         app.state.toggle_bookmark(sub_path);
         assert!(app.state.is_bookmarked(sub_path));
 
-        // Rebuild frames with pinned bookmark visible
+        // Rebuild frames with bookmark visible
         frame(&mut app, &mut ui, &input);
         assert!(app.state.bookmarks.iter().any(|b| b.path == sub_path));
 
-        // Unpin
+        // Remove from bookmarks
         app.state.toggle_bookmark(sub_path);
         assert!(!app.state.is_bookmarked(sub_path));
 
