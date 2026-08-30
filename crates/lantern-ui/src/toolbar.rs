@@ -44,6 +44,7 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             }
             icons::icon(frame, ids::Folder, 16.0);
             frame.flex(1.0);
+            frame.size_next(0.0, 32.0);
             frame.textfield("##location", &mut app.location);
             capture(frame, &mut app.location_id, &mut app.location_focused_now);
 
@@ -51,7 +52,7 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             frame.spacer(6.0);
 
             icons::icon(frame, ids::Search, 16.0);
-            frame.size_next(180.0, 0.0);
+            frame.size_next(180.0, 32.0);
             let changed =
                 frame.textfield_placeholder("##filter", &mut app.filter, "Search / Filter...");
             capture(frame, &mut app.filter_id, &mut app.filter_focused_now);
