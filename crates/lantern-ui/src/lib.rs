@@ -31,7 +31,7 @@ pub fn run(state: AppState) -> Result<(), iris::RunError> {
         // thumbnails); a paint callback would also hand it over but disables
         // the idle frame-skip.
         |host| {
-            device::set_device(host.device());
+            device::set_device(host.flux_device().as_raw() as *mut std::ffi::c_void);
             true
         },
         move |frame, input| app.build(frame, input),
@@ -373,5 +373,33 @@ mod tests {
             assert_ne!(id.0, u32::MAX, "{asset:?} failed to parse/register");
             assert!(id.0 >= lens_sys::lens_icon_id::LENS_ICON_COUNT.0);
         }
+    }
+
+    #[test]
+    fn context_menu_and_sidebar_pin_unpin_flow() {
+        let (dir, mut app) = fixture();
+        let sub_dir = dir.join("subfolder");
+        std::fs::create_dir(&sub_dir).unwrap();
+        app.state.navigate(dir.to_str().unwrap());
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input);
+
+        // Pin the subfolder
+        let sub_path = sub_dir.to_str().unwrap();
+        assert!(!app.state.is_bookmarked(sub_path));
+        app.state.toggle_bookmark(sub_path);
+        assert!(app.state.is_bookmarked(sub_path));
+
+        // Rebuild frames with pinned bookmark visible
+        frame(&mut app, &mut ui, &input);
+        assert!(app.state.bookmarks.iter().any(|b| b.path == sub_path));
+
+        // Unpin
+        app.state.toggle_bookmark(sub_path);
+        assert!(!app.state.is_bookmarked(sub_path));
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

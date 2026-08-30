@@ -33,11 +33,12 @@ fn tab_cell(app: &mut UiApp, frame: &mut Frame, tones: &Tones, index: usize, tit
     };
     let mut action = None;
     frame.push_id(&format!("tab-{index}"));
-    let (response, ()) = frame.pressable_row(
-        &format!("tab-{}", app.state.tabs()[index].id),
-        title,
-        &options,
-        |frame, _| {
+    let tab_id = format!("tab-{}", app.state.tabs()[index].id);
+    let (response, ()) = frame
+        .row()
+        .id_label(&tab_id, title)
+        .with_opts(&options)
+        .show(|frame| {
             let fg = if active {
                 frame.theme().fg()
             } else {
@@ -50,8 +51,7 @@ fn tab_cell(app: &mut UiApp, frame: &mut Frame, tones: &Tones, index: usize, tit
             if icons::icon_button(frame, ids::X, 20.0) {
                 action = Some(TabAction::Close(index));
             }
-        },
-    );
+        });
     frame.pop_id();
     if response.clicked {
         action = Some(TabAction::Switch(index));

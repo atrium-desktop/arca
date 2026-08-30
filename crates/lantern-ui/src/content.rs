@@ -22,6 +22,20 @@ const MILLER_ROW_PITCH: f32 = 36.0 + 2.0;
 /// never flashes blank while scrolling.
 const OVERSCAN_ROWS: usize = 2;
 
+fn scroll_offset(frame: &mut Frame, id: &str) -> Option<(f32, f32)> {
+    let c = std::ffi::CString::new(id).ok()?;
+    let mut x = 0.0f32;
+    let mut y = 0.0f32;
+    let ok = unsafe { lens_sys::lens_scroll_offset(frame.as_raw(), c.as_ptr(), &mut x, &mut y) };
+    ok.then_some((x, y))
+}
+
+fn scroll_to(frame: &mut Frame, id: &str, x: f32, y: f32) {
+    if let Ok(c) = std::ffi::CString::new(id) {
+        unsafe { lens_sys::lens_scroll_to(frame.as_raw(), c.as_ptr(), x, y) };
+    }
+}
+
 /// Row range intersecting the scroll viewport: the retained scroll offset
 /// plus the viewport height from last frame's bounds, plus overscan. Falls
 /// back to the first `fallback_rows` rows when no geometry exists yet
@@ -31,7 +45,7 @@ const OVERSCAN_ROWS: usize = 2;
 /// silently (blank icons and labels), so a large listing must only ever
 /// build the rows that are actually visible.
 fn visible_rows(
-    frame: &Frame,
+    frame: &mut Frame,
     scroll_id: &str,
     row_count: usize,
     pitch: f32,
@@ -41,7 +55,7 @@ fn visible_rows(
         return (0, 0);
     }
     // Same id scope as the scroll itself, so both queries resolve.
-    let offset = frame.scroll_offset(scroll_id).map(|(_, y)| y);
+    let offset = scroll_offset(frame, scroll_id).map(|(_, y)| y);
     let viewport_h = frame.node_bounds(scroll_id).map(|rect| rect.h);
     let (Some(offset), Some(viewport_h)) = (offset, viewport_h) else {
         return (0, row_count.min(fallback_rows));
@@ -256,11 +270,12 @@ fn build_grid_card(
         return;
     }
 
-    let (response, ()) = frame.pressable_row(
-        &format!("grid-{}", entry.name),
-        &entry.name,
-        &options,
-        |frame, _| {
+    let grid_id = format!("grid-{}", entry.name);
+    let (response, ()) = frame
+        .row()
+        .id_label(&grid_id, &entry.name)
+        .with_opts(&options)
+        .show(|frame| {
             frame.column_ex(
                 &LayoutOpts {
                     width: GRID_CARD_WIDTH - 20.0,
@@ -273,8 +288,7 @@ fn build_grid_card(
                     theme::label_centered(frame, &entry.name, 12.5, GRID_CARD_WIDTH - 22.0, 2);
                 },
             );
-        },
-    );
+        });
     frame.pop_id();
     if response.clicked {
         app.row_clicked(visible_index, &entry.name);
@@ -407,14 +421,18 @@ fn build_list_row(
         return;
     }
 
-    let (response, ()) = frame.pressable_row(&entry.name, &entry.name, &options, |frame, _| {
-        row_icon(frame, &entry);
-        frame.flex(1.0);
-        let font_size = frame.theme().font_size();
-        frame.label_compact_sized(&entry.name, font_size);
-        metadata_label(frame, tones, &size, 86.0);
-        metadata_label(frame, tones, &modified, 124.0);
-    });
+    let (response, ()) = frame
+        .row()
+        .id_label(&entry.name, &entry.name)
+        .with_opts(&options)
+        .show(|frame| {
+            row_icon(frame, &entry);
+            frame.flex(1.0);
+            let font_size = frame.theme().font_size();
+            frame.label_compact_sized(&entry.name, font_size);
+            metadata_label(frame, tones, &size, 86.0);
+            metadata_label(frame, tones, &modified, 124.0);
+        });
     frame.pop_id();
     if response.clicked {
         app.row_clicked(visible_index, &entry.name);
@@ -553,7 +571,7 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             if seed_scroll && !current {
                                 if let Some(selected) = column.selected {
                                     let offset = (selected as f32 * 38.0 - 260.0).max(0.0);
-                                    frame.scroll_to(&scroll_id, 0.0, offset);
+                                    scroll_to(frame, &scroll_id, 0.0, offset);
                                 }
                             }
                         },
@@ -591,11 +609,12 @@ fn miller_row(
         ..Default::default()
     };
     frame.push_id(&entry.name);
-    let (response, ()) = frame.pressable_row(
-        &format!("miller-{}-{}", directory, entry.name),
-        &entry.name,
-        &options,
-        |frame, _| {
+    let miller_id = format!("miller-{}-{}", directory, entry.name);
+    let (response, ()) = frame
+        .row()
+        .id_label(&miller_id, &entry.name)
+        .with_opts(&options)
+        .show(|frame| {
             icons::icon(frame, icons::entry_icon(entry), 17.0);
             frame.flex(1.0);
             let font_size = frame.theme().font_size();
@@ -603,8 +622,7 @@ fn miller_row(
             if entry.navigable {
                 icons::icon(frame, ids::ChevronRight, 13.0);
             }
-        },
-    );
+        });
     frame.pop_id();
     if response.clicked {
         app.miller_clicked(directory, &entry.name);
@@ -668,8 +686,8 @@ fn card_art(app: &mut UiApp, frame: &mut Frame, entry: &Entry, size: f32) {
             // outlives the frame. Dimensions of an uploaded image are valid.
             let (w, h) = unsafe {
                 (
-                    lens_sys::flux_image_width(image),
-                    lens_sys::flux_image_height(image),
+                    flux_sys::flux_image_width(image),
+                    flux_sys::flux_image_height(image),
                 )
             };
             let (dw, dh) = if w >= h {
@@ -679,7 +697,7 @@ fn card_art(app: &mut UiApp, frame: &mut Frame, entry: &Entry, size: f32) {
             };
             frame.size_next(dw, dh);
             // SAFETY: as above.
-            unsafe { lens_sys::lens_image(frame.as_raw(), image, dw, dh) };
+            unsafe { frame.image(image, dw, dh) };
             return;
         }
     }
@@ -715,11 +733,12 @@ fn sort_cell(
         radius: 6.0,
         ..Default::default()
     };
-    let (response, ()) = frame.pressable_row(
-        &format!("sort-{label}"),
-        label,
-        &options,
-        |frame, _| {
+    let sort_id = format!("sort-{label}");
+    let (response, ()) = frame
+        .row()
+        .id_label(&sort_id, label)
+        .with_opts(&options)
+        .show(|frame| {
             let fg = if active {
                 frame.theme().fg()
             } else {
@@ -734,8 +753,7 @@ fn sort_cell(
                 };
                 icons::icon(frame, icon, 12.0);
             }
-        },
-    );
+        });
     if response.clicked {
         app.state.toggle_sort(key);
     }

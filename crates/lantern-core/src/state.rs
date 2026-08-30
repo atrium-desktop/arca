@@ -133,6 +133,12 @@ impl AppState {
 
     fn rebuild_bookmarks(&mut self, user_paths: &[String]) {
         self.bookmarks = bookmarks::standard_bookmarks();
+        let home = path::home_dir();
+        for bookmark in bookmarks::read_gtk_bookmarks_file(&home) {
+            if !self.bookmarks.iter().any(|b| b.path == bookmark.path) && entry::dir_exists(&bookmark.path) {
+                self.bookmarks.push(bookmark);
+            }
+        }
         for path in user_paths {
             if !self.bookmarks.iter().any(|b| b.path == *path) && entry::dir_exists(path) {
                 self.bookmarks.push(Bookmark::for_path(path));
@@ -636,6 +642,8 @@ impl AppState {
             self.bookmarks.push(Bookmark::for_path(&path));
             self.set_status(format!("Bookmarked {path}"));
         }
+        let home = path::home_dir();
+        let _ = bookmarks::save_gtk_bookmarks_file(&home, &self.bookmarks);
         self.save_config();
     }
 

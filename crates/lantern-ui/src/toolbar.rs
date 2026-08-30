@@ -96,7 +96,7 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             frame.spacer(6.0);
 
             if icons::icon_button(frame, ids::Settings, 32.0) {
-                let r = unsafe { lens_sys::lens_get_response(frame.as_raw()) };
+                let r = frame.response();
                 let anchor = Rect {
                     x: r.rect.x,
                     y: r.rect.y,
@@ -116,7 +116,7 @@ fn view_button(app: &mut UiApp, frame: &mut Frame, mode: ViewMode, icon: icons::
 }
 
 fn capture(frame: &mut Frame, id: &mut lens_sys::lens_id, focused: &mut bool) {
-    let response = unsafe { lens_sys::lens_get_response(frame.as_raw()) };
+    let response = frame.response();
     *id = response.id;
     *focused = response.focused;
 }

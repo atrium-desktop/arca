@@ -51,12 +51,18 @@ pub struct Bookmark {
 
 impl Bookmark {
     pub fn for_path(path: &str) -> Bookmark {
+        Self::for_path_with_name(path, None)
+    }
+
+    pub fn for_path_with_name(path: &str, custom_name: Option<String>) -> Bookmark {
         let kind = BookmarkKind::from_path(path);
-        let name = if kind == BookmarkKind::Home {
-            "Home".to_string()
-        } else {
-            path.rsplit('/').next().unwrap_or(path).to_string()
-        };
+        let name = custom_name.unwrap_or_else(|| {
+            if kind == BookmarkKind::Home {
+                "Home".to_string()
+            } else {
+                path.rsplit('/').next().unwrap_or(path).to_string()
+            }
+        });
         Bookmark {
             name,
             path: path.to_string(),
@@ -64,6 +70,100 @@ impl Bookmark {
             pinned: true,
         }
     }
+}
+
+/// Decode a `file://...` URI with percent-encoding into a local file path.
+pub fn decode_file_uri(uri: &str) -> Option<String> {
+    let raw = uri.strip_prefix("file://")?;
+    let mut bytes = Vec::new();
+    let chars = raw.as_bytes();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == b'%' && i + 2 < chars.len() {
+            if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&chars[i + 1..i + 3]).unwrap_or(""), 16) {
+                bytes.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        bytes.push(chars[i]);
+        i += 1;
+    }
+    String::from_utf8(bytes).ok()
+}
+
+/// Encode a local file path into a standard `file://...` URI.
+pub fn encode_file_uri(path: &str) -> String {
+    let mut out = String::from("file://");
+    for b in path.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'/' | b'~' => {
+                out.push(b as char);
+            }
+            _ => {
+                use std::fmt::Write;
+                let _ = write!(out, "%{:02X}", b);
+            }
+        }
+    }
+    out
+}
+
+/// Parse one line of `~/.config/gtk-3.0/bookmarks` (Freedesktop/XDG standard).
+pub fn parse_gtk_bookmark_line(line: &str) -> Option<Bookmark> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+    let (uri, name) = match line.split_once(' ') {
+        Some((u, n)) => (u.trim(), Some(n.trim().to_string())),
+        None => (line, None),
+    };
+    let path = decode_file_uri(uri)?;
+    Some(Bookmark::for_path_with_name(&path, name))
+}
+
+/// Format one `Bookmark` into a standard `~/.config/gtk-3.0/bookmarks` line.
+pub fn format_gtk_bookmark_line(bookmark: &Bookmark) -> String {
+    let uri = encode_file_uri(&bookmark.path);
+    let default_name = bookmark.path.rsplit('/').next().unwrap_or(&bookmark.path);
+    if !bookmark.name.is_empty() && bookmark.name != default_name {
+        format!("{uri} {}", bookmark.name)
+    } else {
+        uri
+    }
+}
+
+/// Load standard XDG/GTK user bookmarks from `$XDG_CONFIG_HOME/gtk-3.0/bookmarks`.
+pub fn read_gtk_bookmarks_file(home: &str) -> Vec<Bookmark> {
+    let config_home =
+        std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| path::join(home, ".config"));
+    let file = path::join(&config_home, "gtk-3.0/bookmarks");
+    let Ok(content) = std::fs::read_to_string(&file) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter_map(parse_gtk_bookmark_line)
+        .filter(|b| std::path::Path::new(&b.path).is_dir())
+        .collect()
+}
+
+/// Write pinned user bookmarks out to `$XDG_CONFIG_HOME/gtk-3.0/bookmarks`.
+pub fn save_gtk_bookmarks_file(home: &str, bookmarks: &[Bookmark]) -> std::io::Result<()> {
+    let config_home =
+        std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| path::join(home, ".config"));
+    let dir = path::join(&config_home, "gtk-3.0");
+    std::fs::create_dir_all(&dir)?;
+    let file = path::join(&dir, "bookmarks");
+    let mut content = String::new();
+    for bookmark in bookmarks {
+        if bookmark.pinned && bookmark.kind == BookmarkKind::Folder {
+            content.push_str(&format_gtk_bookmark_line(bookmark));
+            content.push('\n');
+        }
+    }
+    std::fs::write(file, content)
 }
 
 /// The fixed bookmarks: home + the XDG user dirs that actually exist.
@@ -188,5 +288,23 @@ mod tests {
         for mark in &marks {
             assert!(std::path::Path::new(&mark.path).is_dir());
         }
+    }
+
+    #[test]
+    fn gtk_bookmarks_roundtrip_and_percent_decoding() {
+        let line = "file:///home/user/My%20Documents Important Docs";
+        let mark = parse_gtk_bookmark_line(line).expect("parse gtk bookmark");
+        assert_eq!(mark.path, "/home/user/My Documents");
+        assert_eq!(mark.name, "Important Docs");
+        assert_eq!(mark.kind, BookmarkKind::Folder);
+
+        let formatted = format_gtk_bookmark_line(&mark);
+        assert_eq!(formatted, "file:///home/user/My%20Documents Important Docs");
+
+        let simple_line = "file:///home/user/music";
+        let simple_mark = parse_gtk_bookmark_line(simple_line).expect("parse simple mark");
+        assert_eq!(simple_mark.path, "/home/user/music");
+        assert_eq!(simple_mark.name, "music");
+        assert_eq!(format_gtk_bookmark_line(&simple_mark), "file:///home/user/music");
     }
 }

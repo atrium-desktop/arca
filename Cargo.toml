@@ -20,9 +20,11 @@ rust-version = "1.85"
 # patch these sources to a sibling checkout through .cargo/optics-local.toml
 # without making that checkout mandatory for CI or downstream packagers; see
 # docs/dev/cross-repository-development.md.
-iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.10" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.10" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.10" }
+iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.32" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.32" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.32" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.32" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.32" }
 lantern-core = { path = "crates/lantern-core", version = "0.2.0" }
 lantern-ui = { path = "crates/lantern-ui", version = "0.2.0" }
 

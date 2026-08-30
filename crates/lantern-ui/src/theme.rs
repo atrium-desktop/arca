@@ -25,7 +25,9 @@ pub struct Tones {
 
 impl Tones {
     pub fn from_theme(theme: &Theme) -> Tones {
-        if theme.is_dark() {
+        let (r, g, b, _) = theme.bg().components();
+        let is_dark = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) < 128.0;
+        if is_dark {
             Tones {
                 // Stepped surface family around the aegis application
                 // surface rgb(25, 28, 40).

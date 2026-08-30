@@ -8,26 +8,32 @@
 //! an open overlay on Escape or an outside press (with a same-frame grace
 //! for the opening click), which these builders mirror back into app state.
 
-use iris::{Align, Frame, OverlayOpts};
+use iris::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 use lantern_core::config::ThemeMode;
 
-use crate::app::{CTX_MENU_ID, SETTINGS_MENU_ID, UiApp};
+use crate::app::{CTX_MENU_ID, SETTINGS_MENU_ID, SIDEBAR_MENU_ID, UiApp};
 use crate::icons::{self, ids};
 use crate::theme::Tones;
 
 /// Frosted popover body shared by both menus (aegis `popover` material:
 /// translucent surface with a 1 px hairline — without lensing, the painted
 /// edge is what separates the panel from the content beneath it).
-fn popover_opts(tones: &Tones) -> OverlayOpts {
-    OverlayOpts {
-        gap: 2.0,
-        pad: 4.0,
-        cross: Align::Stretch,
-        bg: tones.popover,
-        border: tones.popover_border,
-        border_width: 1.0,
-        radius: 12.0,
-        min_width: 180.0,
+fn popover_opts(tones: &Tones, anchor: Rect) -> PlaceOpts {
+    PlaceOpts {
+        mode: PlaceMode::Anchored,
+        rect: anchor,
+        layout: LayoutOpts {
+            gap: 2.0,
+            pad: 4.0,
+            cross: Align::Stretch,
+            bg: tones.popover,
+            border: tones.popover_border,
+            border_width: 1.0,
+            radius: 12.0,
+            min_width: 180.0,
+            ..Default::default()
+        },
+        ..Default::default()
     }
 }
 
@@ -35,15 +41,15 @@ fn popover_opts(tones: &Tones) -> OverlayOpts {
 /// (or has just been) closed, meaning the app-side state stays cleared.
 fn ensure_open(f: &mut Frame, id: &str, opened: &mut bool) -> bool {
     if !*opened {
-        if f.overlay_is_open(id) {
+        if f.place_is_open(id) {
             // Re-anchored while open: cycle the open state so the dismissal
             // grace covers this frame's triggering click.
-            f.overlay_close(id);
+            f.place_close(id);
         }
-        f.overlay_open(id);
+        f.place_open(id);
         *opened = true;
     }
-    f.overlay_is_open(id)
+    f.place_is_open(id)
 }
 
 pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
@@ -55,7 +61,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
     }
 
     let mut keep_open = true;
-    f.overlay(CTX_MENU_ID, menu.anchor, &popover_opts(tones), |f| {
+    f.place(CTX_MENU_ID, &popover_opts(tones, menu.anchor), |f| {
         if f.selectable("Open", false) {
             app.state.open_selected();
             keep_open = false;
@@ -69,11 +75,21 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
             .selected_entry()
             .filter(|entry| entry.navigable)
             .and_then(|_| app.state.selected_path());
-        if selected_directory.is_some() && f.selectable("Open in New Tab", false) {
-            if let Some(path) = selected_directory {
-                app.new_tab_at(&path);
+        if let Some(ref path) = selected_directory {
+            if f.selectable("Open in New Tab", false) {
+                app.new_tab_at(path);
+                keep_open = false;
             }
-            keep_open = false;
+            let is_pinned = app.state.is_bookmarked(path);
+            let pin_label = if is_pinned {
+                "Unpin from Sidebar"
+            } else {
+                "Pin to Sidebar"
+            };
+            if f.selectable(pin_label, false) {
+                app.state.toggle_bookmark(path);
+                keep_open = false;
+            }
         }
         if f.selectable("Rename", false) {
             if let Some(name) = app.state.selected_entry().map(|e| e.name.clone()) {
@@ -83,8 +99,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
         }
         if f.selectable("Copy Path", false) {
             if let Some(path) = app.state.selected_path() {
-                // SAFETY: the frame is live; path bytes outlive the call.
-                unsafe { lens_sys::lens_copy(f.as_raw(), path.as_ptr().cast(), path.len()) };
+                f.copy(&path);
                 app.state.set_status("Path copied to clipboard".into());
             }
             keep_open = false;
@@ -99,8 +114,45 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
     if keep_open {
         app.ctx_menu = Some(menu);
     } else {
-        f.overlay_close(CTX_MENU_ID);
+        f.place_close(CTX_MENU_ID);
         app.ctx_menu = None;
+    }
+}
+
+/// Context menu for items in the places / pinned sidebar.
+pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
+    let Some(mut menu) = app.sidebar_menu.take() else {
+        return;
+    };
+    if !ensure_open(f, SIDEBAR_MENU_ID, &mut menu.opened) {
+        return;
+    }
+
+    let mut keep_open = true;
+    f.place(SIDEBAR_MENU_ID, &popover_opts(tones, menu.anchor), |f| {
+        if f.selectable("Open in New Tab", false) {
+            app.new_tab_at(&menu.path);
+            keep_open = false;
+        }
+        if f.selectable("Copy Path", false) {
+            f.copy(&menu.path);
+            app.state.set_status("Path copied to clipboard".into());
+            keep_open = false;
+        }
+        if menu.is_folder {
+            f.separator();
+            if f.selectable("Unpin from Sidebar", false) {
+                app.state.toggle_bookmark(&menu.path);
+                keep_open = false;
+            }
+        }
+    });
+
+    if keep_open {
+        app.sidebar_menu = Some(menu);
+    } else {
+        f.place_close(SIDEBAR_MENU_ID);
+        app.sidebar_menu = None;
     }
 }
 
@@ -108,8 +160,8 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
 pub(crate) fn build_settings_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
     let Some(mut menu) = app.settings_menu.take() else {
         // Toggled off this frame: keep the lens overlay in sync.
-        if f.overlay_is_open(SETTINGS_MENU_ID) {
-            f.overlay_close(SETTINGS_MENU_ID);
+        if f.place_is_open(SETTINGS_MENU_ID) {
+            f.place_close(SETTINGS_MENU_ID);
         }
         return;
     };
@@ -118,7 +170,7 @@ pub(crate) fn build_settings_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones)
     }
 
     let mut keep_open = true;
-    f.overlay(SETTINGS_MENU_ID, menu.anchor, &popover_opts(tones), |f| {
+    f.place(SETTINGS_MENU_ID, &popover_opts(tones, menu.anchor), |f| {
         for (mode, icon, label) in [
             (ThemeMode::System, ids::Monitor, "System"),
             (ThemeMode::Light, ids::Sun, "Light"),
@@ -139,7 +191,7 @@ pub(crate) fn build_settings_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones)
     if keep_open {
         app.settings_menu = Some(menu);
     } else {
-        f.overlay_close(SETTINGS_MENU_ID);
+        f.place_close(SETTINGS_MENU_ID);
         app.settings_menu = None;
     }
 }

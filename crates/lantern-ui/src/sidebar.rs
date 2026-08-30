@@ -27,13 +27,17 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                     continue;
                 }
                 frame.push_id(&format!("place-{index}"));
-                if icons::selectable_icon(
+                let _ = icons::selectable_icon(
                     frame,
                     icons::bookmark_icon(bookmark.kind),
                     &bookmark.name,
                     app.state.cwd() == bookmark.path,
-                ) {
+                );
+                let resp = frame.response();
+                if resp.clicked {
                     target = Some(bookmark.path.clone());
+                } else if resp.right_clicked {
+                    app.open_sidebar_menu(&bookmark.path, false, resp.rect);
                 }
                 frame.pop_id();
             }
@@ -49,13 +53,17 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 section_label(frame, tones, "PINNED");
                 for (index, bookmark) in pinned {
                     frame.push_id(&format!("pinned-{index}"));
-                    if icons::selectable_icon(
+                    let _ = icons::selectable_icon(
                         frame,
                         ids::Folder,
                         &bookmark.name,
                         app.state.cwd() == bookmark.path,
-                    ) {
+                    );
+                    let resp = frame.response();
+                    if resp.clicked {
                         target = Some(bookmark.path.clone());
+                    } else if resp.right_clicked {
+                        app.open_sidebar_menu(&bookmark.path, true, resp.rect);
                     }
                     frame.pop_id();
                 }

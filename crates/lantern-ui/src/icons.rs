@@ -6,7 +6,6 @@
 //! table) and drawn through the native icon widgets: vector-crisp at any
 //! size, theme-tinted, no raster assets or generator scripts involved.
 
-use std::ffi::CString;
 use std::sync::OnceLock;
 
 use iris::Frame;
@@ -169,15 +168,24 @@ pub(crate) fn lens_id(id: AssetId) -> lens_sys::lens_icon_id {
 }
 
 pub fn icon(frame: &mut Frame, id: AssetId, size: f32) {
-    // SAFETY: the frame is live inside a build callback.
-    unsafe { lens_sys::lens_icon(frame.as_raw(), lens_id(id), size) }
+    frame.icon_raw(lens_id(id), size);
 }
 
 /// Ghost icon button in a square `box_size` hit target.
 pub fn icon_button(frame: &mut Frame, id: AssetId, box_size: f32) -> bool {
-    frame.size_next(box_size, box_size);
-    // SAFETY: as above.
-    unsafe { lens_sys::lens_icon_button(frame.as_raw(), lens_id(id)) }
+    let id_str = format!("##icon-{id:?}");
+    let c = std::ffi::CString::new(id_str).unwrap();
+    let opts = lens_sys::lens_button_opts {
+        box_: lens_sys::lens_box {
+            id: c.as_ptr(),
+            width: box_size,
+            height: box_size,
+            ..Default::default()
+        },
+        icon: lens_id(id),
+        ..Default::default()
+    };
+    unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
 }
 
 /// Icon button whose active state is a rounded accent-tinted chip, used for
@@ -188,9 +196,20 @@ pub fn icon_button_active_rounded(
     box_size: f32,
     active: bool,
 ) -> bool {
-    frame.size_next(box_size, box_size);
-    // SAFETY: as above.
-    unsafe { lens_sys::lens_icon_button_active_rounded(frame.as_raw(), lens_id(id), active) }
+    let id_str = format!("##icon-active-{id:?}");
+    let c = std::ffi::CString::new(id_str).unwrap();
+    let opts = lens_sys::lens_button_opts {
+        box_: lens_sys::lens_box {
+            id: c.as_ptr(),
+            width: box_size,
+            height: box_size,
+            ..Default::default()
+        },
+        icon: lens_id(id),
+        active,
+        ..Default::default()
+    };
+    unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
 }
 
 /// Icon button that swaps glyph with its checked state (eye/eye-off, star…).
@@ -201,24 +220,26 @@ pub fn icon_toggle_button(
     box_size: f32,
     is_checked: bool,
 ) -> bool {
-    frame.size_next(box_size, box_size);
-    // SAFETY: as above.
-    unsafe {
-        lens_sys::lens_icon_toggle_button(
-            frame.as_raw(),
-            lens_id(unchecked),
-            lens_id(checked),
-            0.0,
-            is_checked,
-        )
-    }
+    let icon_id = if is_checked { checked } else { unchecked };
+    let id_str = format!("##icon-toggle-{unchecked:?}-{checked:?}");
+    let c = std::ffi::CString::new(id_str).unwrap();
+    let opts = lens_sys::lens_button_opts {
+        box_: lens_sys::lens_box {
+            id: c.as_ptr(),
+            width: box_size,
+            height: box_size,
+            ..Default::default()
+        },
+        icon: lens_id(icon_id),
+        active: is_checked,
+        ..Default::default()
+    };
+    unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
 }
 
 /// Full-width sidebar/menu row with a leading icon.
 pub fn selectable_icon(frame: &mut Frame, id: AssetId, label: &str, selected: bool) -> bool {
-    let label = CString::new(label).expect("file names cannot contain NUL on Unix");
-    // SAFETY: the frame is live; the label outlives the call.
-    unsafe { lens_sys::lens_selectable_icon(frame.as_raw(), lens_id(id), label.as_ptr(), selected) }
+    frame.selectable_icon(label, lens_id(id), selected)
 }
 
 /// Icon for a directory entry (type glyph + extension mapping).

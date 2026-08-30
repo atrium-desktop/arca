@@ -1,6 +1,6 @@
 //! Animated Space-bar Quick Look overlay.
 
-use iris::{Align, Frame, Input, LayoutOpts, OverlayOpts, Rect};
+use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 use lantern_core::{AppState, Preview, PreviewKind};
 
 use crate::icons::{self, ids};
@@ -104,40 +104,53 @@ pub(crate) fn build_preview(
     let y = (display.y - height) * 0.5 + (1.0 - ease) * 28.0;
 
     let scrim_alpha = tones.scrim.components().3;
-    frame.layer(
+    frame.place(
         "preview-backdrop",
-        Rect {
-            x: 0.0,
-            y: 0.0,
-            w: display.x,
-            h: display.y,
-        },
-        &OverlayOpts {
-            bg: tones
-                .scrim
-                .with_alpha((scrim_alpha as f32 * ease).round() as u8),
+        &PlaceOpts {
+            band: Band::Modal,
+            mode: PlaceMode::Exact,
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                w: display.x,
+                h: display.y,
+            },
+            layout: LayoutOpts {
+                bg: tones
+                    .scrim
+                    .with_alpha((scrim_alpha as f32 * ease).round() as u8),
+                ..Default::default()
+            },
+            transient: false,
             ..Default::default()
         },
         |_| {},
     );
 
-    frame.layer(
+    frame.place(
         "quick-look",
-        Rect {
-            x,
-            y,
-            w: width,
-            h: height,
-        },
-        &OverlayOpts {
-            gap: 0.0,
-            pad: 0.0,
-            cross: Align::Stretch,
-            bg: tones.elevated,
-            border: frame.theme().border(),
-            border_width: 1.0,
-            radius: 18.0,
-            min_width: width,
+        &PlaceOpts {
+            band: Band::Modal,
+            mode: PlaceMode::Exact,
+            rect: Rect {
+                x,
+                y,
+                w: width,
+                h: height,
+            },
+            layout: LayoutOpts {
+                gap: 0.0,
+                pad: 0.0,
+                cross: Align::Stretch,
+                bg: tones.elevated,
+                border: frame.theme().border(),
+                border_width: 1.0,
+                radius: 18.0,
+                min_width: width,
+                ..Default::default()
+            },
+            transient: false,
+            ..Default::default()
         },
         |frame| {
             frame.size_next(width, height);
@@ -263,8 +276,8 @@ fn build_body(
                                         // owns the image.
                                         let (w, h) = unsafe {
                                             (
-                                                lens_sys::flux_image_width(image),
-                                                lens_sys::flux_image_height(image),
+                                                flux_sys::flux_image_width(image),
+                                                flux_sys::flux_image_height(image),
                                             )
                                         };
                                         let scale = (max_w / w.max(1) as f32)
@@ -273,7 +286,7 @@ fn build_body(
                                         let (dw, dh) = (w as f32 * scale, h as f32 * scale);
                                         frame.size_next(dw, dh);
                                         // SAFETY: as above.
-                                        unsafe { lens_sys::lens_image(frame.as_raw(), image, dw, dh) };
+                                        unsafe { frame.image(image, dw, dh) };
                                     }
                                     None => icons::icon(frame, preview_icon(data.kind), 92.0),
                                 }

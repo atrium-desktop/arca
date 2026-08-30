@@ -108,7 +108,7 @@ impl ThumbStore {
             if let Some(oldest) = self.order.pop_front() {
                 if let Some(image) = self.images.remove(&oldest) {
                     // SAFETY: the device is alive during the run.
-                    unsafe { lens_sys::flux_image_release(image) };
+                    unsafe { flux_sys::flux_image_release(image) };
                 }
             }
         }
@@ -127,16 +127,16 @@ fn upload(thumb: &Thumb) -> Option<*mut lens_sys::flux_image> {
         px[1] = ((u32::from(px[1]) * a + 127) / 255) as u8;
         px[2] = ((u32::from(px[2]) * a + 127) / 255) as u8;
     }
-    let desc = lens_sys::flux_image_desc {
-        type_: lens_sys::flux_struct_type::FLUX_TYPE_IMAGE_DESC,
+    let desc = flux_sys::flux_image_desc {
+        type_: flux_sys::flux_struct_type::FLUX_TYPE_IMAGE_DESC,
         next: std::ptr::null(),
         width: thumb.width,
         height: thumb.height,
-        format: lens_sys::flux_format::FLUX_FORMAT_RGBA8_UNORM,
+        format: flux_sys::flux_format::FLUX_FORMAT_RGBA8_UNORM,
         initial_data: pixels.as_ptr().cast(),
     };
     let mut out = std::ptr::null_mut();
     // SAFETY: device is iris's live device; desc points at valid texels.
-    let rc = unsafe { lens_sys::flux_image_create(device, &desc, &mut out) };
-    (rc == lens_sys::flux_result::FLUX_OK && !out.is_null()).then_some(out)
+    let rc = unsafe { flux_sys::flux_image_create(device, &desc, &mut out) };
+    (rc == flux_sys::flux_result::FLUX_OK && !out.is_null()).then_some(out)
 }

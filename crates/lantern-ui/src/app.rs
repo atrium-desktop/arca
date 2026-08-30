@@ -14,6 +14,7 @@ use crate::{content, preview, sidebar, statusbar, tabs, toolbar};
 
 pub(crate) const CTX_MENU_ID: &str = "lantern-ctx";
 pub(crate) const SETTINGS_MENU_ID: &str = "lantern-settings";
+pub(crate) const SIDEBAR_MENU_ID: &str = "lantern-sidebar-ctx";
 const DOUBLE_CLICK_MS: u128 = 400;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -28,6 +29,13 @@ pub(crate) struct CtxMenu {
     /// Overlay ids hash per id-scope, so the open/begin/close calls must all
     /// happen in the menu-building scope — a trigger deep in the widget tree
     /// only records state here, and the builder performs the first open.
+    pub opened: bool,
+}
+
+pub(crate) struct SidebarMenu {
+    pub path: String,
+    pub is_folder: bool,
+    pub anchor: Rect,
     pub opened: bool,
 }
 
@@ -54,6 +62,7 @@ pub struct UiApp {
     pub(crate) last_click: Option<(usize, Instant)>,
     pub(crate) ctx_menu: Option<CtxMenu>,
     pub(crate) settings_menu: Option<CtxMenu>,
+    pub(crate) sidebar_menu: Option<SidebarMenu>,
     pub(crate) viewport: (f32, f32),
     pub(crate) miller_seeded_for: Option<String>,
     pub(crate) thumbs: ThumbStore,
@@ -85,6 +94,7 @@ impl UiApp {
             last_click: None,
             ctx_menu: None,
             settings_menu: None,
+            sidebar_menu: None,
             viewport: (1040.0, 700.0),
             miller_seeded_for: None,
             thumbs: ThumbStore::new(),
@@ -118,7 +128,7 @@ impl UiApp {
                 toolbar::build_toolbar(self, frame, &tones);
 
                 frame.flex(1.0);
-                frame.row(|frame| {
+                frame.row().show(|frame| {
                     sidebar::build_sidebar(self, frame, &tones);
                     content::build_content(self, frame, &tones);
                 });
@@ -129,6 +139,7 @@ impl UiApp {
 
         menus::build_ctx_menu(self, frame, &tones);
         menus::build_settings_menu(self, frame, &tones);
+        menus::build_sidebar_menu(self, frame, &tones);
         self.preview.sync_selection(&self.state);
         preview::build_preview(&mut self.preview, &mut self.thumbs, frame, input, &tones);
         self.finish_frame(frame);
@@ -274,6 +285,15 @@ impl UiApp {
     pub(crate) fn row_right_clicked(&mut self, visible_idx: usize, anchor: Rect) {
         self.state.select_visible(visible_idx);
         self.ctx_menu = Some(CtxMenu {
+            anchor,
+            opened: false,
+        });
+    }
+
+    pub(crate) fn open_sidebar_menu(&mut self, path: &str, is_folder: bool, anchor: Rect) {
+        self.sidebar_menu = Some(SidebarMenu {
+            path: path.to_string(),
+            is_folder,
             anchor,
             opened: false,
         });
