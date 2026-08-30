@@ -16,7 +16,7 @@ fn tab_title(cwd: &str) -> String {
     name
 }
 
-pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
+pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &iris::Input, tones: &Tones) {
     frame.size_next(0.0, 38.0);
     frame.row_ex(
         &LayoutOpts {
@@ -62,12 +62,30 @@ pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 TabAction::None => {}
             }
 
-            // Window close button at the far right
+            // Remainder space in the tab strip (pure layout flex spacer, not a widget)
             frame.flex(1.0);
             frame.spacer(0.0);
 
-            if icons::icon_button(frame, ids::X, 26.0) {
-                unsafe { iris::sys::iris_window_close() };
+            // Window close button at the far right
+            let close_clicked = icons::icon_button(frame, ids::X, 26.0);
+            if close_clicked {
+                iris::window_close();
+            }
+
+            // Window drag behavior (CSD):
+            // The top bar background is purely non-interactive (not a button widget,
+            // no hover, no focus outline). When pointer press occurs on the top bar
+            // area outside the close button, request interactive move from compositor.
+            let raw_in = input.as_raw();
+            if raw_in.mouse_pressed[0]
+                && !close_clicked
+                && matches!(action, TabAction::None | TabAction::Select(_))
+            {
+                let cursor = raw_in.cursor;
+                let display = raw_in.display_size;
+                if cursor.y >= 0.0 && cursor.y <= 38.0 && cursor.x >= 0.0 && cursor.x < display.x - 34.0 {
+                    iris::window_start_move();
+                }
             }
         },
     );

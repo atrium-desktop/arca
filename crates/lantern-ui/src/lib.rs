@@ -336,6 +336,33 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// The tab strip drag region fills the space between the last tab and the close button;
+    /// pressing it triggers `iris_window_start_move` (a safe no-op headless).
+    #[test]
+    fn titlebar_drag_region_is_interactive() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &settle);
+        }
+        // Middle of the top bar in the drag region
+        let drag_point = (500.0, 21.0);
+        let mut press = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        press.set_cursor(drag_point.0, drag_point.1);
+        press.set_mouse_down(lens::MouseButton::Left, true);
+        press.set_mouse_pressed(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &press);
+        let mut release = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        release.set_cursor(drag_point.0, drag_point.1);
+        release.set_mouse_released(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &release);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &settle);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn centered_label_breaks_and_ellipsizes() {
         let (dir, mut app) = fixture();
@@ -401,5 +428,28 @@ mod tests {
         assert!(!app.state.is_bookmarked(sub_path));
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn filter_textfield_hover_cursor_hint() {
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut tf_buf = lens::TextBuf::new(64, "test");
+        let input = lens::Input::new((400.0, 200.0), 1.0 / 60.0);
+
+        // Frame 1: resolve layout so node has prev_rect
+        ui.frame(&input, |f| {
+            f.size_next(200.0, 36.0);
+            f.textfield_placeholder("##tf", &mut tf_buf, "placeholder");
+        });
+
+        // Frame 2: hover cursor over the textfield at (50, 18)
+        let mut hover_input = lens::Input::new((400.0, 200.0), 1.0 / 60.0);
+        hover_input.set_cursor(50.0, 18.0);
+        ui.frame(&hover_input, |f| {
+            f.size_next(200.0, 36.0);
+            f.textfield_placeholder("##tf", &mut tf_buf, "placeholder");
+        });
+
+        assert_eq!(ui.cursor_hint(), lens::CursorHint::Text);
     }
 }

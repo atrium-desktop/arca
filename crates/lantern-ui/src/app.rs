@@ -126,7 +126,7 @@ impl UiApp {
                 ..Default::default()
             },
             |frame| {
-                tabs::build_tabs(self, frame, &tones);
+                tabs::build_tabs(self, frame, input, &tones);
                 toolbar::build_toolbar(self, frame, &tones);
 
                 frame.flex(1.0);
