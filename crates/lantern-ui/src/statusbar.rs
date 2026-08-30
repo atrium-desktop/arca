@@ -21,7 +21,13 @@ pub(crate) fn build_statusbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones)
         left.push_str(&format!("  ·  {}", selected.name));
     }
 
-    let right = app.state.status.clone().unwrap_or_else(|| HINT.into());
+    let right = app.state.status.clone().unwrap_or_else(|| {
+        if app.viewport.0 > 800.0 {
+            "SPACE Preview   ENTER Open".into()
+        } else {
+            String::new()
+        }
+    });
     frame.size_next(0.0, 32.0);
     frame.row_ex(
         &LayoutOpts {

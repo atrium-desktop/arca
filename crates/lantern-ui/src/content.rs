@@ -167,15 +167,15 @@ fn build_directory_heading(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 12.0,
                 tones.muted,
             );
-            // The flex must only be staged when the sort links exist to
-            // consume it — in List mode they don't render, and a pending flex
-            // would leak into the next linked widget (the list header row),
-            // letting the column shrink it below its fixed height.
-            if app.state.view_mode != ViewMode::List {
+            // In Grid mode, provide a clean sort selector instead of confusing list headers
+            if app.state.view_mode == ViewMode::Grid {
                 frame.flex(1.0);
+                frame.spacer(0.0);
                 sort_cell(app, frame, tones, SortKey::Name, "Name", 0.0);
-                sort_cell(app, frame, tones, SortKey::Size, "Size", 0.0);
-                sort_cell(app, frame, tones, SortKey::Mtime, "Modified", 0.0);
+            } else if app.state.view_mode == ViewMode::Miller {
+                frame.flex(1.0);
+                frame.spacer(0.0);
+                sort_cell(app, frame, tones, SortKey::Name, "Sort: Name", 0.0);
             }
         },
     );

@@ -63,6 +63,7 @@ pub struct UiApp {
     pub(crate) ctx_menu: Option<CtxMenu>,
     pub(crate) settings_menu: Option<CtxMenu>,
     pub(crate) sidebar_menu: Option<SidebarMenu>,
+    pub(crate) sidebar_width: f32,
     pub(crate) viewport: (f32, f32),
     pub(crate) miller_seeded_for: Option<String>,
     pub(crate) thumbs: ThumbStore,
@@ -95,6 +96,7 @@ impl UiApp {
             ctx_menu: None,
             settings_menu: None,
             sidebar_menu: None,
+            sidebar_width: 220.0,
             viewport: (1040.0, 700.0),
             miller_seeded_for: None,
             thumbs: ThumbStore::new(),
@@ -229,8 +231,19 @@ impl UiApp {
     }
 
     pub(crate) fn grid_columns(&self) -> usize {
-        let available = (self.viewport.0 - 232.0).max(160.0);
-        ((available - 28.0) / 146.0).floor().max(1.0) as usize
+        let available = (self.viewport.0 - self.sidebar_width - 20.0).max(160.0);
+        let plan = lens::patterns::virtual_grid_calc(
+            available,
+            self.viewport.1,
+            0.0,
+            100,
+            136.0,
+            176.0,
+            120.0,
+            12.0,
+            2,
+        );
+        plan.columns.max(1) as usize
     }
 
     pub(crate) fn focus_location(&mut self) {
@@ -373,7 +386,11 @@ impl UiApp {
                 }
                 lens::key::DOWN if !ctrl && !alt => {
                     let step = if self.state.view_mode == ViewMode::Grid {
-                        self.grid_columns() as i64
+                        if self.state.selected().is_none() {
+                            1
+                        } else {
+                            self.grid_columns() as i64
+                        }
                     } else {
                         1
                     };
