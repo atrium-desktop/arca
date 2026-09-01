@@ -7,6 +7,7 @@
 //! to it. Everything here is unit-testable headlessly.
 
 pub mod bookmarks;
+pub mod chooser;
 pub mod config;
 pub mod entry;
 pub mod format;
@@ -19,6 +20,11 @@ pub mod thumbs;
 pub mod trash;
 
 pub use bookmarks::{Bookmark, BookmarkKind};
+pub use chooser::{
+    BytePath, Choice, FileChooserMode, FileChooserRequest, FileChooserResponse, FileFilter,
+    FilterRule, FilterRuleKind, PromptAccent, PromptAppearance, PromptColorScheme,
+    PrompterRequest, PrompterResponse,
+};
 pub use config::{Config, ThemeMode, ViewMode};
 pub use entry::{Entry, FileType, SortKey};
 pub use preview::{Preview, PreviewKind};

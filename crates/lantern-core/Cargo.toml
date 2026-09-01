@@ -9,3 +9,5 @@ rust-version.workspace = true
 # Deliberate exception to the zero-dependency convention: thumbnail decoding
 # needs a PNG/JPEG decoder. PNG/JPEG only — no further format features.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde = { workspace = true }
+serde_json = { workspace = true }

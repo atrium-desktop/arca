@@ -184,6 +184,7 @@ pub fn icon_button(frame: &mut Frame, id: AssetId, box_size: f32) -> bool {
 
 /// Icon button whose active state is a rounded accent-tinted chip, used for
 /// the segmented view-mode toggle.
+#[allow(dead_code)]
 pub fn icon_button_active_rounded(
     frame: &mut Frame,
     id: AssetId,

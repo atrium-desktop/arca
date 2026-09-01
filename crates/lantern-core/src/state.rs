@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 
 use crate::bookmarks::{self, Bookmark};
+use crate::chooser::FileFilter;
 use crate::config::{self, Config, ThemeMode, ViewMode};
 use crate::entry::{self, Entry, SortKey};
 use crate::history::History;
@@ -38,6 +39,7 @@ pub struct AppState {
     pub clipboard: Option<Clipboard>,
     /// One-line feedback for the status bar ("Moved foo to Trash", …).
     pub status: Option<String>,
+    pub file_filter: Option<FileFilter>,
 
     config_file: String,
 }
@@ -102,6 +104,7 @@ impl AppState {
             view_mode: cfg.view_mode,
             clipboard: None,
             status: None,
+            file_filter: None,
             config_file,
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
@@ -124,6 +127,7 @@ impl AppState {
             view_mode: cfg.view_mode,
             clipboard: None,
             status: None,
+            file_filter: None,
             config_file,
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
@@ -354,9 +358,36 @@ impl AppState {
         &self.active_tab().entries
     }
 
-    /// Indices of entries passing the current filter.
+    /// Indices of entries passing the current text filter and file filter.
     pub fn visible(&self) -> Vec<usize> {
-        entry::filtered_indices(self.entries(), self.filter())
+        let q = self.filter().trim().to_lowercase();
+        let cwd = std::path::Path::new(self.cwd());
+        self.entries()
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                if !q.is_empty() && !e.name.to_lowercase().contains(&q) {
+                    return false;
+                }
+                if let Some(filter) = &self.file_filter {
+                    if !e.navigable {
+                        let full_path = cwd.join(&e.name);
+                        if !filter.allows(&e.name, &full_path) {
+                            return false;
+                        }
+                    }
+                }
+                true
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Set an active file filter (e.g. for portal file chooser mode).
+    pub fn set_file_filter(&mut self, filter: Option<FileFilter>) {
+        self.file_filter = filter;
+        self.tabs[self.active_tab].selected = None;
+        self.sync_miller_selection();
     }
 
     /// The selected entry, resolved through the filter.
@@ -780,6 +811,33 @@ mod tests {
         assert_eq!(s.visible().len(), 2);
         assert!(s.selected().is_none(), "stale selection dropped by filter");
 
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn file_filter_keeps_directories_and_filters_files() {
+        let (dir, mut s) = fixture();
+        std::fs::write(dir.join("image.png"), b"png").unwrap();
+        s.refresh();
+        assert_eq!(s.visible().len(), 4); // sub, a.txt, b.txt, image.png
+
+        let filter = crate::chooser::FileFilter::new(
+            "PNG Images",
+            vec![crate::chooser::FilterRule {
+                kind: crate::chooser::FilterRuleKind::Glob,
+                value: "*.png".into(),
+            }],
+        );
+        s.set_file_filter(Some(filter));
+        let visible_names: Vec<_> = s
+            .visible()
+            .iter()
+            .map(|&idx| s.entries()[idx].name.clone())
+            .collect();
+        assert_eq!(visible_names, vec!["sub", "image.png"]);
+
+        s.set_file_filter(None);
+        assert_eq!(s.visible().len(), 4);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

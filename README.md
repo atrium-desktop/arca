@@ -29,6 +29,11 @@ immediate-mode UI · **iris** application toolkit).
   new folder (`Ctrl+Shift+N`), rename (`Ctrl+E`), move to trash (`Del`,
   freedesktop-compliant, restorable), copy / cut / paste (`Ctrl+C/X/V`),
   right-click context menu
+- **Portal Chooser / File Picker** — native XDG desktop portal file chooser
+  provider (`lantern --chooser-prompt`) supporting `OpenFile`, `SaveFile`,
+  `OpenDirectory`, typed glob/MIME filters, custom portal choices, and
+  overwrite protection; also usable as a standalone CLI picker (`--choose-file`,
+  `--choose-files`, `--choose-dir`, `--save-file`)
 - **Theme** — follows the system light/dark preference live; the toolbar
   settings button opens a System / Light / Dark picker
 - **Persistent** — view mode, hidden-files flag, sort order, theme and bookmarks
@@ -89,6 +94,10 @@ in
 cargo run
 # open a directory in a chosen view
 cargo run -- --miller ~/projects
+# run as XDG desktop portal file chooser prompter (JSON over stdio)
+cargo run -- --chooser-prompt
+# run as standalone CLI file picker
+cargo run -- --choose-file ~/Documents
 # or
 ./target/release/lantern
 ```

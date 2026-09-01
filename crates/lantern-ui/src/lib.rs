@@ -3,6 +3,7 @@
 //! crate renders [`AppState`] and forwards input events to it.
 
 mod app;
+pub mod chooser;
 mod content;
 mod device;
 mod icons;
@@ -16,6 +17,7 @@ mod thumbs;
 mod toolbar;
 
 pub use app::UiApp;
+pub use chooser::run_chooser;
 
 use lantern_core::state::AppState;
 
@@ -451,5 +453,152 @@ mod tests {
         });
 
         assert_eq!(ui.cursor_hint(), lens::CursorHint::Text);
+    }
+
+    #[test]
+    fn chooser_renders_headless_open_mode() {
+        let (dir, mut app) = fixture();
+        let req = lantern_core::chooser::FileChooserRequest {
+            mode: lantern_core::chooser::FileChooserMode::OpenFile,
+            app_id: "org.test.App".into(),
+            title: "Select Document".into(),
+            accept_label: Some("Pick".into()),
+            modal: true,
+            parent_window: None,
+            multiple: false,
+            current_folder: Some(lantern_core::chooser::BytePath::from_path(&dir)),
+            current_name: None,
+            current_file: None,
+            filters: vec![lantern_core::chooser::FileFilter::new(
+                "Text Files (*.txt)",
+                vec![lantern_core::chooser::FilterRule {
+                    kind: lantern_core::chooser::FilterRuleKind::Glob,
+                    value: "*.txt".into(),
+                }],
+            )],
+            current_filter: None,
+            choices: vec![lantern_core::chooser::Choice {
+                id: "read_only".into(),
+                label: "Read only".into(),
+                options: Vec::new(),
+                selected: "false".into(),
+            }],
+            files: Vec::new(),
+        };
+        app.chooser = Some(crate::chooser::ChooserState::new(req, None));
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        for _ in 0..3 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        assert!(app.chooser.is_some());
+        assert!(!app.chooser.as_ref().unwrap().done);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn chooser_renders_headless_save_mode_and_accepts() {
+        let (dir, mut app) = fixture();
+        let req = lantern_core::chooser::FileChooserRequest {
+            mode: lantern_core::chooser::FileChooserMode::SaveFile,
+            app_id: "org.test.App".into(),
+            title: "Save Report".into(),
+            accept_label: Some("Save Report".into()),
+            modal: true,
+            parent_window: None,
+            multiple: false,
+            current_folder: Some(lantern_core::chooser::BytePath::from_path(&dir)),
+            current_name: Some("report.pdf".into()),
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: Vec::new(),
+            files: Vec::new(),
+        };
+        app.chooser = Some(crate::chooser::ChooserState::new(req, None));
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        assert_eq!(
+            app.chooser.as_ref().unwrap().save_name.as_str(),
+            "report.pdf"
+        );
+
+        // Press Return to accept
+        let mut enter = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        enter.push_key(lens::key::RETURN, true, false);
+        frame(&mut app, &mut ui, &enter);
+
+        let res = app.chooser.as_ref().unwrap().result.as_ref().unwrap();
+        match res {
+            lantern_core::chooser::FileChooserResponse::Selected { paths, .. } => {
+                assert_eq!(paths.len(), 1);
+                assert_eq!(paths[0].to_path_buf(), dir.join("report.pdf"));
+            }
+            _ => panic!("Expected Selected response, got {res:?}"),
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn chooser_save_overwrite_modal_triggers() {
+        let (dir, mut app) = fixture();
+        let req = lantern_core::chooser::FileChooserRequest {
+            mode: lantern_core::chooser::FileChooserMode::SaveFile,
+            app_id: "org.test.App".into(),
+            title: "Save File".into(),
+            accept_label: None,
+            modal: true,
+            parent_window: None,
+            multiple: false,
+            current_folder: Some(lantern_core::chooser::BytePath::from_path(&dir)),
+            current_name: Some("a.txt".into()), // "a.txt" already exists in fixture!
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: Vec::new(),
+            files: Vec::new(),
+        };
+        app.chooser = Some(crate::chooser::ChooserState::new(req, None));
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        // Trigger accept (Return key)
+        let mut enter = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        enter.push_key(lens::key::RETURN, true, false);
+        frame(&mut app, &mut ui, &enter);
+
+        // Since a.txt exists, overwrite_confirm modal should be set
+        assert_eq!(
+            app.chooser.as_ref().unwrap().overwrite_confirm,
+            Some(dir.join("a.txt"))
+        );
+        assert!(!app.chooser.as_ref().unwrap().done);
+
+        // Escape dismisses the overwrite modal without cancelling the chooser
+        let mut esc = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        esc.push_key(lens::key::ESCAPE, true, false);
+        frame(&mut app, &mut ui, &esc);
+
+        assert_eq!(app.chooser.as_ref().unwrap().overwrite_confirm, None);
+        assert!(!app.chooser.as_ref().unwrap().done);
+
+        // Another Escape cancels the chooser
+        frame(&mut app, &mut ui, &esc);
+        assert_eq!(
+            app.chooser.as_ref().unwrap().result,
+            Some(lantern_core::chooser::FileChooserResponse::Cancelled)
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

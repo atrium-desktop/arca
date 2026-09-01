@@ -3,9 +3,11 @@
 use std::time::Instant;
 
 use iris::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
+use lantern_core::chooser::{FileChooserMode, PromptColorScheme};
 use lantern_core::config::{ThemeMode, ViewMode};
 use lantern_core::state::AppState;
 
+use crate::chooser::{self, ChooserState};
 use crate::menus;
 use crate::preview::PreviewOverlay;
 use crate::theme::{self, Tones};
@@ -69,6 +71,7 @@ pub struct UiApp {
     pub(crate) thumbs: ThumbStore,
     observed_tab_id: u64,
     preview: PreviewOverlay,
+    pub chooser: Option<ChooserState>,
 }
 
 impl UiApp {
@@ -102,6 +105,7 @@ impl UiApp {
             thumbs: ThumbStore::new(),
             observed_tab_id,
             preview: PreviewOverlay::new(),
+            chooser: None,
         }
     }
 
@@ -126,7 +130,11 @@ impl UiApp {
                 ..Default::default()
             },
             |frame| {
-                tabs::build_tabs(self, frame, input, &tones);
+                if self.chooser.is_some() {
+                    chooser::build_chooser_header(self, frame, input, &tones);
+                } else {
+                    tabs::build_tabs(self, frame, input, &tones);
+                }
                 toolbar::build_toolbar(self, frame, &tones);
 
                 frame.flex(1.0);
@@ -135,19 +143,39 @@ impl UiApp {
                     content::build_content(self, frame, &tones);
                 });
 
-                statusbar::build_statusbar(self, frame, &tones);
+                if self.chooser.is_some() {
+                    chooser::build_chooser_footer(self, frame, &tones);
+                } else {
+                    statusbar::build_statusbar(self, frame, &tones);
+                }
             },
         );
 
-        menus::build_ctx_menu(self, frame, &tones);
-        menus::build_settings_menu(self, frame, &tones);
-        menus::build_sidebar_menu(self, frame, &tones);
-        self.preview.sync_selection(&self.state);
-        preview::build_preview(&mut self.preview, &mut self.thumbs, frame, input, &tones);
+        if self.chooser.is_some() {
+            chooser::build_filter_popover(self, frame, &tones);
+            chooser::build_overwrite_modal(self, frame, &tones);
+        } else {
+            menus::build_ctx_menu(self, frame, &tones);
+            menus::build_settings_menu(self, frame, &tones);
+            menus::build_sidebar_menu(self, frame, &tones);
+            self.preview.sync_selection(&self.state);
+            preview::build_preview(&mut self.preview, &mut self.thumbs, frame, input, &tones);
+        }
         self.finish_frame(frame);
     }
 
     fn apply_theme(&mut self, frame: &mut Frame) {
+        if let Some(chooser) = &self.chooser {
+            if let Some(appr) = &chooser.appearance {
+                let dark = match appr.color_scheme {
+                    PromptColorScheme::System => iris::system_prefers_dark(),
+                    PromptColorScheme::Light => false,
+                    PromptColorScheme::Dark => true,
+                };
+                frame.set_theme(theme::branded_theme_with_accent(dark, appr.accent_color));
+                return;
+            }
+        }
         let dark = match self.state.theme {
             ThemeMode::System => iris::system_prefers_dark(),
             ThemeMode::Light => false,
@@ -164,6 +192,10 @@ impl UiApp {
         self.location_focused = self.location_focused_now;
         self.filter_focused = self.filter_focused_now;
         self.rename_focused = self.rename_focused_now;
+
+        if let Some(chooser) = &mut self.chooser {
+            chooser.save_name_focused = chooser.save_name_focused_now;
+        }
 
         if let Some(target) = self.pending_focus {
             let id = match target {
@@ -287,12 +319,36 @@ impl UiApp {
             if last_idx == visible_idx && now.duration_since(at).as_millis() < DOUBLE_CLICK_MS {
                 self.last_click = None;
                 self.preview.close();
+                if let Some(chooser) = &mut self.chooser {
+                    let entry = self.state.entries().iter().find(|e| e.name == name);
+                    if let Some(entry) = entry {
+                        if entry.navigable {
+                            self.state.open_child(name);
+                            return;
+                        } else if chooser.request.mode == FileChooserMode::OpenFile {
+                            let path = std::path::Path::new(self.state.cwd()).join(name);
+                            chooser.accept_paths(vec![path]);
+                            iris::window_close();
+                            return;
+                        }
+                    }
+                }
                 self.state.open_child(name);
                 return;
             }
         }
         self.last_click = Some((visible_idx, now));
         self.state.select_visible(visible_idx);
+        if let Some(chooser) = &mut self.chooser {
+            if chooser.request.mode == FileChooserMode::SaveFile {
+                let entry = self.state.entries().iter().find(|e| e.name == name);
+                if let Some(entry) = entry {
+                    if !entry.navigable {
+                        chooser.save_name.set(name);
+                    }
+                }
+            }
+        }
     }
 
     pub(crate) fn row_right_clicked(&mut self, visible_idx: usize, anchor: Rect) {
@@ -331,7 +387,15 @@ impl UiApp {
     fn handle_keys(&mut self, frame: &mut Frame, input: &Input) {
         let raw = input.as_raw();
         let mods = raw.mods;
-        let text_editing = self.location_focused || self.filter_focused || self.rename_focused;
+        let chooser_save_focused = self
+            .chooser
+            .as_ref()
+            .map(|c| c.save_name_focused)
+            .unwrap_or(false);
+        let text_editing = self.location_focused
+            || self.filter_focused
+            || self.rename_focused
+            || chooser_save_focused;
 
         for ev in &raw.keys[..raw.key_count as usize] {
             if !ev.pressed {
@@ -339,12 +403,28 @@ impl UiApp {
             }
             let key = ev.key;
 
+            if key == lens::key::ESCAPE {
+                if let Some(chooser) = &mut self.chooser {
+                    if chooser.overwrite_confirm.is_some() {
+                        chooser.overwrite_confirm = None;
+                    } else if chooser.filter_menu_open {
+                        chooser.filter_menu_open = false;
+                    } else {
+                        chooser.cancel();
+                        iris::window_close();
+                    }
+                    continue;
+                }
+            }
+
             if text_editing {
                 if key == lens::key::RETURN {
                     if self.rename_focused {
                         self.commit_rename(frame);
                     } else if self.location_focused {
                         self.submit_location(frame);
+                    } else if chooser_save_focused {
+                        chooser::trigger_accept(self);
                     }
                 }
                 continue;
@@ -397,8 +477,12 @@ impl UiApp {
                     self.state.move_selection(step);
                 }
                 lens::key::RETURN if !ctrl && !alt => {
-                    self.preview.close();
-                    self.state.open_selected();
+                    if self.chooser.is_some() {
+                        chooser::trigger_accept(self);
+                    } else {
+                        self.preview.close();
+                        self.state.open_selected();
+                    }
                 }
                 lens::key::DELETE if !ctrl && !alt => {
                     self.preview.close();
@@ -410,8 +494,8 @@ impl UiApp {
                     'h' if !shift => self.state.toggle_hidden(),
                     'l' if !shift => self.focus_location(),
                     'f' if !shift => self.focus_filter(),
-                    't' if !shift => self.new_tab(),
-                    'w' if !shift => self.close_active_tab(),
+                    't' if !shift && self.chooser.is_none() => self.new_tab(),
+                    'w' if !shift && self.chooser.is_none() => self.close_active_tab(),
                     'n' if shift => {
                         if let Some(name) = self.state.create_folder() {
                             self.begin_rename(name);
@@ -427,7 +511,9 @@ impl UiApp {
                     'c' if !shift => self.state.yank_selected(false),
                     'x' if !shift => self.state.yank_selected(true),
                     'v' if !shift => self.state.paste(),
-                    '1'..='9' if !shift => self.switch_tab((k as u8 - b'1') as usize),
+                    '1'..='9' if !shift && self.chooser.is_none() => {
+                        self.switch_tab((k as u8 - b'1') as usize)
+                    }
                     _ => {}
                 },
                 _ => {}

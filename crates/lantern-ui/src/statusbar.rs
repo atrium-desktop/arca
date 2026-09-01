@@ -5,8 +5,6 @@ use iris::{Align, Frame, LayoutOpts};
 use crate::app::UiApp;
 use crate::theme::{self, Tones};
 
-const HINT: &str = "SPACE Preview   ↑↓ Select   ENTER Open   CTRL+T New tab   CTRL+W Close tab";
-
 pub(crate) fn build_statusbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
     let total = app.state.entries().len();
     let filtered = app.state.visible().len();

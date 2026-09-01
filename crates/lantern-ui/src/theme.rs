@@ -75,21 +75,36 @@ impl Tones {
 pub(crate) const SCROLLBAR_W: f32 = 5.0;
 
 pub fn branded_theme(dark: bool) -> Theme {
+    branded_theme_with_accent(dark, None)
+}
+
+pub fn branded_theme_with_accent(
+    dark: bool,
+    accent: Option<lantern_core::chooser::PromptAccent>,
+) -> Theme {
     let base = if dark { Theme::dark() } else { Theme::light() };
+    let accent_col = if let Some(a) = accent {
+        Color::rgba(a.red, a.green, a.blue, 255)
+    } else if dark {
+        Color::rgba(102, 156, 255, 255)
+    } else {
+        Color::rgba(43, 101, 232, 255)
+    };
+
     let colored = if dark {
         base.with_bg(Color::rgba(25, 28, 40, 255))
             .with_fg(Color::rgba(244, 246, 252, 255))
-            .with_accent(Color::rgba(102, 156, 255, 255))
+            .with_accent(accent_col)
             .with_border(Color::rgba(255, 255, 255, 42))
             .with_hover(Color::rgba(255, 255, 255, 24))
-            .with_active(Color::rgba(102, 156, 255, 56))
+            .with_active(Color::rgba(accent_col.r(), accent_col.g(), accent_col.b(), 56))
     } else {
         base.with_bg(Color::rgba(243, 245, 249, 255))
             .with_fg(Color::rgba(29, 33, 44, 255))
-            .with_accent(Color::rgba(43, 101, 232, 255))
+            .with_accent(accent_col)
             .with_border(Color::rgba(28, 32, 44, 32))
             .with_hover(Color::rgba(28, 32, 44, 12))
-            .with_active(Color::rgba(43, 101, 232, 44))
+            .with_active(Color::rgba(accent_col.r(), accent_col.g(), accent_col.b(), 44))
     };
     // Geometry follows the aegis control/hairline/scrollbar tokens. No
     // active_indicator_width: the accent rail is off-language for aegis
