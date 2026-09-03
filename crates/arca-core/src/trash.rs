@@ -149,7 +149,7 @@ mod tests {
 
     fn temp_fixture() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "lantern-trash-test-{}-{}",
+            "arca-trash-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

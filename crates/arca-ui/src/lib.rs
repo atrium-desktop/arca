@@ -1,5 +1,5 @@
-//! UI layer for Lantern, built on the optics stack (`lens` widgets inside
-//! an `iris` window). The business logic lives in `lantern-core`; this
+//! UI layer for Arca, built on the optics stack (`lens` widgets inside
+//! an `iris` window). The business logic lives in `arca-core`; this
 //! crate renders [`AppState`] and forwards input events to it.
 
 mod app;
@@ -19,13 +19,13 @@ mod toolbar;
 pub use app::UiApp;
 pub use chooser::run_chooser;
 
-use lantern_core::state::AppState;
+use arca_core::state::AppState;
 
-/// Open the Lantern window and run the event loop until it closes.
+/// Open the Arca window and run the event loop until it closes.
 pub fn run(state: AppState) -> Result<(), iris::RunError> {
     let mut app = UiApp::new(state);
-    let config = iris::Config::new("Lantern")?
-        .app_id("io.lantern.Lantern")?
+    let config = iris::Config::new("Arca")?
+        .app_id("io.arca.Arca")?
         .size(1040, 700);
     iris::Application::run_with_start(
         config,
@@ -44,13 +44,13 @@ pub fn run(state: AppState) -> Result<(), iris::RunError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lantern_core::config::Config;
+    use arca_core::config::Config;
 
     /// A temp directory with a couple of entries, wired to an isolated
     /// config file so tests never touch the real user config.
     fn fixture() -> (std::path::PathBuf, UiApp) {
         let dir = std::env::temp_dir().join(format!(
-            "lantern-ui-test-{}-{}",
+            "arca-ui-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -61,7 +61,7 @@ mod tests {
         std::fs::write(dir.join("a.txt"), b"a").unwrap();
         std::fs::write(dir.join(".hidden"), b"h").unwrap();
 
-        let config_file = dir.join("cfg").join("lantern.conf");
+        let config_file = dir.join("cfg").join("arca.conf");
         let state = AppState::with_config(
             config_file.to_str().unwrap().into(),
             Config::default(),
@@ -142,9 +142,9 @@ mod tests {
         let mut ui = lens::Ui::headless().expect("headless ui");
         let input = lens::Input::new((1280.0, 760.0), 1.0 / 60.0);
         for mode in [
-            lantern_core::ViewMode::Grid,
-            lantern_core::ViewMode::List,
-            lantern_core::ViewMode::Miller,
+            arca_core::ViewMode::Grid,
+            arca_core::ViewMode::List,
+            arca_core::ViewMode::Miller,
         ] {
             app.state.set_view_mode(mode);
             for _ in 0..2 {
@@ -160,9 +160,9 @@ mod tests {
         let mut ui = lens::Ui::headless().expect("headless ui");
         let input = lens::Input::new((720.0, 520.0), 1.0 / 60.0);
         for mode in [
-            lantern_core::ViewMode::Grid,
-            lantern_core::ViewMode::List,
-            lantern_core::ViewMode::Miller,
+            arca_core::ViewMode::Grid,
+            arca_core::ViewMode::List,
+            arca_core::ViewMode::Miller,
         ] {
             app.state.set_view_mode(mode);
             frame(&mut app, &mut ui, &input);
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn large_directory_does_not_overflow_frame_arena() {
         let dir = std::env::temp_dir().join(format!(
-            "lantern-ui-big-{}-{}",
+            "arca-ui-big-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -283,7 +283,7 @@ mod tests {
         for i in 0..2500 {
             std::fs::write(dir.join(format!("file-{i:04}.txt")), b"x").unwrap();
         }
-        let config_file = dir.join("cfg").join("lantern.conf");
+        let config_file = dir.join("cfg").join("arca.conf");
         let state = AppState::with_config(
             config_file.to_str().unwrap().into(),
             Config::default(),
@@ -294,9 +294,9 @@ mod tests {
         let input = lens::Input::new((1280.0, 760.0), 1.0 / 60.0);
 
         for mode in [
-            lantern_core::ViewMode::Grid,
-            lantern_core::ViewMode::List,
-            lantern_core::ViewMode::Miller,
+            arca_core::ViewMode::Grid,
+            arca_core::ViewMode::List,
+            arca_core::ViewMode::Miller,
         ] {
             app.state.set_view_mode(mode);
             let mut overflowed = false;
@@ -458,26 +458,26 @@ mod tests {
     #[test]
     fn chooser_renders_headless_open_mode() {
         let (dir, mut app) = fixture();
-        let req = lantern_core::chooser::FileChooserRequest {
-            mode: lantern_core::chooser::FileChooserMode::OpenFile,
+        let req = arca_core::chooser::FileChooserRequest {
+            mode: arca_core::chooser::FileChooserMode::OpenFile,
             app_id: "org.test.App".into(),
             title: "Select Document".into(),
             accept_label: Some("Pick".into()),
             modal: true,
             parent_window: None,
             multiple: false,
-            current_folder: Some(lantern_core::chooser::BytePath::from_path(&dir)),
+            current_folder: Some(arca_core::chooser::BytePath::from_path(&dir)),
             current_name: None,
             current_file: None,
-            filters: vec![lantern_core::chooser::FileFilter::new(
+            filters: vec![arca_core::chooser::FileFilter::new(
                 "Text Files (*.txt)",
-                vec![lantern_core::chooser::FilterRule {
-                    kind: lantern_core::chooser::FilterRuleKind::Glob,
+                vec![arca_core::chooser::FilterRule {
+                    kind: arca_core::chooser::FilterRuleKind::Glob,
                     value: "*.txt".into(),
                 }],
             )],
             current_filter: None,
-            choices: vec![lantern_core::chooser::Choice {
+            choices: vec![arca_core::chooser::Choice {
                 id: "read_only".into(),
                 label: "Read only".into(),
                 options: Vec::new(),
@@ -501,15 +501,15 @@ mod tests {
     #[test]
     fn chooser_renders_headless_save_mode_and_accepts() {
         let (dir, mut app) = fixture();
-        let req = lantern_core::chooser::FileChooserRequest {
-            mode: lantern_core::chooser::FileChooserMode::SaveFile,
+        let req = arca_core::chooser::FileChooserRequest {
+            mode: arca_core::chooser::FileChooserMode::SaveFile,
             app_id: "org.test.App".into(),
             title: "Save Report".into(),
             accept_label: Some("Save Report".into()),
             modal: true,
             parent_window: None,
             multiple: false,
-            current_folder: Some(lantern_core::chooser::BytePath::from_path(&dir)),
+            current_folder: Some(arca_core::chooser::BytePath::from_path(&dir)),
             current_name: Some("report.pdf".into()),
             current_file: None,
             filters: Vec::new(),
@@ -536,7 +536,7 @@ mod tests {
 
         let res = app.chooser.as_ref().unwrap().result.as_ref().unwrap();
         match res {
-            lantern_core::chooser::FileChooserResponse::Selected { paths, .. } => {
+            arca_core::chooser::FileChooserResponse::Selected { paths, .. } => {
                 assert_eq!(paths.len(), 1);
                 assert_eq!(paths[0].to_path_buf(), dir.join("report.pdf"));
             }
@@ -549,15 +549,15 @@ mod tests {
     #[test]
     fn chooser_save_overwrite_modal_triggers() {
         let (dir, mut app) = fixture();
-        let req = lantern_core::chooser::FileChooserRequest {
-            mode: lantern_core::chooser::FileChooserMode::SaveFile,
+        let req = arca_core::chooser::FileChooserRequest {
+            mode: arca_core::chooser::FileChooserMode::SaveFile,
             app_id: "org.test.App".into(),
             title: "Save File".into(),
             accept_label: None,
             modal: true,
             parent_window: None,
             multiple: false,
-            current_folder: Some(lantern_core::chooser::BytePath::from_path(&dir)),
+            current_folder: Some(arca_core::chooser::BytePath::from_path(&dir)),
             current_name: Some("a.txt".into()), // "a.txt" already exists in fixture!
             current_file: None,
             filters: Vec::new(),
@@ -596,7 +596,7 @@ mod tests {
         frame(&mut app, &mut ui, &esc);
         assert_eq!(
             app.chooser.as_ref().unwrap().result,
-            Some(lantern_core::chooser::FileChooserResponse::Cancelled)
+            Some(arca_core::chooser::FileChooserResponse::Cancelled)
         );
 
         std::fs::remove_dir_all(&dir).unwrap();

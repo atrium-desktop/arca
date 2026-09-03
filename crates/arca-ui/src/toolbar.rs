@@ -2,7 +2,7 @@
 
 use iris::{Align, Frame, LayoutOpts, Rect};
 use lens::patterns::{SegmentedControl, SegmentedItem};
-use lantern_core::ViewMode;
+use arca_core::ViewMode;
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};

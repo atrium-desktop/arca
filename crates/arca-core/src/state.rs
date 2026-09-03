@@ -734,7 +734,7 @@ mod tests {
 
     fn fixture() -> (PathBuf, AppState) {
         let dir = std::env::temp_dir().join(format!(
-            "lantern-state-test-{}-{}",
+            "arca-state-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -746,7 +746,7 @@ mod tests {
         std::fs::write(dir.join("b.txt"), b"b").unwrap();
         std::fs::write(dir.join(".hidden"), b"h").unwrap();
 
-        let config_file = dir.join("cfg").join("lantern.conf");
+        let config_file = dir.join("cfg").join("arca.conf");
         let state = AppState::with_config(
             config_file.to_str().unwrap().into(),
             Config::default(),
@@ -762,7 +762,7 @@ mod tests {
 
         s.set_theme(ThemeMode::Dark);
         assert_eq!(s.theme, ThemeMode::Dark);
-        let saved = std::fs::read_to_string(dir.join("cfg").join("lantern.conf")).unwrap();
+        let saved = std::fs::read_to_string(dir.join("cfg").join("arca.conf")).unwrap();
         assert!(saved.contains("theme = dark"));
 
         // Re-selecting the active mode is a no-op.
@@ -848,7 +848,7 @@ mod tests {
         s.toggle_hidden();
         assert_eq!(s.entries().len(), 4);
         // Config was written and round-trips.
-        let cfg = config::load(dir.join("cfg/lantern.conf").to_str().unwrap());
+        let cfg = config::load(dir.join("cfg/arca.conf").to_str().unwrap());
         assert!(cfg.show_hidden);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -911,7 +911,7 @@ mod tests {
         s.toggle_bookmark(&target);
         assert!(s.is_bookmarked(&target));
 
-        let cfg = config::load(dir.join("cfg/lantern.conf").to_str().unwrap());
+        let cfg = config::load(dir.join("cfg/arca.conf").to_str().unwrap());
         assert_eq!(cfg.bookmarks, std::slice::from_ref(&target));
 
         s.toggle_bookmark(&target);
@@ -979,7 +979,7 @@ mod tests {
     fn view_mode_persists() {
         let (dir, mut s) = fixture();
         s.set_view_mode(ViewMode::Miller);
-        let cfg = config::load(dir.join("cfg/lantern.conf").to_str().unwrap());
+        let cfg = config::load(dir.join("cfg/arca.conf").to_str().unwrap());
         assert_eq!(cfg.view_mode, ViewMode::Miller);
         std::fs::remove_dir_all(&dir).unwrap();
     }

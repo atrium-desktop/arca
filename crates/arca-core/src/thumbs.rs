@@ -6,7 +6,7 @@
 //! enough: embedded JPEG covers take tens to hundreds of milliseconds each,
 //! so scrolling a large music folder outran one serial decoder. Decoded
 //! thumbs are also written through to a disk cache under
-//! `$XDG_CACHE_HOME/lantern/thumbs/`, so covers survive app restarts.
+//! `$XDG_CACHE_HOME/arca/thumbs/`, so covers survive app restarts.
 //! Audio covers (FLAC PICTURE blocks, ID3v2 APIC frames) are parsed by hand
 //! with bounded reads — audio files run to tens of megabytes and only their
 //! leading metadata is relevant — then fed to the same `image`-crate
@@ -110,7 +110,7 @@ pub struct ThumbService {
 
 impl ThumbService {
     /// Service backed by the system cache dir (`$XDG_CACHE_HOME` or
-    /// `$HOME/.cache`, then `lantern/thumbs/`).
+    /// `$HOME/.cache`, then `arca/thumbs/`).
     pub fn new() -> ThumbService {
         Self::with_cache_dir(default_cache_dir())
     }
@@ -318,7 +318,7 @@ fn worker_loop(
 fn default_cache_dir() -> PathBuf {
     let base = std::env::var("XDG_CACHE_HOME")
         .unwrap_or_else(|_| crate::path::join(&crate::path::home_dir(), ".cache"));
-    PathBuf::from(base).join("lantern").join("thumbs")
+    PathBuf::from(base).join("arca").join("thumbs")
 }
 
 /// Two FNV-1a-64 passes (different seeds) over the path bytes, hex-joined
@@ -686,7 +686,7 @@ mod tests {
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "lantern-thumbs-test-{tag}-{}-{}",
+            "arca-thumbs-test-{tag}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)

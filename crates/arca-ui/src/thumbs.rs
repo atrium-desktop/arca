@@ -1,6 +1,6 @@
 //! GPU-side thumbnail cache for grid cards and the preview overlay.
 //!
-//! Decoding happens off-thread in `lantern_core::thumbs::ThumbService`; this
+//! Decoding happens off-thread in `arca_core::thumbs::ThumbService`; this
 //! store drains finished decodes once per frame, premultiplies the pixels
 //! (flux blends SRC_OVER) and uploads them as `flux_image`s. Only cards that
 //! are actually built (the virtualized visible window) ever request a
@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use lantern_core::thumbs::{Thumb, ThumbService};
+use arca_core::thumbs::{Thumb, ThumbService};
 
 use crate::device;
 

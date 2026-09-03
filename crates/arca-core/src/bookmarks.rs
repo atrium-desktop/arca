@@ -187,7 +187,7 @@ pub fn standard_bookmarks() -> Vec<Bookmark> {
     out
 }
 
-/// XDG user dirs in the canonical order, restricted to the kinds Lantern
+/// XDG user dirs in the canonical order, restricted to the kinds Arca
 /// shows. Reads `$XDG_CONFIG_HOME/user-dirs.dirs`; falls back to probing
 /// the English names under `home`.
 fn xdg_user_dirs(home: &str) -> Vec<(String, BookmarkKind)> {

@@ -8,11 +8,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf};
-use lantern_core::chooser::{
+use arca_core::chooser::{
     BytePath, Choice, FileChooserMode, FileChooserRequest, FileChooserResponse, FileFilter,
     PromptAppearance, PromptColorScheme,
 };
-use lantern_core::state::AppState;
+use arca_core::state::AppState;
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -611,7 +611,7 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
     }
 }
 
-/// Run Lantern in FileChooser portal mode.
+/// Run Arca in FileChooser portal mode.
 pub fn run_chooser(
     request: FileChooserRequest,
     appearance: Option<PromptAppearance>,
@@ -622,18 +622,18 @@ pub fn run_chooser(
         file.to_path_buf()
             .parent()
             .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(lantern_core::path::home_dir)
+            .unwrap_or_else(arca_core::path::home_dir)
     } else {
-        lantern_core::path::home_dir()
+        arca_core::path::home_dir()
     };
 
-    let config_file = lantern_core::config::config_path();
-    let mut cfg = lantern_core::config::load(&config_file);
+    let config_file = arca_core::config::config_path();
+    let mut cfg = arca_core::config::load(&config_file);
     if let Some(appr) = &appearance {
         match appr.color_scheme {
-            PromptColorScheme::Dark => cfg.theme = lantern_core::ThemeMode::Dark,
-            PromptColorScheme::Light => cfg.theme = lantern_core::ThemeMode::Light,
-            PromptColorScheme::System => cfg.theme = lantern_core::ThemeMode::System,
+            PromptColorScheme::Dark => cfg.theme = arca_core::ThemeMode::Dark,
+            PromptColorScheme::Light => cfg.theme = arca_core::ThemeMode::Light,
+            PromptColorScheme::System => cfg.theme = arca_core::ThemeMode::System,
         }
     }
 
@@ -662,7 +662,7 @@ pub fn run_chooser(
     let app_id = if !request.app_id.is_empty() {
         request.app_id.clone()
     } else {
-        "io.lantern.Chooser".into()
+        "io.arca.Chooser".into()
     };
 
     let config = iris::Config::new(&window_title)?

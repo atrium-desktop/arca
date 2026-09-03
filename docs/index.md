@@ -1,6 +1,6 @@
-# Lantern Documentation
+# Arca Documentation
 
-Lantern is a file manager for Wayland, built on the
+Arca is a file manager for Wayland, built on the
 optics graphics stack. For the project pitch, feature list, and the
 shortest path to a running build, see the root [README](../README.md).
 

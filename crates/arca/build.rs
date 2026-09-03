@@ -1,5 +1,5 @@
 //! Relay the rpaths published by the `iris` crate (`links = "iris_rs"`) so
-//! the `lantern` binary finds libiris/liblens/libflux in the optics meson
+//! the `arca` binary finds libiris/liblens/libflux in the optics meson
 //! build tree at runtime without `LD_LIBRARY_PATH`.
 
 fn main() {

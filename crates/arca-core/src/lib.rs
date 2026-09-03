@@ -1,9 +1,9 @@
-//! Core business logic for the Lantern file manager.
+//! Core business logic for the Arca file manager.
 //!
 //! This crate is deliberately free of any GUI dependency: it models the
 //! directory listing, navigation history, bookmarks, sorting/filtering,
 //! file operations and persistent configuration. The UI layer
-//! (`lantern-ui`) renders an [`state::AppState`] and forwards user events
+//! (`arca-ui`) renders an [`state::AppState`] and forwards user events
 //! to it. Everything here is unit-testable headlessly.
 
 pub mod bookmarks;

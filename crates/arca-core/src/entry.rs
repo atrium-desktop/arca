@@ -277,7 +277,7 @@ mod tests {
     /// Unique temp dir per test (no external crates).
     fn temp_fixture() -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "lantern-core-test-{}-{}",
+            "arca-core-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

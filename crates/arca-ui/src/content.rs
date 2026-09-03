@@ -2,9 +2,9 @@
 //! columns. All share the same selection and file-operation model.
 
 use iris::{Align, Color, Frame, LayoutOpts};
-use lantern_core::entry::{FileType, SortKey};
-use lantern_core::format::{format_size, format_time};
-use lantern_core::{Entry, ViewMode};
+use arca_core::entry::{FileType, SortKey};
+use arca_core::format::{format_size, format_time};
+use arca_core::{Entry, ViewMode};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};

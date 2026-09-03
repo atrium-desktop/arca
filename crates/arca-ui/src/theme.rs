@@ -1,6 +1,6 @@
-//! Lantern's visual system. Colours and geometry mirror the aegis-design
-//! application tokens (`aegis-dev/crates/aegis-design`) — Lantern ships as a
-//! companion application for the aegis desktop, so both colour schemes read
+//! Arca's visual system. Colours and geometry mirror the tessera-design
+//! application tokens (`../tessera-dev/crates/tessera-design`) — Arca ships as a
+//! companion application for the tessera desktop, so both colour schemes read
 //! as the same product while remaining contrast-safe.
 
 use iris::{Align, Color, Frame, LayoutOpts, Theme};
@@ -29,7 +29,7 @@ impl Tones {
         let is_dark = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) < 128.0;
         if is_dark {
             Tones {
-                // Stepped surface family around the aegis application
+                // Stepped surface family around the tessera application
                 // surface rgb(25, 28, 40).
                 window: Color::rgba(25, 28, 40, 255),
                 tab_bar: Color::rgba(28, 32, 46, 255),
@@ -44,7 +44,7 @@ impl Tones {
                 selected: Color::rgba(102, 156, 255, 56),
                 muted: Color::rgba(160, 168, 188, 255),
                 preview_well: Color::rgba(21, 23, 34, 255),
-                // aegis popover/scrim materials for floating panels.
+                // tessera popover/scrim materials for floating panels.
                 popover: Color::rgba(255, 255, 255, 110),
                 popover_border: Color::rgba(255, 255, 255, 72),
                 scrim: Color::rgba(8, 10, 18, 118),
@@ -70,7 +70,7 @@ impl Tones {
     }
 }
 
-/// Shared scrollbar geometry (aegis `Strokes::scrollbar`); also read by the
+/// Shared scrollbar geometry (tessera `Strokes::scrollbar`); also read by the
 /// list header to mirror the scroll gutter.
 pub(crate) const SCROLLBAR_W: f32 = 5.0;
 
@@ -80,7 +80,7 @@ pub fn branded_theme(dark: bool) -> Theme {
 
 pub fn branded_theme_with_accent(
     dark: bool,
-    accent: Option<lantern_core::chooser::PromptAccent>,
+    accent: Option<arca_core::chooser::PromptAccent>,
 ) -> Theme {
     let base = if dark { Theme::dark() } else { Theme::light() };
     let accent_col = if let Some(a) = accent {
@@ -106,8 +106,8 @@ pub fn branded_theme_with_accent(
             .with_hover(Color::rgba(28, 32, 44, 12))
             .with_active(Color::rgba(accent_col.r(), accent_col.g(), accent_col.b(), 44))
     };
-    // Geometry follows the aegis control/hairline/scrollbar tokens. No
-    // active_indicator_width: the accent rail is off-language for aegis
+    // Geometry follows the tessera control/hairline/scrollbar tokens. No
+    // active_indicator_width: the accent rail is off-language for tessera
     // applications, and it defaults to 0 in lens.
     colored
         .with_corner_radius(12.0)

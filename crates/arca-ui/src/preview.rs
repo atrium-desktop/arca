@@ -1,7 +1,7 @@
 //! Animated Space-bar Quick Look overlay.
 
 use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
-use lantern_core::{AppState, Preview, PreviewKind};
+use arca_core::{AppState, Preview, PreviewKind};
 
 use crate::icons::{self, ids};
 use crate::theme::{self, Tones};

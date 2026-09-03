@@ -1,9 +1,9 @@
 //! Persistent configuration.
 //!
 //! Stored as a minimal `key = value` file at
-//! `$XDG_CONFIG_HOME/lantern/lantern.conf` (usually
-//! `~/.config/lantern/lantern.conf`). Hand-rolled on purpose — the format
-//! is trivial and Lantern stays dependency-free.
+//! `$XDG_CONFIG_HOME/arca/arca.conf` (usually
+//! `~/.config/arca/arca.conf`). Hand-rolled on purpose — the format
+//! is trivial and Arca stays dependency-free.
 
 use std::io;
 
@@ -95,11 +95,11 @@ impl Default for Config {
     }
 }
 
-/// The configuration file path: `$XDG_CONFIG_HOME/lantern/lantern.conf`.
+/// The configuration file path: `$XDG_CONFIG_HOME/arca/arca.conf`.
 pub fn config_path() -> String {
     let base = std::env::var("XDG_CONFIG_HOME")
         .unwrap_or_else(|_| path::join(&path::home_dir(), ".config"));
-    path::join(&path::join(&base, "lantern"), "lantern.conf")
+    path::join(&path::join(&base, "arca"), "arca.conf")
 }
 
 /// Load `file`; missing file or unknown keys fall back to defaults.
@@ -155,7 +155,7 @@ impl Config {
     }
 
     fn to_str(&self) -> String {
-        let mut out = String::from("# Lantern configuration\n");
+        let mut out = String::from("# Arca configuration\n");
         out.push_str(&format!("show_hidden = {}\n", self.show_hidden));
         out.push_str(&format!("show_thumbnails = {}\n", self.show_thumbnails));
         out.push_str(&format!("sort = {}\n", self.sort_key.as_str()));
@@ -175,14 +175,14 @@ mod tests {
 
     fn temp_file() -> String {
         let dir = std::env::temp_dir().join(format!(
-            "lantern-config-test-{}-{}",
+            "arca-config-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        path::join(dir.to_str().unwrap(), "lantern.conf")
+        path::join(dir.to_str().unwrap(), "arca.conf")
     }
 
     #[test]
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn missing_file_yields_defaults() {
-        let cfg = load("/nonexistent/lantern.conf");
+        let cfg = load("/nonexistent/arca.conf");
         assert_eq!(cfg, Config::default());
     }
 }

@@ -1,5 +1,5 @@
 //! Floating menus: the right-click context menu for file rows and the
-//! toolbar settings popup. Both use the aegis popover material.
+//! toolbar settings popup. Both use the tessera popover material.
 //!
 //! Overlay ids hash per id-scope, so every `overlay_open`/`overlay`/
 //! `overlay_close` for one menu must run in the same scope — these builders
@@ -9,13 +9,13 @@
 //! for the opening click), which these builders mirror back into app state.
 
 use iris::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
-use lantern_core::config::ThemeMode;
+use arca_core::config::ThemeMode;
 
 use crate::app::{CTX_MENU_ID, SETTINGS_MENU_ID, SIDEBAR_MENU_ID, UiApp};
 use crate::icons::{self, ids};
 use crate::theme::Tones;
 
-/// Frosted popover body shared by both menus (aegis `popover` material:
+/// Frosted popover body shared by both menus (tessera `popover` material:
 /// translucent surface with a 1 px hairline — without lensing, the painted
 /// edge is what separates the panel from the content beneath it).
 fn popover_opts(tones: &Tones, anchor: Rect) -> PlaceOpts {

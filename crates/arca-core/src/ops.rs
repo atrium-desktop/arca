@@ -6,7 +6,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 /// Open `path` with the desktop's default application (`xdg-open`),
-/// detached — Lantern never blocks on the child.
+/// detached — Arca never blocks on the child.
 pub fn open(path: &str) -> io::Result<()> {
     std::process::Command::new("xdg-open")
         .arg(path)
@@ -126,7 +126,7 @@ mod tests {
 
     fn temp_fixture() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "lantern-ops-test-{}-{}",
+            "arca-ops-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

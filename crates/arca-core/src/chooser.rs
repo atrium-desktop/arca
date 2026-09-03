@@ -1,6 +1,6 @@
 //! Stable contract and helper types for FileChooser portal operations.
 //!
-//! Conforms to `org.freedesktop.impl.portal.FileChooser` v3 and the Aegis
+//! Conforms to `org.freedesktop.impl.portal.FileChooser` v3 and the Tessera
 //! portal prompter process protocol (JSON over anonymous stdin/stdout pipes).
 
 use std::ffi::{OsStr, OsString};
@@ -8,7 +8,7 @@ use std::io;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Component, Path, PathBuf};
 
-/// Version of the private stdin/stdout process contract (matches Aegis
+/// Version of the private stdin/stdout process contract (matches Tessera
 /// prompter contract v6).
 pub const PROCESS_CONTRACT_VERSION: u32 = 6;
 

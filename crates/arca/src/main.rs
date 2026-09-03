@@ -1,11 +1,11 @@
-//! Lantern — a fast file manager for Wayland,
+//! Arca — a fast file manager for Wayland,
 //! built on the optics stack (flux/lens/iris).
 
-use lantern_core::chooser::{
+use arca_core::chooser::{
     read_prompter_request, write_prompter_response, BytePath, FileChooserMode, FileChooserRequest,
     FileChooserResponse,
 };
-use lantern_core::{AppState, ViewMode};
+use arca_core::{AppState, ViewMode};
 
 fn main() {
     let mut args = std::env::args().skip(1).peekable();
@@ -34,30 +34,30 @@ fn main() {
         match argument.as_str() {
             "-h" | "--help" => {
                 println!(
-                    "Lantern file manager\n\n\
+                    "Arca file manager\n\n\
                      Usage:\n  \
-                       lantern [--grid|--list|--miller] [DIRECTORY]\n  \
-                       lantern --chooser-prompt\n  \
-                       lantern --choose-file [--title TITLE] [DIRECTORY]\n  \
-                       lantern --choose-files [--title TITLE] [DIRECTORY]\n  \
-                       lantern --choose-dir [--title TITLE] [DIRECTORY]\n  \
-                       lantern --save-file [--name NAME] [--title TITLE] [DIRECTORY]"
+                       arca [--grid|--list|--miller] [DIRECTORY]\n  \
+                       arca --chooser-prompt\n  \
+                       arca --choose-file [--title TITLE] [DIRECTORY]\n  \
+                       arca --choose-files [--title TITLE] [DIRECTORY]\n  \
+                       arca --choose-dir [--title TITLE] [DIRECTORY]\n  \
+                       arca --save-file [--name NAME] [--title TITLE] [DIRECTORY]"
                 );
                 return;
             }
             "-V" | "--version" => {
-                println!("lantern {}", env!("CARGO_PKG_VERSION"));
+                println!("arca {}", env!("CARGO_PKG_VERSION"));
                 return;
             }
             "--grid" => state.view_mode = ViewMode::Grid,
             "--list" => state.view_mode = ViewMode::List,
             "--miller" => state.view_mode = ViewMode::Miller,
             path if !path.starts_with('-') => state.navigate(&path),
-            _ => eprintln!("lantern: unknown option: {argument}"),
+            _ => eprintln!("arca: unknown option: {argument}"),
         }
     }
-    if let Err(e) = lantern_ui::run(state) {
-        eprintln!("lantern: {e}");
+    if let Err(e) = arca_ui::run(state) {
+        eprintln!("arca: {e}");
         std::process::exit(1);
     }
 }
@@ -67,7 +67,7 @@ fn run_prompter_mode() {
     let (request, appearance) = match read_prompter_request(std::io::stdin()) {
         Ok(req) => req,
         Err(error) => {
-            eprintln!("lantern: invalid prompter request: {error}");
+            eprintln!("arca: invalid prompter request: {error}");
             let _ = write_prompter_response(
                 std::io::stdout(),
                 FileChooserResponse::Failed {
@@ -78,7 +78,7 @@ fn run_prompter_mode() {
         }
     };
 
-    let response = match lantern_ui::run_chooser(request, appearance) {
+    let response = match arca_ui::run_chooser(request, appearance) {
         Ok(res) => res,
         Err(e) => FileChooserResponse::Failed {
             message: format!("GUI run failed: {e}"),
@@ -86,7 +86,7 @@ fn run_prompter_mode() {
     };
 
     if let Err(e) = write_prompter_response(std::io::stdout(), response) {
-        eprintln!("lantern: failed to write response: {e}");
+        eprintln!("arca: failed to write response: {e}");
         std::process::exit(1);
     }
 }
@@ -127,7 +127,7 @@ fn run_cli_chooser_mode(mode_flag: String, mut args: impl Iterator<Item = String
 
     let request = FileChooserRequest {
         mode,
-        app_id: "io.lantern.Chooser".into(),
+        app_id: "io.arca.Chooser".into(),
         title,
         accept_label: None,
         modal: false,
@@ -142,7 +142,7 @@ fn run_cli_chooser_mode(mode_flag: String, mut args: impl Iterator<Item = String
         files: Vec::new(),
     };
 
-    match lantern_ui::run_chooser(request, None) {
+    match arca_ui::run_chooser(request, None) {
         Ok(FileChooserResponse::Selected { paths, .. }) => {
             for p in paths {
                 println!("{}", p.to_path_buf().display());
@@ -152,11 +152,11 @@ fn run_cli_chooser_mode(mode_flag: String, mut args: impl Iterator<Item = String
             std::process::exit(1);
         }
         Ok(FileChooserResponse::Failed { message }) => {
-            eprintln!("lantern: {message}");
+            eprintln!("arca: {message}");
             std::process::exit(2);
         }
         Err(e) => {
-            eprintln!("lantern: {e}");
+            eprintln!("arca: {e}");
             std::process::exit(2);
         }
     }

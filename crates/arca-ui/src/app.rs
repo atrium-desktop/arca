@@ -3,9 +3,9 @@
 use std::time::Instant;
 
 use iris::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
-use lantern_core::chooser::{FileChooserMode, PromptColorScheme};
-use lantern_core::config::{ThemeMode, ViewMode};
-use lantern_core::state::AppState;
+use arca_core::chooser::{FileChooserMode, PromptColorScheme};
+use arca_core::config::{ThemeMode, ViewMode};
+use arca_core::state::AppState;
 
 use crate::chooser::{self, ChooserState};
 use crate::menus;
@@ -14,9 +14,9 @@ use crate::theme::{self, Tones};
 use crate::thumbs::ThumbStore;
 use crate::{content, preview, sidebar, statusbar, tabs, toolbar};
 
-pub(crate) const CTX_MENU_ID: &str = "lantern-ctx";
-pub(crate) const SETTINGS_MENU_ID: &str = "lantern-settings";
-pub(crate) const SIDEBAR_MENU_ID: &str = "lantern-sidebar-ctx";
+pub(crate) const CTX_MENU_ID: &str = "arca-ctx";
+pub(crate) const SETTINGS_MENU_ID: &str = "arca-settings";
+pub(crate) const SIDEBAR_MENU_ID: &str = "arca-sidebar-ctx";
 const DOUBLE_CLICK_MS: u128 = 400;
 
 #[derive(Clone, Copy, PartialEq, Eq)]

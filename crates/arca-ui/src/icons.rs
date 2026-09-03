@@ -1,6 +1,6 @@
 //! Icon glyphs for files, folders and chrome.
 //!
-//! Lantern maintains its own icon set in `assets/icons/*.svg` (see the
+//! Arca maintains its own icon set in `assets/icons/*.svg` (see the
 //! README there). Each glyph is registered with lens on first use
 //! (`lens_icon_register_svg` — the runtime counterpart of lens's baked-in
 //! table) and drawn through the native icon widgets: vector-crisp at any
@@ -9,10 +9,10 @@
 use std::sync::OnceLock;
 
 use iris::Frame;
-use lantern_core::bookmarks::BookmarkKind;
-use lantern_core::entry::{Entry, FileType};
+use arca_core::bookmarks::BookmarkKind;
+use arca_core::entry::{Entry, FileType};
 
-/// One glyph of lantern's icon set; the variant name is the PascalCase of
+/// One glyph of arca's icon set; the variant name is the PascalCase of
 /// the SVG file name in `assets/icons/`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum AssetId {
