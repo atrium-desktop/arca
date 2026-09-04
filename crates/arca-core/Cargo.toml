@@ -1,0 +1,13 @@
+[package]
+name = "arca-core"
+description = "Business logic for the Arca file manager: directory model, navigation, file operations, configuration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Deliberate exception to the zero-dependency convention: thumbnail decoding
+# needs a PNG/JPEG decoder. PNG/JPEG only — no further format features.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -1,6 +1,6 @@
 # Optics migration
 
-Record of Lantern's port from the legacy flux/flux-ui stack to the
+Record of Arca's port from the legacy flux/flux-ui stack to the
 [optics](../../../optics) monorepo (flux / lens / iris), and of the
 resulting workspace architecture.
 
@@ -10,9 +10,9 @@ resulting workspace architecture.
 |---------|------------------|-----|
 | Window, Wayland, event loop | Hand-written C shim (`c_src/platform.c`) generating xdg-shell / xdg-decoration / text-input protocol code in `build.rs` | `iris` (official Rust binding) owns window, GPU device and event loop |
 | UI toolkit | `flux-ui` via hand-written FFI (`src/ffi.rs`, icon ids as raw integers) | `lens` safe bindings, plus narrow `lens_sys` helpers for the full icon set / focus / clipboard |
-| Layout | single crate, `app.rs` + `fs.rs` | workspace: `lantern-core` (logic) · `lantern-ui` (view) · `lantern` (bin) |
+| Layout | single crate, `app.rs` + `fs.rs` | workspace: `arca-core` (logic) · `arca-ui` (view) · `arca` (bin) |
 | Theme | manual dark toggle only | follows the system colour scheme live; System → Light → Dark override, persisted |
-| Settings | none | `~/.config/lantern/lantern.conf` (hidden files, sort, theme, bookmarks) |
+| Settings | none | `~/.config/arca/arca.conf` (hidden files, sort, theme, bookmarks) |
 
 The legacy C shim and FFI were deleted wholesale; no code was carried over
 unchanged, but the interaction model (toolbar / sidebar / list / status
@@ -27,12 +27,12 @@ bar) and icon mapping were ported deliberately.
   build tree through the `*-uninstalled.pc` pkg-config files — no
   `meson install` required.
 - The `iris` crate re-publishes the resulting library directories as
-  `links = "iris_rs"` rpath metadata. Both `lantern-ui` and `lantern` carry
+  `links = "iris_rs"` rpath metadata. Both `arca-ui` and `arca` carry
   a small `build.rs` relaying `DEP_IRIS_RS_RPATHS` into
   `-Wl,-rpath` arguments (with `--disable-new-dtags` so transitive deps
   resolve), which lets binaries and test executables run without
   `LD_LIBRARY_PATH`.
-- Where the safe `lens` surface is intentionally narrow, `lantern-ui`
+- Where the safe `lens` surface is intentionally narrow, `arca-ui`
   drops to `lens_sys` via `frame.as_raw()` inside dedicated helpers:
   the full feather icon set (`icons.rs`), focusing a widget by id
   (Ctrl+L / Ctrl+F / inline rename), and clipboard copy (`menus.rs`).
@@ -41,8 +41,8 @@ bar) and icon mapping were ported deliberately.
 
 ## State and input flow
 
-`lantern_core::AppState` is the single source of truth (cwd, entries,
-history, selection, filter, clipboard, bookmarks, config). `lantern-ui`
+`arca_core::AppState` is the single source of truth (cwd, entries,
+history, selection, filter, clipboard, bookmarks, config). `arca-ui`
 renders it every frame and calls its methods on input. Key routing rule:
 while any text field owns focus, all keys except `Return` pass through to
 the field — app shortcuts only fire when no field is focused.
@@ -52,10 +52,10 @@ focus loss cancels. `Esc` is reserved by iris for quitting.
 
 ## Testing
 
-- `lantern-core`: unit tests for sorting, filtering, formatting, history,
+- `arca-core`: unit tests for sorting, filtering, formatting, history,
   path handling, config round-trip, trash naming/encoding, copy/move —
   all headless with temp-dir fixtures.
-- `lantern-ui`: smoke tests drive real frames through `lens::Ui::headless()`
+- `arca-ui`: smoke tests drive real frames through `lens::Ui::headless()`
   (frame builds, `Ctrl+H` toggles hidden files, arrow+return navigation,
   filter application).
 - Manual: `cargo run` inside a Wayland session.

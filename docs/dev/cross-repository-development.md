@@ -1,14 +1,14 @@
-# Lantern and Optics Cross-Repository Development
+# Arca and Optics Cross-Repository Development
 
-Use one long-lived linked Git worktree for Lantern and Optics development.
-The primary Lantern worktree remains on `main` with the canonical remote
+Use one long-lived linked Git worktree for Arca and Optics development.
+The primary Arca worktree remains on `main` with the canonical remote
 dependency graph. The development worktree normally remains on the
 long-lived local `dev` branch and resolves the live sibling Optics sources
 through Cargo `[patch]`.
 
 ## Dependency Modes
 
-| Concern | Primary worktree | Lantern development worktree |
+| Concern | Primary worktree | Arca development worktree |
 |---------|------------------|------------------------------|
 | Rust bindings | Tagged Optics Git source | Sibling `../optics` paths through `[patch]` |
 | `Cargo.lock` | Canonical and committed | Local resolution, never committed |
@@ -22,29 +22,29 @@ the same incremental artifacts.
 
 ## Create the Development Worktree
 
-Create the linked worktree once from the primary Lantern worktree:
+Create the linked worktree once from the primary Arca worktree:
 
 ```bash
-git worktree add -b dev ../lantern-dev main
+git worktree add -b dev ../arca-dev main
 ```
 
 The expected directory layout is:
 
 ```text
 projects/
-├── lantern/
-├── lantern-dev/
+├── arca/
+├── arca-dev/
 └── optics/
 ```
 
-The primary `lantern/` worktree keeps `main` checked out. The `lantern-dev/`
+The primary `arca/` worktree keeps `main` checked out. The `arca-dev/`
 worktree permanently keeps the local `dev` branch checked out.
 
 Enter the development worktree, install the local patch configuration, and
 enable the repository hooks once:
 
 ```bash
-cd ../lantern-dev
+cd ../arca-dev
 cp .cargo/optics-local.toml .cargo/config.toml
 git config core.hooksPath .githooks
 ```
@@ -55,7 +55,7 @@ These commands:
    `.cargo/config.toml`.
 2. Enable the repository-owned pre-commit hook.
 
-Do not create `.cargo/config.toml` in the primary Lantern worktree. Confirm
+Do not create `.cargo/config.toml` in the primary Arca worktree. Confirm
 that the linked worktree has an Optics sibling before continuing:
 
 ```bash
@@ -66,7 +66,7 @@ Build the native libraries, then resolve the worktree-local Cargo graph:
 
 ```bash
 meson compile -C ../optics/build
-cargo check -p lantern
+cargo check -p arca
 ```
 
 The first Cargo command intentionally omits `--locked` because `[patch]`
@@ -85,11 +85,11 @@ Both trees must show paths below the sibling `optics` checkout.
 
 ## Daily Development
 
-Compile Optics before building a Lantern consumer:
+Compile Optics before building a Arca consumer:
 
 ```bash
 meson compile -C ../optics/build
-cargo check --locked -p lantern
+cargo check --locked -p arca
 cargo test --locked --workspace
 ```
 
@@ -97,7 +97,7 @@ If an Optics package version or dependency changes, resolve once without
 `--locked`:
 
 ```bash
-cargo check -p lantern
+cargo check -p arca
 ```
 
 The Cargo patch controls the Rust crates only. The `-sys` crates still find
@@ -108,7 +108,7 @@ Do not run concurrent Meson or Ninja commands against the same
 `../optics/build` directory. Cargo worktrees have separate build
 directories, but the Optics Meson directory remains a shared write location.
 
-## Commit Lantern Changes
+## Commit Arca Changes
 
 Stage changes normally:
 
@@ -124,20 +124,20 @@ pre-commit hook automatically unstages:
 - `.cargo/config.toml`, if it was force-added.
 
 The hook prints the excluded paths and lets the remaining commit proceed.
-Do not use `--no-verify`. Local patch state is not part of a Lantern commit.
+Do not use `--no-verify`. Local patch state is not part of a Arca commit.
 
 Commits created on `dev` already belong to the shared Git repository. No
 file-copy, push, or pull step is required for a local merge. Uncommitted
 files in the development worktree do not enter `main`; Git merges commits,
 not worktree state.
 
-## Synchronize with Lantern Main
+## Synchronize with Arca Main
 
 Update `main` in the primary worktree first. This may be a local merge or a
 pull when remote changes exist:
 
 ```bash
-cd ../lantern
+cd ../arca
 git switch main
 git pull --ff-only
 ```
@@ -147,10 +147,10 @@ disposable local lockfile and rebase the development branch onto the shared
 local `main` branch:
 
 ```bash
-cd ../lantern-dev
+cd ../arca-dev
 git restore Cargo.lock
 git rebase main
-cargo check -p lantern
+cargo check -p arca
 ```
 
 The ignored `.cargo/config.toml` remains in the linked worktree across the
@@ -158,7 +158,7 @@ rebase.
 
 ## Promote an Optics Release
 
-Land and tag Optics before making the Lantern branch canonical. Use one
+Land and tag Optics before making the Arca branch canonical. Use one
 immutable tag for every Optics crate.
 
 Confirm that the sibling checkout is at the release tag:
@@ -169,10 +169,10 @@ test "$(git -C ../optics rev-parse HEAD)" = \
 meson compile -C ../optics/build
 ```
 
-Disable local mode and restore the canonical Lantern lockfile:
+Disable local mode and restore the canonical Arca lockfile:
 
 ```bash
-mv .cargo/config.toml /tmp/lantern-optics-local.toml
+mv .cargo/config.toml /tmp/arca-optics-local.toml
 git restore Cargo.lock
 ```
 
@@ -186,10 +186,10 @@ scripts/optics-release-ref.sh
 Resolve and validate the remote graph:
 
 ```bash
-cargo check -p lantern
+cargo check -p arca
 cargo check --locked --workspace
 cargo test --locked --workspace
-cargo build --locked -p lantern
+cargo build --locked -p arca
 ```
 
 Confirm that `cargo tree -i lens` and `cargo tree -i flux` now report the
@@ -210,7 +210,7 @@ Fast-forward `main` to the completed `dev` commits from the primary
 worktree:
 
 ```bash
-cd ../lantern
+cd ../arca
 git switch main
 git merge --ff-only dev
 ```
@@ -222,10 +222,10 @@ Both branches now point at the same commit. Continue with the next change in
 the existing development worktree:
 
 ```bash
-cd ../lantern-dev
+cd ../arca-dev
 git restore Cargo.lock
 cp .cargo/optics-local.toml .cargo/config.toml
-cargo check -p lantern
+cargo check -p arca
 ```
 
 The copy command is harmless when local mode remained enabled. It also
@@ -239,25 +239,25 @@ requires it. Start that change on a temporary feature branch from canonical
 `main` instead of advancing `dev`:
 
 ```bash
-cd ../lantern-dev
+cd ../arca-dev
 git restore Cargo.lock
 git switch -c feat/<topic> main
-cargo check -p lantern
+cargo check -p arca
 
 # After committing the reviewed change:
 git push -u origin feat/<topic>
 
 # After the remote pull request is merged:
-cd ../lantern
+cd ../arca
 git switch main
 git pull --ff-only
 
-cd ../lantern-dev
+cd ../arca-dev
 git restore Cargo.lock
 git switch dev
 git merge --ff-only main
 cp .cargo/optics-local.toml .cargo/config.toml
-cargo check -p lantern
+cargo check -p arca
 ```
 
 The development worktree remains in place and returns to `dev` after the
@@ -269,20 +269,20 @@ Remove the worktree only when cross-repository development is no longer
 needed:
 
 ```bash
-cd ../lantern-dev
-mv .cargo/config.toml /tmp/lantern-optics-local.toml
+cd ../arca-dev
+mv .cargo/config.toml /tmp/arca-optics-local.toml
 git restore Cargo.lock
 
-cd ../lantern
-git worktree remove ../lantern-dev
+cd ../arca
+git worktree remove ../arca-dev
 ```
 
 ## Test an Unreleased Optics Commit in CI
 
-When Lantern CI must run before an Optics tag exists, temporarily point
+When Arca CI must run before an Optics tag exists, temporarily point
 every Optics Git dependency at the same fixed `rev`. Do not use a moving
 branch. Replace the fixed revision with the final release tag before merging
-Lantern.
+Arca.
 
 ## Recover the Canonical Mode
 
@@ -290,7 +290,7 @@ If a local patch was enabled in the wrong worktree, move it out of the way
 and restore the committed lockfile:
 
 ```bash
-mv .cargo/config.toml /tmp/lantern-optics-local.toml
+mv .cargo/config.toml /tmp/arca-optics-local.toml
 git restore Cargo.lock
 cargo check --locked --workspace
 ```

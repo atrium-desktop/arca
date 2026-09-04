@@ -1,0 +1,11 @@
+[package]
+name = "arca"
+description = "Arca — a fast file manager for Wayland, built on the optics stack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+arca-core.workspace = true
+arca-ui.workspace = true
+iris.workspace = true

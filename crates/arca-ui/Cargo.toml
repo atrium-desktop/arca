@@ -1,0 +1,13 @@
+[package]
+name = "arca-ui"
+description = "Arca file manager UI layer, built on the optics stack (lens/iris)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+arca-core.workspace = true
+iris.workspace = true
+lens.workspace = true
+lens-sys.workspace = true
+flux-sys.workspace = true

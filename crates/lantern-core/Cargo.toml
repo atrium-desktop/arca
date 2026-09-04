@@ -1,8 +1,0 @@
-[package]
-name = "lantern-core"
-description = "Business logic for the Lantern file manager: directory model, navigation, file operations, configuration"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-
-[dependencies]
