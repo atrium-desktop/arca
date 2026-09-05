@@ -14,6 +14,7 @@ charters, see [Repository Governance](../governance/index.md).
 
 | Page | Topic |
 |------|-------|
+| [Setup](setup.md) | Prerequisites, canonical vs local workflows, building native dependencies, running, testing, and troubleshooting |
 | [Cross-Repository Development](cross-repository-development.md) | Developing against a live sibling `optics` checkout via Cargo `[patch]` and linked worktrees |
 | [Testing](testing.md) | Running, interpreting, and writing automated unit, integration, and headless UI frame tests |
 | [Acceptance](acceptance.md) | Outside-in deliverable acceptance criteria, end-to-end user journeys, and scenario matrices |

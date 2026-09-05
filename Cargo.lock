@@ -19,17 +19,18 @@ dependencies = [
 
 [[package]]
 name = "arca"
-version = "0.2.1"
+version = "0.2.3"
 dependencies = [
- "arca-core",
+ "arca-engine",
  "arca-ui",
  "iris",
 ]
 
 [[package]]
-name = "arca-core"
-version = "0.2.1"
+name = "arca-engine"
+version = "0.2.3"
 dependencies = [
+ "arca-xdg",
  "image",
  "serde",
  "serde_json",
@@ -37,14 +38,19 @@ dependencies = [
 
 [[package]]
 name = "arca-ui"
-version = "0.2.1"
+version = "0.2.3"
 dependencies = [
- "arca-core",
+ "arca-engine",
+ "arca-xdg",
  "flux-sys",
  "iris",
  "lens",
  "lens-sys",
 ]
+
+[[package]]
+name = "arca-xdg"
+version = "0.2.3"
 
 [[package]]
 name = "autocfg"

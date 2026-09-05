@@ -280,7 +280,7 @@ pub struct PrompterRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "kind", content = "request", rename_all = "snake_case")]
 pub enum PromptRequest {
     FileChooser(Box<FileChooserRequest>),
     #[serde(other)]
@@ -295,7 +295,7 @@ pub struct PrompterResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "kind", content = "response", rename_all = "snake_case")]
 pub enum PromptResult {
     FileChooser(FileChooserResponse),
 }
@@ -668,6 +668,11 @@ mod tests {
         };
 
         let json = serde_json::to_string(&prompter_req).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["version"], PROCESS_CONTRACT_VERSION);
+        assert_eq!(value["prompt"]["kind"], "file_chooser");
+        assert!(value["prompt"]["request"].is_object());
+
         let (decoded_fc, appearance) = read_prompter_request(json.as_bytes()).unwrap();
         assert_eq!(decoded_fc.app_id, req.app_id);
         assert_eq!(decoded_fc.title, req.title);
@@ -683,6 +688,11 @@ mod tests {
         };
         let mut resp_buf = Vec::new();
         write_prompter_response(&mut resp_buf, response).unwrap();
+
+        let resp_value: serde_json::Value = serde_json::from_slice(&resp_buf).unwrap();
+        assert_eq!(resp_value["version"], PROCESS_CONTRACT_VERSION);
+        assert_eq!(resp_value["result"]["kind"], "file_chooser");
+        assert!(resp_value["result"]["response"].is_object());
 
         let resp_parsed: PrompterResponse = serde_json::from_slice(&resp_buf).unwrap();
         assert_eq!(resp_parsed.version, PROCESS_CONTRACT_VERSION);

@@ -330,6 +330,10 @@ impl UiApp {
                             chooser.accept_paths(vec![path]);
                             iris::window_close();
                             return;
+                        } else if chooser.request.mode == FileChooserMode::SaveFile {
+                            chooser.save_name.set(name);
+                            crate::chooser::trigger_accept(self);
+                            return;
                         }
                     }
                 }
