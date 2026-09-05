@@ -44,10 +44,17 @@ impl ChooserState {
         request: FileChooserRequest,
         appearance: Option<PromptAppearance>,
     ) -> ChooserState {
-        let save_name = TextBuf::new(
-            1024,
-            request.current_name.as_deref().unwrap_or(""),
-        );
+        let initial_save_name = if let Some(name) = request.current_name.as_deref() {
+            name.to_string()
+        } else if let Some(file) = &request.current_file {
+            file.to_path_buf()
+                .file_name()
+                .map(|f| f.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let save_name = TextBuf::new(1024, &initial_save_name);
 
         let mut filters = request.filters.clone();
         if filters.is_empty() {
@@ -225,6 +232,26 @@ pub(crate) fn build_chooser_footer(
                         frame.size_next(0.0, 32.0);
                         frame.textfield("##save-name", &mut chooser.save_name);
                         capture_save_name(chooser, frame);
+                    },
+                );
+            }
+
+            // In SaveFiles mode, show summary of files to be saved
+            if mode == FileChooserMode::SaveFiles {
+                frame.row_ex(
+                    &LayoutOpts {
+                        gap: 8.0,
+                        cross: Align::Center,
+                        ..Default::default()
+                    },
+                    |frame| {
+                        let count = chooser.request.files.len();
+                        let text = if count == 1 {
+                            "Saving 1 file to selected folder".to_string()
+                        } else {
+                            format!("Saving {count} files to selected folder")
+                        };
+                        frame.label_compact(&text);
                     },
                 );
             }
@@ -584,9 +611,23 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
             iris::window_close();
         }
         FileChooserMode::SaveFile => {
-            let name = chooser.save_name.as_str().trim().to_string();
+            let mut name = chooser.save_name.as_str().trim().to_string();
             if name.is_empty() || name.contains('/') || name.contains('\0') {
                 return;
+            }
+            if !name.contains('.') {
+                if let Some(filter) = chooser.active_filter() {
+                    for rule in &filter.rules {
+                        if rule.kind == arca_engine::chooser::FilterRuleKind::Glob {
+                            if let Some(ext) = rule.value.strip_prefix("*.") {
+                                if !ext.contains('*') && !ext.contains('?') {
+                                    name = format!("{name}.{ext}");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             let target = Path::new(app.state.cwd()).join(&name);
             if target.exists() {
@@ -597,7 +638,15 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
             }
         }
         FileChooserMode::SaveFiles => {
-            let folder = PathBuf::from(app.state.cwd());
+            let folder = if let Some(entry) = app.state.selected_entry() {
+                if entry.navigable {
+                    Path::new(app.state.cwd()).join(&entry.name)
+                } else {
+                    PathBuf::from(app.state.cwd())
+                }
+            } else {
+                PathBuf::from(app.state.cwd())
+            };
             match chooser.request.finish_paths(vec![folder]) {
                 Ok(paths) => {
                     chooser.accept_paths(paths);
