@@ -9,8 +9,8 @@
 use std::sync::OnceLock;
 
 use iris::Frame;
-use arca_core::bookmarks::BookmarkKind;
-use arca_core::entry::{Entry, FileType};
+use arca_engine::bookmarks::BookmarkKind;
+use arca_engine::entry::{Entry, FileType};
 
 /// One glyph of arca's icon set; the variant name is the PascalCase of
 /// the SVG file name in `assets/icons/`.
@@ -49,6 +49,7 @@ pub(crate) enum AssetId {
     Settings,
     Sun,
     Terminal,
+    Trash,
     X,
 }
 
@@ -93,6 +94,7 @@ impl AssetId {
         AssetId::Settings,
         AssetId::Sun,
         AssetId::Terminal,
+        AssetId::Trash,
         AssetId::X,
     ];
 
@@ -132,6 +134,7 @@ impl AssetId {
             AssetId::Settings => include_str!("../../../assets/icons/settings.svg"),
             AssetId::Sun => include_str!("../../../assets/icons/sun.svg"),
             AssetId::Terminal => include_str!("../../../assets/icons/terminal.svg"),
+            AssetId::Trash => include_str!("../../../assets/icons/trash.svg"),
             AssetId::X => include_str!("../../../assets/icons/x.svg"),
         }
     }
@@ -237,7 +240,7 @@ pub fn selectable_icon(frame: &mut Frame, id: AssetId, label: &str, selected: bo
     frame.selectable_icon(label, lens_id(id), selected)
 }
 
-/// Icon for a directory entry (type glyph + extension mapping).
+/// Icon for a directory entry (type glyph + MIME / extension mapping).
 pub fn entry_icon(e: &Entry) -> AssetId {
     match e.file_type {
         FileType::Directory => dir_icon(&e.name),
@@ -248,7 +251,29 @@ pub fn entry_icon(e: &Entry) -> AssetId {
                 ids::Link2
             }
         }
-        _ => file_icon(&e.name),
+        _ => {
+            let mime = &e.mime_type;
+            if mime.starts_with("image/") {
+                ids::Image
+            } else if mime.starts_with("audio/") {
+                ids::Music
+            } else if mime.starts_with("video/") {
+                ids::Film
+            } else if mime == "application/x-desktop" {
+                ids::Monitor
+            } else if mime == "application/x-executable" || mime == "text/x-script" {
+                ids::Terminal
+            } else if mime == "application/zip"
+                || mime == "application/x-tar"
+                || mime == "application/gzip"
+                || mime == "application/x-xz"
+                || mime == "application/x-7z-compressed"
+            {
+                ids::Archive
+            } else {
+                file_icon(&e.name)
+            }
+        }
     }
 }
 
@@ -261,6 +286,7 @@ pub fn bookmark_icon(kind: BookmarkKind) -> AssetId {
         BookmarkKind::Music => ids::Music,
         BookmarkKind::Pictures => ids::Image,
         BookmarkKind::Videos => ids::Film,
+        BookmarkKind::Trash => ids::Trash,
         BookmarkKind::Folder => ids::Folder,
     }
 }

@@ -80,7 +80,7 @@ pub fn branded_theme(dark: bool) -> Theme {
 
 pub fn branded_theme_with_accent(
     dark: bool,
-    accent: Option<arca_core::chooser::PromptAccent>,
+    accent: Option<arca_engine::chooser::PromptAccent>,
 ) -> Theme {
     let base = if dark { Theme::dark() } else { Theme::light() };
     let accent_col = if let Some(a) = accent {

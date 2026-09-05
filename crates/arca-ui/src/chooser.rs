@@ -8,11 +8,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf};
-use arca_core::chooser::{
+use arca_engine::chooser::{
     BytePath, Choice, FileChooserMode, FileChooserRequest, FileChooserResponse, FileFilter,
     PromptAppearance, PromptColorScheme,
 };
-use arca_core::state::AppState;
+use arca_engine::state::AppState;
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -622,18 +622,18 @@ pub fn run_chooser(
         file.to_path_buf()
             .parent()
             .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(arca_core::path::home_dir)
+            .unwrap_or_else(arca_engine::path::home_dir)
     } else {
-        arca_core::path::home_dir()
+        arca_engine::path::home_dir()
     };
 
-    let config_file = arca_core::config::config_path();
-    let mut cfg = arca_core::config::load(&config_file);
+    let config_file = arca_engine::config::config_path();
+    let mut cfg = arca_engine::config::load(&config_file);
     if let Some(appr) = &appearance {
         match appr.color_scheme {
-            PromptColorScheme::Dark => cfg.theme = arca_core::ThemeMode::Dark,
-            PromptColorScheme::Light => cfg.theme = arca_core::ThemeMode::Light,
-            PromptColorScheme::System => cfg.theme = arca_core::ThemeMode::System,
+            PromptColorScheme::Dark => cfg.theme = arca_engine::ThemeMode::Dark,
+            PromptColorScheme::Light => cfg.theme = arca_engine::ThemeMode::Light,
+            PromptColorScheme::System => cfg.theme = arca_engine::ThemeMode::System,
         }
     }
 

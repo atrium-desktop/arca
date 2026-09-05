@@ -2,7 +2,7 @@
 
 use iris::{Align, Frame, LayoutOpts};
 use lens::patterns::{SplitOpts, split_handle_v};
-use arca_core::bookmarks::BookmarkKind;
+use arca_engine::bookmarks::BookmarkKind;
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
