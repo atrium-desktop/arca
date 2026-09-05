@@ -3,9 +3,9 @@
 use std::time::Instant;
 
 use iris::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
-use arca_core::chooser::{FileChooserMode, PromptColorScheme};
-use arca_core::config::{ThemeMode, ViewMode};
-use arca_core::state::AppState;
+use arca_engine::chooser::{FileChooserMode, PromptColorScheme};
+use arca_engine::config::{ThemeMode, ViewMode};
+use arca_engine::state::AppState;
 
 use crate::chooser::{self, ChooserState};
 use crate::menus;
@@ -508,8 +508,18 @@ impl UiApp {
                             self.begin_rename(name);
                         }
                     }
-                    'c' if !shift => self.state.yank_selected(false),
-                    'x' if !shift => self.state.yank_selected(true),
+                    'c' if !shift => {
+                        self.state.yank_selected(false);
+                        if let Some(payload) = self.state.clipboard_payload() {
+                            frame.copy(&payload);
+                        }
+                    }
+                    'x' if !shift => {
+                        self.state.yank_selected(true);
+                        if let Some(payload) = self.state.clipboard_payload() {
+                            frame.copy(&payload);
+                        }
+                    }
                     'v' if !shift => self.state.paste(),
                     '1'..='9' if !shift && self.chooser.is_none() => {
                         self.switch_tab((k as u8 - b'1') as usize)

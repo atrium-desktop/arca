@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Arca
+GenericName=File Manager
+Comment=Browse and manage files on Wayland
+Exec=arca %U
+Icon=arca
+Terminal=false
+Categories=System;FileTools;FileManager;Utility;Core;
+MimeType=inode/directory;x-scheme-handler/file;
+StartupNotify=true
+StartupWMClass=arca
+Keywords=files;folders;directory;manager;explore;

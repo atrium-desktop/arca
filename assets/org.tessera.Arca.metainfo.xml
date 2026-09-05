@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.tessera.Arca</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Arca</name>
+  <summary>A fast file manager for Wayland</summary>
+  <description>
+    <p>
+      Arca is a fast, keyboard-first file manager for Wayland, built on the optics
+      graphics stack. It is designed as a companion application for the Tessera desktop
+      while remaining fully standalone across any Wayland compositor.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>Three viewing modes: icon grid, detailed sortable list, and Miller columns</li>
+      <li>Off-thread thumbnail generation for images and audio files (FLAC/MP3 cover art)</li>
+      <li>Quick Look preview overlay for instant file and metadata inspection</li>
+      <li>Independent tabbed navigation and customizable bookmarks</li>
+      <li>FreeDesktop Trash specification compliance with full restore support</li>
+      <li>Integrated XDG Desktop Portal file chooser prompter and standalone CLI picker</li>
+      <li>Live system light and dark color scheme synchronization</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">org.tessera.Arca.desktop</launchable>
+  <provides>
+    <mediatype>inode/directory</mediatype>
+    <binary>arca</binary>
+  </provides>
+  <categories>
+    <category>System</category>
+    <category>FileTools</category>
+    <category>FileManager</category>
+    <category>Utility</category>
+  </categories>
+  <url type="homepage">https://github.com/aegis-shell/arca</url>
+  <url type="bugtracker">https://github.com/aegis-shell/arca/issues</url>
+</component>

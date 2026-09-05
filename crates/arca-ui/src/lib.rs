@@ -19,7 +19,7 @@ mod toolbar;
 pub use app::UiApp;
 pub use chooser::run_chooser;
 
-use arca_core::state::AppState;
+use arca_engine::state::AppState;
 
 /// Open the Arca window and run the event loop until it closes.
 pub fn run(state: AppState) -> Result<(), iris::RunError> {
@@ -44,7 +44,7 @@ pub fn run(state: AppState) -> Result<(), iris::RunError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arca_core::config::Config;
+    use arca_engine::config::Config;
 
     /// A temp directory with a couple of entries, wired to an isolated
     /// config file so tests never touch the real user config.
@@ -142,9 +142,9 @@ mod tests {
         let mut ui = lens::Ui::headless().expect("headless ui");
         let input = lens::Input::new((1280.0, 760.0), 1.0 / 60.0);
         for mode in [
-            arca_core::ViewMode::Grid,
-            arca_core::ViewMode::List,
-            arca_core::ViewMode::Miller,
+            arca_engine::ViewMode::Grid,
+            arca_engine::ViewMode::List,
+            arca_engine::ViewMode::Miller,
         ] {
             app.state.set_view_mode(mode);
             for _ in 0..2 {
@@ -160,9 +160,9 @@ mod tests {
         let mut ui = lens::Ui::headless().expect("headless ui");
         let input = lens::Input::new((720.0, 520.0), 1.0 / 60.0);
         for mode in [
-            arca_core::ViewMode::Grid,
-            arca_core::ViewMode::List,
-            arca_core::ViewMode::Miller,
+            arca_engine::ViewMode::Grid,
+            arca_engine::ViewMode::List,
+            arca_engine::ViewMode::Miller,
         ] {
             app.state.set_view_mode(mode);
             frame(&mut app, &mut ui, &input);
@@ -294,9 +294,9 @@ mod tests {
         let input = lens::Input::new((1280.0, 760.0), 1.0 / 60.0);
 
         for mode in [
-            arca_core::ViewMode::Grid,
-            arca_core::ViewMode::List,
-            arca_core::ViewMode::Miller,
+            arca_engine::ViewMode::Grid,
+            arca_engine::ViewMode::List,
+            arca_engine::ViewMode::Miller,
         ] {
             app.state.set_view_mode(mode);
             let mut overflowed = false;
@@ -458,26 +458,26 @@ mod tests {
     #[test]
     fn chooser_renders_headless_open_mode() {
         let (dir, mut app) = fixture();
-        let req = arca_core::chooser::FileChooserRequest {
-            mode: arca_core::chooser::FileChooserMode::OpenFile,
+        let req = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::OpenFile,
             app_id: "org.test.App".into(),
             title: "Select Document".into(),
             accept_label: Some("Pick".into()),
             modal: true,
             parent_window: None,
             multiple: false,
-            current_folder: Some(arca_core::chooser::BytePath::from_path(&dir)),
+            current_folder: Some(arca_engine::chooser::BytePath::from_path(&dir)),
             current_name: None,
             current_file: None,
-            filters: vec![arca_core::chooser::FileFilter::new(
+            filters: vec![arca_engine::chooser::FileFilter::new(
                 "Text Files (*.txt)",
-                vec![arca_core::chooser::FilterRule {
-                    kind: arca_core::chooser::FilterRuleKind::Glob,
+                vec![arca_engine::chooser::FilterRule {
+                    kind: arca_engine::chooser::FilterRuleKind::Glob,
                     value: "*.txt".into(),
                 }],
             )],
             current_filter: None,
-            choices: vec![arca_core::chooser::Choice {
+            choices: vec![arca_engine::chooser::Choice {
                 id: "read_only".into(),
                 label: "Read only".into(),
                 options: Vec::new(),
@@ -501,15 +501,15 @@ mod tests {
     #[test]
     fn chooser_renders_headless_save_mode_and_accepts() {
         let (dir, mut app) = fixture();
-        let req = arca_core::chooser::FileChooserRequest {
-            mode: arca_core::chooser::FileChooserMode::SaveFile,
+        let req = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::SaveFile,
             app_id: "org.test.App".into(),
             title: "Save Report".into(),
             accept_label: Some("Save Report".into()),
             modal: true,
             parent_window: None,
             multiple: false,
-            current_folder: Some(arca_core::chooser::BytePath::from_path(&dir)),
+            current_folder: Some(arca_engine::chooser::BytePath::from_path(&dir)),
             current_name: Some("report.pdf".into()),
             current_file: None,
             filters: Vec::new(),
@@ -536,7 +536,7 @@ mod tests {
 
         let res = app.chooser.as_ref().unwrap().result.as_ref().unwrap();
         match res {
-            arca_core::chooser::FileChooserResponse::Selected { paths, .. } => {
+            arca_engine::chooser::FileChooserResponse::Selected { paths, .. } => {
                 assert_eq!(paths.len(), 1);
                 assert_eq!(paths[0].to_path_buf(), dir.join("report.pdf"));
             }
@@ -549,15 +549,15 @@ mod tests {
     #[test]
     fn chooser_save_overwrite_modal_triggers() {
         let (dir, mut app) = fixture();
-        let req = arca_core::chooser::FileChooserRequest {
-            mode: arca_core::chooser::FileChooserMode::SaveFile,
+        let req = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::SaveFile,
             app_id: "org.test.App".into(),
             title: "Save File".into(),
             accept_label: None,
             modal: true,
             parent_window: None,
             multiple: false,
-            current_folder: Some(arca_core::chooser::BytePath::from_path(&dir)),
+            current_folder: Some(arca_engine::chooser::BytePath::from_path(&dir)),
             current_name: Some("a.txt".into()), // "a.txt" already exists in fixture!
             current_file: None,
             filters: Vec::new(),
@@ -596,7 +596,7 @@ mod tests {
         frame(&mut app, &mut ui, &esc);
         assert_eq!(
             app.chooser.as_ref().unwrap().result,
-            Some(arca_core::chooser::FileChooserResponse::Cancelled)
+            Some(arca_engine::chooser::FileChooserResponse::Cancelled)
         );
 
         std::fs::remove_dir_all(&dir).unwrap();

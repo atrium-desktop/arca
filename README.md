@@ -121,13 +121,26 @@ bookmark = /home/you/projects
 
 ## Architecture
 
-Arca is a Cargo workspace with three crates:
+Arca is a Cargo workspace with four crates:
 
 | Crate | Role |
 |-------|------|
-| `crates/arca-core` | Pure business logic — tab sessions, directory/Miller models, previews, history, bookmarks, sorting/filtering, file operations, trash, config. No GUI deps; fully unit-tested. |
+| `crates/arca-xdg` | Pure-std, zero-dependency Freedesktop.org (XDG) specifications — Base Dirs, User Dirs, RFC 8089 File URIs, Shared MIME-info, Desktop Entries, `mimeapps.list`, Trash v1.0, and standard clipboard protocols. |
+| `crates/arca-engine` | Application domain engine & session state — directory models, previews, history, bookmarks, sorting/filtering, file operations, config, and FreeDesktop thumbnail service. No GUI deps; fully unit-tested. |
 | `crates/arca-ui` | View/interaction layer on `lens`/`iris` — responsive grid/list/Miller rendering, animated Quick Look, tabs and chrome. Headless tests drive real frames. |
-| `crates/arca` | Thin binary: builds `AppState`, opens the `iris` window, runs the loop. |
+| `crates/arca` | Thin binary: builds `AppState`, handles CLI / Portal prompt dispatch, opens the `iris` window, runs the loop. |
 
 See [docs/dev/optics-migration.md](docs/dev/optics-migration.md) for the
 migration record from the legacy flux/flux-ui stack.
+
+## Documentation
+
+Full project documentation is organized under `docs/`:
+
+- [Documentation Entry Point](docs/index.md)
+- [Getting Started Tutorial](docs/tutorials/01-getting-started.md)
+- [How-To Guides](docs/how-to/index.md)
+- [Configuration Reference](docs/reference/configuration.md)
+- [CLI Reference](docs/reference/cli.md)
+- [Packaging Guide](docs/dev/packaging.md)
+- [Repository Governance](docs/governance/index.md)

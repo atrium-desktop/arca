@@ -1,0 +1,9 @@
+[package]
+name = "arca-xdg"
+description = "Pure-std, zero-dependency Freedesktop.org (XDG) specifications implementation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Strictly ZERO external dependencies — pure std only.

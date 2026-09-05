@@ -1,11 +1,11 @@
 //! Arca — a fast file manager for Wayland,
 //! built on the optics stack (flux/lens/iris).
 
-use arca_core::chooser::{
+use arca_engine::chooser::{
     read_prompter_request, write_prompter_response, BytePath, FileChooserMode, FileChooserRequest,
     FileChooserResponse,
 };
-use arca_core::{AppState, ViewMode};
+use arca_engine::{AppState, ViewMode};
 
 fn main() {
     let mut args = std::env::args().skip(1).peekable();
@@ -52,7 +52,7 @@ fn main() {
             "--grid" => state.view_mode = ViewMode::Grid,
             "--list" => state.view_mode = ViewMode::List,
             "--miller" => state.view_mode = ViewMode::Miller,
-            path if !path.starts_with('-') => state.navigate(&path),
+            path if !path.starts_with('-') => state.navigate(path),
             _ => eprintln!("arca: unknown option: {argument}"),
         }
     }

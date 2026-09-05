@@ -1,21 +1,32 @@
 # Contributor Documentation
 
-Material for project contributors: build and architecture notes and the
-governance policy that organizes this `docs/` tree.
+This directory contains internal engineering documentation for contributors working
+on Arca: build workflows, automated testing, delivery acceptance procedures, packaging,
+and architecture notes.
 
-For the user pitch and quick start, see the root
-[README](../../README.md). For crate layout, build and test commands,
-and contributor conventions, see [AGENTS.md](../../AGENTS.md).
+For the project overview, see the root [README](../../README.md). For crate layout,
+conventions, and AI assistant rules, see [AGENTS.md](../../AGENTS.md). For governance
+charters, see [Repository Governance](../governance/index.md).
 
-## Architecture and history
+---
+
+## Developer Guides
 
 | Page | Topic |
 |------|-------|
-| [Optics migration](optics-migration.md) | Port from the legacy flux/flux-ui stack to the optics monorepo, workspace layout, binding mechanics, testing strategy, and known limitations |
-| [Cross-repository development](cross-repository-development.md) | Linked `arca-dev` worktree on a local `dev` branch, Cargo `[patch]` against the sibling optics checkout, and the canonical tagged-release workflow |
+| [Cross-Repository Development](cross-repository-development.md) | Developing against a live sibling `optics` checkout via Cargo `[patch]` and linked worktrees |
+| [Testing](testing.md) | Running, interpreting, and writing automated unit, integration, and headless UI frame tests |
+| [Acceptance](acceptance.md) | Outside-in deliverable acceptance criteria, end-to-end user journeys, and scenario matrices |
+| [Packaging](packaging.md) | Distribution packaging instructions, dependencies, reproducible builds, and system manifests |
+| [Optics Migration](optics-migration.md) | History and mechanics of porting to the Optics monorepo (`flux` / `lens` / `iris`) |
 
-## Documentation governance
+---
 
-The [documentation](documentation/index.md) directory defines how
-documentation is routed, written, and reviewed in this repository. Read
-it before adding, moving, or removing any documentation.
+## Governance and Architecture
+
+- [Repository Governance](../governance/index.md) — Architectural invariants, review
+  gates, and PR checklist.
+- [Architecture Decision Records](../adr/index.md) — Durable technical decisions
+  (ADRs).
+- [Documentation Governance Standard](../governance/documentation/core/index.md) —
+  Mirrored documentation governance standard (Protocol v3.1.0).

@@ -6,6 +6,6 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-arca-core.workspace = true
+arca-engine.workspace = true
 arca-ui.workspace = true
 iris.workspace = true

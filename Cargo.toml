@@ -1,7 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/arca-core",
+    "crates/arca-xdg",
+    "crates/arca-engine",
     "crates/arca-ui",
     "crates/arca",
 ]
@@ -27,7 +28,8 @@ flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
 flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-arca-core = { path = "crates/arca-core", version = "0.2.1" }
+arca-xdg = { path = "crates/arca-xdg", version = "0.2.1" }
+arca-engine = { path = "crates/arca-engine", version = "0.2.1" }
 arca-ui = { path = "crates/arca-ui", version = "0.2.1" }
 
 [profile.release]

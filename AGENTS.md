@@ -17,10 +17,13 @@ checkout for cross-repository development.
 
 ## Layout
 
-- `crates/arca-core` — all business logic. **No GUI dependencies.**
-  Directory model, history, bookmarks, sort/filter, file ops, trash, config,
-  thumbnail extraction (`thumbs.rs`: FLAC/MP3 embedded covers and PNG/JPEG
-  files, decoded off-thread behind an LRU cache).
+- `crates/arca-xdg` — pure-Rust, zero-dependency Freedesktop.org (XDG)
+  specifications: Base Directories, User Directories, RFC 8089 File URIs,
+  Shared MIME-info with content sniffing, Desktop Entry & mimeapps.list,
+  FreeDesktop Trash v1.0, and standard clipboard protocols.
+- `crates/arca-engine` — file manager engine and session state. **No GUI dependencies.**
+  Directory model, history, bookmarks, sort/filter, file ops, config,
+  thumbnail service conforming to FreeDesktop standard.
 - `crates/arca-ui` — the only crate that talks to `iris` / `lens` /
   `lens-sys`. Renders `AppState` per frame; owns text buffers, focus, popup
   state, the GPU thumbnail store (`src/thumbs.rs`) and the icon runtime
@@ -30,8 +33,10 @@ checkout for cross-repository development.
   of truth, no generation step.
 - `crates/arca` — thin binary (`main.rs` only) plus the rpath-relay
   `build.rs`.
-- `docs/` — user/dev docs; `docs/dev/documentation/` is a governance policy
-  directory: do not modify it (human-maintained).
+- `docs/` — user, dev, and governance documentation;
+  `docs/governance/documentation/` is a governance standard directory managed
+  via `docs-governance` protocol v3.1.0: do not modify standard files
+  directly; follow the sync/verify toolchain.
 
 ## Build & test
 
@@ -61,10 +66,10 @@ pattern used by the optics bindings themselves).
 
 - The `arca-*` crates stay std-only except for one approved crates.io
   dependency: the `image` crate (features `png`, `jpeg` only) in
-  `arca-core`, which decodes thumbnails — the optics stack has no image
+  `arca-engine`, which decodes thumbnails — the optics stack has no image
   decoder. Discuss before adding any other dependency or enabling more
   `image` formats.
-- Logic goes down into `arca-core` (unit-test it there); `arca-ui`
+- Logic goes down into `arca-engine` (unit-test it there); `arca-ui`
   stays a thin rendering/event layer.
 - The safe `lens` API is preferred. When a needed symbol is not wrapped
   (focus-by-id, clipboard, image upload/draw), call `lens_sys` through

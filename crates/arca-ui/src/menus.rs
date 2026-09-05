@@ -9,7 +9,7 @@
 //! for the opening click), which these builders mirror back into app state.
 
 use iris::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
-use arca_core::config::ThemeMode;
+use arca_engine::config::ThemeMode;
 
 use crate::app::{CTX_MENU_ID, SETTINGS_MENU_ID, SIDEBAR_MENU_ID, UiApp};
 use crate::icons::{self, ids};
@@ -97,6 +97,20 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
             }
             keep_open = false;
         }
+        if f.selectable("Copy", false) {
+            app.state.yank_selected(false);
+            if let Some(payload) = app.state.clipboard_payload() {
+                f.copy(&payload);
+            }
+            keep_open = false;
+        }
+        if f.selectable("Cut", false) {
+            app.state.yank_selected(true);
+            if let Some(payload) = app.state.clipboard_payload() {
+                f.copy(&payload);
+            }
+            keep_open = false;
+        }
         if f.selectable("Copy Path", false) {
             if let Some(path) = app.state.selected_path() {
                 f.copy(&path);
@@ -104,8 +118,40 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
             }
             keep_open = false;
         }
+        let selected_file = app
+            .state
+            .selected_entry()
+            .filter(|e| !e.navigable)
+            .cloned();
+        if let Some(entry) = selected_file {
+            let apps = arca_xdg::desktop::applications_for_mime(&entry.mime_type);
+            for app_entry in apps.iter().take(3) {
+                let label = format!("Open with {}", app_entry.name);
+                if f.selectable(&label, false) {
+                    if let Some(path_str) = app.state.selected_path() {
+                        let _ = app_entry.spawn(&[std::path::Path::new(&path_str)]);
+                    }
+                    keep_open = false;
+                }
+            }
+        }
         f.separator();
-        if f.selectable("Move to Trash", false) {
+        let is_in_trash = app.state.cwd().contains("/Trash/files");
+        if is_in_trash {
+            if f.selectable("Restore", false) {
+                if let Some(entry) = app.state.selected_entry() {
+                    if let Ok(items) = arca_xdg::trash::list_trash() {
+                        if let Some(item) = items.into_iter().find(|i| i.id == entry.name || i.file_path.ends_with(&entry.name)) {
+                            if let Ok(restored) = arca_xdg::trash::restore_trash_item(&item) {
+                                app.state.set_status(format!("Restored to {}", restored.display()));
+                                app.state.refresh();
+                            }
+                        }
+                    }
+                }
+                keep_open = false;
+            }
+        } else if f.selectable("Move to Trash", false) {
             app.state.trash_selected();
             keep_open = false;
         }
@@ -143,6 +189,16 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) 
             f.separator();
             if f.selectable("Remove from Bookmarks", false) {
                 app.state.toggle_bookmark(&menu.path);
+                keep_open = false;
+            }
+        }
+        if menu.path.ends_with("/Trash") || menu.path.ends_with("/Trash/files") {
+            f.separator();
+            if f.selectable("Empty Trash", false) {
+                if let Ok(count) = arca_xdg::trash::empty_trash() {
+                    app.state.set_status(format!("Emptied Trash ({count} items deleted)"));
+                    app.state.refresh();
+                }
                 keep_open = false;
             }
         }
