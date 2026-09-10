@@ -20,7 +20,7 @@ rust-version = "1.85"
 # C libraries discovered by pkg-config. A linked development worktree can
 # patch these sources to a sibling checkout through .cargo/optics-local.toml
 # without making that checkout mandatory for CI or downstream packagers; see
-# docs/dev/cross-repository-development.md.
+# docs/dev/optics-dev-worktree.md.
 iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
 lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }
 lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.34" }

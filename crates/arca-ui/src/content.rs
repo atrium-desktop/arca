@@ -22,6 +22,25 @@ const MILLER_ROW_PITCH: f32 = 36.0 + 2.0;
 /// never flashes blank while scrolling.
 const OVERSCAN_ROWS: usize = 2;
 
+// Test-only record of the last `build_list` virtualized window, so a test can
+// assert scrolling advances `(first, last)` instead of freezing on the
+// first-frame fallback.
+#[cfg(test)]
+thread_local! {
+    static LIST_WINDOW: std::cell::Cell<Option<(usize, usize)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn record_list_window(window: (usize, usize)) {
+    LIST_WINDOW.with(|slot| slot.set(Some(window)));
+}
+
+#[cfg(test)]
+fn last_list_window() -> Option<(usize, usize)> {
+    LIST_WINDOW.with(std::cell::Cell::get)
+}
+
 fn scroll_offset(frame: &mut Frame, id: &str) -> Option<(f32, f32)> {
     let c = std::ffi::CString::new(id).ok()?;
     let mut x = 0.0f32;
@@ -36,6 +55,17 @@ fn scroll_to(frame: &mut Frame, id: &str, x: f32, y: f32) {
     }
 }
 
+/// Offset and viewport height of the scroll node with `scroll_id`, retained
+/// from the previous frame. Both queries must run from the scroll's *parent*
+/// id scope: inside the scroll closure the id is re-hashed against the
+/// scroll's own scope and never matches, so the lookup would silently fail
+/// and freeze the virtualized window on its first-frame fallback.
+fn scroll_geometry(frame: &mut Frame, scroll_id: &str) -> Option<(f32, f32)> {
+    let offset = scroll_offset(frame, scroll_id).map(|(_, y)| y)?;
+    let viewport_h = frame.node_bounds(scroll_id).map(|rect| rect.h)?;
+    Some((offset, viewport_h))
+}
+
 /// Row range intersecting the scroll viewport: the retained scroll offset
 /// plus the viewport height from last frame's bounds, plus overscan. Falls
 /// back to the first `fallback_rows` rows when no geometry exists yet
@@ -45,8 +75,7 @@ fn scroll_to(frame: &mut Frame, id: &str, x: f32, y: f32) {
 /// silently (blank icons and labels), so a large listing must only ever
 /// build the rows that are actually visible.
 fn visible_rows(
-    frame: &mut Frame,
-    scroll_id: &str,
+    geometry: Option<(f32, f32)>,
     row_count: usize,
     pitch: f32,
     fallback_rows: usize,
@@ -54,10 +83,7 @@ fn visible_rows(
     if row_count == 0 {
         return (0, 0);
     }
-    // Same id scope as the scroll itself, so both queries resolve.
-    let offset = scroll_offset(frame, scroll_id).map(|(_, y)| y);
-    let viewport_h = frame.node_bounds(scroll_id).map(|rect| rect.h);
-    let (Some(offset), Some(viewport_h)) = (offset, viewport_h) else {
+    let Some((offset, viewport_h)) = geometry else {
         return (0, row_count.min(fallback_rows));
     };
     let first = ((offset / pitch).floor() as usize).saturating_sub(OVERSCAN_ROWS);
@@ -185,6 +211,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
     let columns = app.grid_columns();
     let row_count = visible.len().div_ceil(columns);
     let fallback = (app.viewport.1 / GRID_ROW_PITCH).ceil() as usize + OVERSCAN_ROWS + 2;
+    let geometry = scroll_geometry(frame, "grid-files");
     frame.flex(1.0);
     frame.scroll("grid-files", |frame| {
         frame.column_ex(
@@ -196,7 +223,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
             },
             |frame| {
                 let (first, last) =
-                    visible_rows(frame, "grid-files", row_count, GRID_ROW_PITCH, fallback);
+                    visible_rows(geometry, row_count, GRID_ROW_PITCH, fallback);
                 row_spacer(frame, "##grid-vtop", spacer_height(first, GRID_ROW_PITCH, 10.0));
                 for row in first..last {
                     let start = row * columns;
@@ -300,6 +327,7 @@ fn build_grid_card(
 fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usize]) {
     build_list_header(app, frame, tones, header_trailing_inset(app, visible.len()));
     let fallback = (app.viewport.1 / LIST_ROW_PITCH).ceil() as usize + OVERSCAN_ROWS + 2;
+    let geometry = scroll_geometry(frame, "list-files");
     frame.flex(1.0);
     frame.scroll("list-files", |frame| {
         frame.column_ex(
@@ -311,7 +339,9 @@ fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
             },
             |frame| {
                 let (first, last) =
-                    visible_rows(frame, "list-files", visible.len(), LIST_ROW_PITCH, fallback);
+                    visible_rows(geometry, visible.len(), LIST_ROW_PITCH, fallback);
+                #[cfg(test)]
+                record_list_window((first, last));
                 row_spacer(frame, "##list-vtop", spacer_height(first, LIST_ROW_PITCH, 2.0));
                 for (visible_index, &entry_index) in
                     visible.iter().enumerate().take(last).skip(first)
@@ -490,6 +520,7 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             let scroll_id = format!("miller-list-{column_index}");
                             let fallback =
                                 (column_height / MILLER_ROW_PITCH).ceil() as usize + OVERSCAN_ROWS + 2;
+                            let geometry = scroll_geometry(frame, &scroll_id);
                             frame.scroll(&scroll_id, |frame| {
                                 frame.column_ex(
                                     &LayoutOpts {
@@ -504,8 +535,7 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                             column.entries.len()
                                         };
                                         let (first, last) = visible_rows(
-                                            frame,
-                                            &scroll_id,
+                                            geometry,
                                             entry_count,
                                             MILLER_ROW_PITCH,
                                             fallback,
@@ -798,4 +828,62 @@ fn placeholder(
             theme::label_colored(frame, detail, tones.muted);
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arca_engine::config::Config;
+    use arca_engine::state::AppState;
+
+    /// The virtualized list window must follow the scroll offset. The offset
+    /// and viewport are only resolvable from the scroll's parent scope; when
+    /// they were queried inside the scroll closure the lookup always failed,
+    /// pinning the window to the first frame's fallback so scrolling a long
+    /// directory showed blank rows.
+    #[test]
+    fn scrolling_advances_the_virtualized_list_window() {
+        let dir = std::env::temp_dir().join(format!(
+            "arca-content-scroll-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..200 {
+            std::fs::write(dir.join(format!("file-{i:04}.txt")), b"x").unwrap();
+        }
+        let config_file = dir.join("cfg").join("arca.conf");
+        let mut app = UiApp::new(AppState::with_config(
+            config_file.to_str().unwrap().into(),
+            Config::default(),
+            dir.to_str().unwrap(),
+        ));
+        app.state.set_view_mode(ViewMode::List);
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..3 {
+            ui.frame(&settle, |f| app.build(f, &settle));
+        }
+        let before = last_list_window().expect("list window recorded");
+        assert_eq!(before.0, 0, "unscrolled list starts at the top");
+
+        // Wheel down over the list area; lens scrolls with negative scroll_y.
+        let mut wheel = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        wheel.set_cursor(600.0, 420.0);
+        wheel.set_scroll(0.0, -2.0);
+        for _ in 0..4 {
+            ui.frame(&wheel, |f| app.build(f, &wheel));
+        }
+        let after = last_list_window().expect("list window recorded");
+        assert!(
+            after.0 > before.0,
+            "scroll must advance the window: {before:?} -> {after:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

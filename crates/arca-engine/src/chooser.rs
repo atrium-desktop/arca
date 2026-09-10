@@ -547,6 +547,24 @@ pub fn mime_matches(rule: &str, path: &Path) -> bool {
 
 // ---- JSON wire helpers ----------------------------------------------------
 
+/// Strip GTK-style mnemonic markers from a portal label: a lone `_` before a
+/// character designates an accelerator and must not be shown literally, while
+/// `__` is an escaped literal underscore. The dialog has no accelerators, so
+/// keeping the markers would render stray underscores (e.g. `_Open`).
+fn strip_mnemonics(label: &str) -> String {
+    let mut out = String::with_capacity(label.len());
+    let mut chars = label.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '_' {
+            out.push(c);
+        } else if chars.peek() == Some(&'_') {
+            chars.next();
+            out.push('_');
+        }
+    }
+    out
+}
+
 /// Read and decode one request envelope from `reader`.
 pub fn read_prompter_request<R: io::Read>(
     reader: R,
@@ -554,7 +572,10 @@ pub fn read_prompter_request<R: io::Read>(
     let req: PrompterRequest = serde_json::from_reader(reader)
         .map_err(|e| format!("failed to parse prompter request JSON: {e}"))?;
     match req.prompt {
-        PromptRequest::FileChooser(fc) => {
+        PromptRequest::FileChooser(mut fc) => {
+            if let Some(label) = fc.accept_label.as_deref() {
+                fc.accept_label = Some(strip_mnemonics(label));
+            }
             fc.validate()?;
             Ok((*fc, req.appearance))
         }
@@ -621,6 +642,40 @@ mod tests {
         assert!(filter.allows("photo.png", Path::new("/tmp/photo.png")));
         assert!(filter.allows("photo.jpg", Path::new("/tmp/photo.jpg")));
         assert!(!filter.allows("doc.pdf", Path::new("/tmp/doc.pdf")));
+    }
+
+    #[test]
+    fn mnemonics_are_stripped_from_accept_label() {
+        assert_eq!(strip_mnemonics("_Open"), "Open");
+        assert_eq!(strip_mnemonics("Save _As"), "Save As");
+        assert_eq!(strip_mnemonics("A__B"), "A_B");
+        assert_eq!(strip_mnemonics("Plain"), "Plain");
+        assert_eq!(strip_mnemonics("_"), "");
+
+        let req = FileChooserRequest {
+            mode: FileChooserMode::OpenFile,
+            app_id: "org.example.App".into(),
+            title: "Open File".into(),
+            accept_label: Some("_Open".into()),
+            modal: false,
+            parent_window: None,
+            multiple: false,
+            current_folder: Some(BytePath::from_path("/home/user")),
+            current_name: None,
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: Vec::new(),
+            files: Vec::new(),
+        };
+        let json = serde_json::to_string(&PrompterRequest {
+            version: PROCESS_CONTRACT_VERSION,
+            prompt: PromptRequest::FileChooser(Box::new(req)),
+            appearance: None,
+        })
+        .unwrap();
+        let (decoded, _) = read_prompter_request(json.as_bytes()).unwrap();
+        assert_eq!(decoded.accept_label.as_deref(), Some("Open"));
     }
 
     #[test]

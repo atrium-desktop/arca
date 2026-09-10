@@ -46,5 +46,5 @@ The codebase was modularized into three workspace crates:
 
 ## Links
 
-- [Cross-Repository Development Guide](../dev/cross-repository-development.md)
+- [Optics Development Worktree Workflow](../dev/optics-dev-worktree.md)
 - [Optics Migration Contributor Guide](../dev/optics-migration.md)

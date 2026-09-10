@@ -49,7 +49,7 @@ cargo run          # needs a Wayland session
 Cross-repository work happens in the `../arca-dev` worktree (local `dev`
 branch), where `.cargo/config.toml` patches the bindings to `../optics`;
 build the sibling meson tree first (`meson compile -C ../optics/build`). The
-full workflow is in `docs/dev/cross-repository-development.md`. Local patch
+full workflow is in `docs/dev/optics-dev-worktree.md`. Local patch
 state (`Cargo.lock`, `.cargo/config.toml`) never enters commits — the
 pre-commit hook (`git config core.hooksPath .githooks`) unstages it.
 

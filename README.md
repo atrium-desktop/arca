@@ -86,7 +86,7 @@ cargo test             # unit + headless-UI tests
 To develop against a live sibling `../optics` checkout instead (no install,
 local `[patch]` resolution), use the linked development worktree described
 in [docs/dev/setup.md](docs/dev/setup.md) and
-[docs/dev/cross-repository-development.md](docs/dev/cross-repository-development.md).
+[docs/dev/optics-dev-worktree.md](docs/dev/optics-dev-worktree.md).
 
 ## Running
 

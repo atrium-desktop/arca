@@ -9,7 +9,7 @@ Before starting work, please review the contributor documentation:
 1. **Governance & Review Gates**: Read [Governance Charter](docs/governance/index.md)
    for project invariants, architectural principles, and PR checklists.
 2. **Development Environment & Setup**: See [AGENTS.md](AGENTS.md) and
-   [Cross-Repository Development](docs/dev/cross-repository-development.md) for
+   [Optics Development Worktree](docs/dev/optics-dev-worktree.md) for
    setting up a local Optics development worktree.
 3. **Automated Testing**: Review [Testing Guide](docs/dev/testing.md) for running unit,
    headless UI, and integration test suites.
