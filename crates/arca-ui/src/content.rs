@@ -289,7 +289,7 @@ fn build_grid_card(
     let is_dragged = app
         .active_drag
         .as_ref()
-        .map_or(false, |d| d.started && d.path == full_path);
+        .is_some_and(|d| d.started && d.path == full_path);
 
     let options = LayoutOpts {
         width: GRID_CARD_WIDTH,
@@ -486,7 +486,7 @@ fn build_list_row(
     let is_dragged = app
         .active_drag
         .as_ref()
-        .map_or(false, |d| d.started && d.path == full_path);
+        .is_some_and(|d| d.started && d.path == full_path);
 
     let options = LayoutOpts {
         height: 42.0,

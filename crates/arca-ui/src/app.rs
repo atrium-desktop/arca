@@ -598,6 +598,7 @@ impl UiApp {
 
             if key == lens::key::ESCAPE {
                 if let Some(chooser) = &mut self.chooser {
+                    frame.consume_key(lens::key::ESCAPE);
                     if chooser.overwrite_confirm.is_some() {
                         chooser.overwrite_confirm = None;
                     } else if chooser.filter_menu_open {
@@ -612,6 +613,7 @@ impl UiApp {
 
             if text_editing {
                 if key == lens::key::RETURN {
+                    frame.consume_key(lens::key::RETURN);
                     if self.rename_focused {
                         self.commit_rename(frame);
                     } else if self.location_focused {
@@ -632,6 +634,7 @@ impl UiApp {
 
             match key {
                 lens::key::TAB if ctrl => {
+                    frame.consume_key(lens::key::TAB);
                     self.state.cycle_tab(shift);
                     self.sync_active_tab();
                 }

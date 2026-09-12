@@ -138,7 +138,7 @@ pub fn complete_path(cwd: &str, input: &str) -> Option<PathCompletion> {
         return None;
     }
 
-    matches.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    matches.sort_by_key(|a| a.0.to_lowercase());
 
     let candidate_paths: Vec<String> = matches
         .iter()

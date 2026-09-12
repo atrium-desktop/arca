@@ -110,10 +110,10 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             }
                         }
 
-                        let is_drag_active = app.active_drag.as_ref().map_or(false, |d| d.started);
+                        let is_drag_active = app.active_drag.as_ref().is_some_and(|d| d.started);
                         let is_target_hovered = drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false)
                             || (is_drag_active
-                                && app.bookmark_drop_rect.map_or(false, |r| crate::app::rect_contains(&r, app.cursor_pos)));
+                                && app.bookmark_drop_rect.is_some_and(|r| crate::app::rect_contains(&r, app.cursor_pos)));
 
                         let (resp, ()) = frame
                             .row()
