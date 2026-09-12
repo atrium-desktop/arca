@@ -8,6 +8,7 @@ use arca_engine::config::{ThemeMode, ViewMode};
 use arca_engine::state::AppState;
 
 use crate::chooser::{self, ChooserState};
+use crate::icons::ids;
 use crate::menus;
 use crate::preview::PreviewOverlay;
 use crate::theme::{self, Tones};
@@ -41,6 +42,35 @@ pub(crate) struct SidebarMenu {
     pub opened: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ActiveDrag {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    #[allow(dead_code)]
+    pub origin_index: usize,
+    pub press_pos: (f32, f32),
+    pub started: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DropTargetZone {
+    pub rect: Rect,
+    pub target_path: String,
+    pub is_bookmark_zone: bool,
+}
+
+pub(crate) fn rect_contains(r: &Rect, p: (f32, f32)) -> bool {
+    p.0 >= r.x && p.0 <= r.x + r.w && p.1 >= r.y && p.1 <= r.y + r.h
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LocationCompletionState {
+    pub last_input: String,
+    pub candidates: Vec<String>,
+    pub candidate_idx: usize,
+}
+
 pub struct UiApp {
     pub state: AppState,
 
@@ -60,7 +90,7 @@ pub struct UiApp {
     pub(crate) rename_focused: bool,
     pub(crate) rename_focused_now: bool,
 
-    pending_focus: Option<FocusTarget>,
+    pub(crate) pending_focus: Option<FocusTarget>,
     pub(crate) last_click: Option<(usize, Instant)>,
     pub(crate) ctx_menu: Option<CtxMenu>,
     pub(crate) settings_menu: Option<CtxMenu>,
@@ -72,6 +102,12 @@ pub struct UiApp {
     observed_tab_id: u64,
     preview: PreviewOverlay,
     pub chooser: Option<ChooserState>,
+    pub(crate) location_completion: Option<LocationCompletionState>,
+    pub(crate) active_drag: Option<ActiveDrag>,
+    pub(crate) drop_targets: Vec<DropTargetZone>,
+    pub(crate) cursor_pos: (f32, f32),
+    pub(crate) bookmark_drop_rect: Option<Rect>,
+    pub(crate) sub_row_rect: Option<Rect>,
 }
 
 impl UiApp {
@@ -85,6 +121,12 @@ impl UiApp {
             location_id: 0,
             location_focused: false,
             location_focused_now: false,
+            location_completion: None,
+            active_drag: None,
+            drop_targets: Vec::new(),
+            cursor_pos: (0.0, 0.0),
+            bookmark_drop_rect: None,
+            sub_row_rect: None,
             filter,
             filter_id: 0,
             filter_focused: false,
@@ -112,6 +154,38 @@ impl UiApp {
     pub fn build(&mut self, frame: &mut Frame, input: &Input) {
         let display = input.as_raw().display_size;
         self.viewport = (display.x, display.y);
+        self.cursor_pos = (input.as_raw().cursor.x, input.as_raw().cursor.y);
+        let mouse_down = input.as_raw().mouse_down[0];
+
+        if let Some(drag) = &mut self.active_drag {
+            if mouse_down {
+                let dx = self.cursor_pos.0 - drag.press_pos.0;
+                let dy = self.cursor_pos.1 - drag.press_pos.1;
+                if (dx * dx + dy * dy) >= 196.0 {
+                    drag.started = true;
+                }
+            } else {
+                if drag.started {
+                    let cursor = self.cursor_pos;
+                    let target = self
+                        .drop_targets
+                        .iter()
+                        .find(|z| rect_contains(&z.rect, cursor))
+                        .cloned();
+                    if let Some(zone) = target {
+                        if zone.is_bookmark_zone {
+                            self.state.add_bookmark(&drag.path);
+                        } else {
+                            self.state.drop_into(&drag.path, &zone.target_path);
+                        }
+                    }
+                }
+                self.active_drag = None;
+                frame.place_close("drag-ghost-preview");
+            }
+        }
+        self.drop_targets.clear();
+
         self.apply_theme(frame);
         self.handle_keys(frame, input);
         self.sync_active_tab();
@@ -161,7 +235,79 @@ impl UiApp {
             self.preview.sync_selection(&self.state);
             preview::build_preview(&mut self.preview, &mut self.thumbs, frame, input, &tones);
         }
+        self.build_drag_preview(frame, &tones);
         self.finish_frame(frame);
+    }
+
+    pub(crate) fn start_drag_candidate(
+        &mut self,
+        name: String,
+        path: String,
+        is_dir: bool,
+        origin_index: usize,
+    ) {
+        if self.active_drag.is_none() {
+            self.active_drag = Some(ActiveDrag {
+                name,
+                path,
+                is_dir,
+                origin_index,
+                press_pos: self.cursor_pos,
+                started: false,
+            });
+        }
+    }
+
+    fn build_drag_preview(&self, frame: &mut Frame, tones: &Tones) {
+        let Some(drag) = &self.active_drag else {
+            return;
+        };
+        if !drag.started {
+            return;
+        }
+
+        let preview_id = "drag-ghost-preview";
+        frame.place_open(preview_id);
+        frame.place(
+            preview_id,
+            &lens::PlaceOpts {
+                band: lens::Band::Tooltip,
+                mode: lens::PlaceMode::Exact,
+                rect: Rect {
+                    x: self.cursor_pos.0 + 12.0,
+                    y: self.cursor_pos.1 + 12.0,
+                    w: 0.0,
+                    h: 0.0,
+                },
+                interactive: false,
+                layout: LayoutOpts {
+                    gap: 6.0,
+                    pad: 6.0,
+                    cross: Align::Center,
+                    bg: iris::Color::rgba(22, 27, 40, 225),
+                    border: tones.selected,
+                    border_width: 1.0,
+                    radius: 7.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            |frame| {
+                frame.row_ex(
+                    &LayoutOpts {
+                        gap: 6.0,
+                        cross: Align::Center,
+                        ..Default::default()
+                    },
+                    |frame| {
+                        let icon_id = if drag.is_dir { ids::Folder } else { ids::File };
+                        crate::icons::icon(frame, icon_id, 16.0);
+                        let fg = frame.theme().fg();
+                        theme::label_colored_sized(frame, &drag.name, 12.0, fg);
+                    },
+                );
+            },
+        );
     }
 
     fn apply_theme(&mut self, frame: &mut Frame) {
@@ -219,6 +365,7 @@ impl UiApp {
         self.location.set(self.state.cwd());
         self.filter.set(self.state.filter());
         self.location_focused = false;
+        self.location_completion = None;
         self.filter_focused = false;
         self.rename_focused = false;
         self.renaming = None;
@@ -280,6 +427,7 @@ impl UiApp {
 
     pub(crate) fn focus_location(&mut self) {
         self.location.set("");
+        self.location_completion = None;
         self.pending_focus = Some(FocusTarget::Location);
     }
 
@@ -305,11 +453,52 @@ impl UiApp {
     }
 
     fn submit_location(&mut self, frame: &mut Frame) {
+        self.location_completion = None;
         let dest = self.location.as_str().into_owned();
         let before = self.state.cwd().to_string();
         self.state.navigate(&dest);
         if self.state.cwd() != before {
             frame.clear_focus();
+        }
+    }
+
+    fn complete_location(&mut self, frame: &mut Frame) {
+        self.pending_focus = Some(FocusTarget::Location);
+        let current = self.location.as_str().into_owned();
+
+        if let Some(state) = &mut self.location_completion {
+            if !state.candidates.is_empty()
+                && (current == state.last_input || state.candidates.contains(&current))
+            {
+                let next_idx = (state.candidate_idx + 1) % state.candidates.len();
+                let next = state.candidates[next_idx].clone();
+                state.candidate_idx = next_idx;
+                self.location.set(&next);
+                frame.textfield_set_caret("##location", next.len() as u32);
+                return;
+            }
+        }
+
+        if let Some(comp) = arca_engine::complete_path(self.state.cwd(), &current) {
+            if comp.completed != current {
+                self.location.set(&comp.completed);
+                frame.textfield_set_caret("##location", comp.completed.len() as u32);
+                let cand_len = comp.candidates.len();
+                self.location_completion = Some(LocationCompletionState {
+                    last_input: comp.completed,
+                    candidates: comp.candidates,
+                    candidate_idx: if cand_len > 0 { cand_len - 1 } else { 0 },
+                });
+            } else if !comp.candidates.is_empty() {
+                let first = comp.candidates[0].clone();
+                self.location.set(&first);
+                frame.textfield_set_caret("##location", first.len() as u32);
+                self.location_completion = Some(LocationCompletionState {
+                    last_input: current,
+                    candidates: comp.candidates,
+                    candidate_idx: 0,
+                });
+            }
         }
     }
 
@@ -430,6 +619,9 @@ impl UiApp {
                     } else if chooser_save_focused {
                         chooser::trigger_accept(self);
                     }
+                } else if key == lens::key::TAB && self.location_focused {
+                    self.complete_location(frame);
+                    frame.consume_key(lens::key::TAB);
                 }
                 continue;
             }

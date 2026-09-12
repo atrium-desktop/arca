@@ -36,7 +36,7 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             frame.size_next(4.0, 0.0);
             frame.spacer(4.0);
 
-            if !app.location_focused {
+            if !app.location_focused && app.pending_focus != Some(crate::app::FocusTarget::Location) {
                 let cwd = app.state.cwd().to_string();
                 if app.location.as_str() != cwd {
                     app.location.set(&cwd);
@@ -45,8 +45,11 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             icons::icon(frame, ids::Folder, 16.0);
             frame.flex(1.0);
             frame.size_next(0.0, 32.0);
-            frame.textfield("##location", &mut app.location);
+            let loc_changed = frame.textfield("##location", &mut app.location);
             capture(frame, &mut app.location_id, &mut app.location_focused_now);
+            if loc_changed {
+                app.location_completion = None;
+            }
 
             frame.size_next(6.0, 0.0);
             frame.spacer(6.0);

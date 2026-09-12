@@ -765,6 +765,39 @@ impl AppState {
         self.save_config();
     }
 
+    /// Add a path as a user bookmark (if not already bookmarked).
+    pub fn add_bookmark(&mut self, path: &str) {
+        let path = path::normalize(path);
+        if !self.bookmarks.iter().any(|b| b.path == path) {
+            self.bookmarks.push(Bookmark::for_path(&path));
+            self.set_status(format!("Added bookmark {path}"));
+            let home = path::home_dir();
+            let _ = bookmarks::save_gtk_bookmarks_file(&home, &self.bookmarks);
+            self.save_config();
+        }
+    }
+
+    /// Move a dropped item into a destination directory.
+    pub fn drop_into(&mut self, src_path: &str, dst_dir: &str) {
+        let src = std::path::PathBuf::from(src_path);
+        let dst = std::path::PathBuf::from(dst_dir);
+        if src == dst || src.parent() == Some(&dst) {
+            return;
+        }
+        match ops::move_into(&src, &dst) {
+            Ok(_) => {
+                let name = src.file_name().unwrap_or_default().to_string_lossy();
+                let dst_name = dst.file_name().unwrap_or_default().to_string_lossy();
+                self.set_status(format!("Moved {name} into {dst_name}"));
+                self.refresh();
+            }
+            Err(e) => {
+                let name = src.file_name().unwrap_or_default().to_string_lossy();
+                self.set_status(format!("Cannot move {name}: {e}"));
+            }
+        }
+    }
+
     /// Set an explicit colour-scheme preference and persist it.
     pub fn set_theme(&mut self, mode: ThemeMode) {
         if self.theme == mode {
@@ -1028,10 +1061,31 @@ mod tests {
         assert!(s.is_bookmarked(&target));
 
         let cfg = config::load(dir.join("cfg/arca.conf").to_str().unwrap());
-        assert_eq!(cfg.bookmarks, std::slice::from_ref(&target));
+        assert!(cfg.bookmarks.contains(&target));
 
         s.toggle_bookmark(&target);
         assert!(!s.is_bookmarked(&target));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn add_bookmark_and_drop_into() {
+        let (dir, mut s) = fixture();
+        let sub = dir.join("sub").to_str().unwrap().to_string();
+        let file_a = dir.join("a.txt").to_str().unwrap().to_string();
+
+        assert!(!s.is_bookmarked(&sub));
+        s.add_bookmark(&sub);
+        assert!(s.is_bookmarked(&sub));
+        s.add_bookmark(&sub);
+        assert!(s.is_bookmarked(&sub));
+
+        s.drop_into(&file_a, &sub);
+        assert!(!dir.join("a.txt").exists());
+        assert!(dir.join("sub").join("a.txt").exists());
+
+        s.toggle_bookmark(&sub); // clean up gtk bookmark
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

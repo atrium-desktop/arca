@@ -268,13 +268,36 @@ fn build_grid_card(
         return;
     };
     let selected = app.state.selected() == Some(visible_index);
+    let full_path = std::path::Path::new(app.state.cwd())
+        .join(&entry.name)
+        .to_string_lossy()
+        .into_owned();
+    let grid_id = format!("grid-{}", entry.name);
+
+    let drop_info = if entry.navigable {
+        frame.dnd_drop_target(&grid_id, 1)
+    } else {
+        None
+    };
+    if let Some(drop) = &drop_info {
+        if let Some(payload) = &drop.payload {
+            app.state.drop_into(payload, &full_path);
+        }
+    }
+    let drop_hovered = drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false);
+
+    let is_dragged = app
+        .active_drag
+        .as_ref()
+        .map_or(false, |d| d.started && d.path == full_path);
+
     let options = LayoutOpts {
         width: GRID_CARD_WIDTH,
         height: GRID_CARD_HEIGHT,
         gap: 0.0,
         pad: 10.0,
         cross: Align::Center,
-        bg: if selected {
+        bg: if drop_hovered || selected {
             tones.selected
         } else {
             Color::TRANSPARENT
@@ -283,8 +306,13 @@ fn build_grid_card(
         ..Default::default()
     };
 
-    frame.push_id(&entry.name);
+    let prev_opacity = frame.opacity();
+    if is_dragged {
+        frame.set_opacity(0.35);
+    }
+
     if app.renaming.as_deref() == Some(entry.name.as_str()) {
+        frame.push_id(&entry.name);
         frame.column_ex(&options, |frame| {
             icons::icon(frame, icons::entry_icon(&entry), 46.0);
             frame.size_next(0.0, 8.0);
@@ -294,10 +322,12 @@ fn build_grid_card(
             capture_rename(app, frame);
         });
         frame.pop_id();
+        if is_dragged {
+            frame.set_opacity(prev_opacity);
+        }
         return;
     }
 
-    let grid_id = format!("grid-{}", entry.name);
     let (response, ()) = frame
         .row()
         .id_label(&grid_id, &entry.name)
@@ -316,7 +346,20 @@ fn build_grid_card(
                 },
             );
         });
-    frame.pop_id();
+    frame.dnd_source(&grid_id, &full_path, 1);
+    if is_dragged {
+        frame.set_opacity(prev_opacity);
+    }
+    if response.pressed {
+        app.start_drag_candidate(entry.name.clone(), full_path.clone(), entry.navigable, visible_index);
+    }
+    if entry.navigable {
+        app.drop_targets.push(crate::app::DropTargetZone {
+            rect: response.rect,
+            target_path: full_path.clone(),
+            is_bookmark_zone: false,
+        });
+    }
     if response.clicked {
         app.row_clicked(visible_index, &entry.name);
     } else if response.right_clicked {
@@ -423,12 +466,34 @@ fn build_list_row(
         format_size(entry.size)
     };
     let modified = format_time(entry.mtime);
+    let full_path = std::path::Path::new(app.state.cwd())
+        .join(&entry.name)
+        .to_string_lossy()
+        .into_owned();
+
+    let drop_info = if entry.navigable {
+        frame.dnd_drop_target(&entry.name, 1)
+    } else {
+        None
+    };
+    if let Some(drop) = &drop_info {
+        if let Some(payload) = &drop.payload {
+            app.state.drop_into(payload, &full_path);
+        }
+    }
+    let drop_hovered = drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false);
+
+    let is_dragged = app
+        .active_drag
+        .as_ref()
+        .map_or(false, |d| d.started && d.path == full_path);
+
     let options = LayoutOpts {
         height: 42.0,
         gap: 10.0,
         pad: 7.0,
         cross: Align::Center,
-        bg: if app.state.selected() == Some(visible_index) {
+        bg: if drop_hovered || app.state.selected() == Some(visible_index) {
             tones.selected
         } else {
             Color::TRANSPARENT
@@ -437,8 +502,13 @@ fn build_list_row(
         ..Default::default()
     };
 
-    frame.push_id(&entry.name);
+    let prev_opacity = frame.opacity();
+    if is_dragged {
+        frame.set_opacity(0.35);
+    }
+
     if app.renaming.as_deref() == Some(entry.name.as_str()) {
+        frame.push_id(&entry.name);
         frame.row_ex(&options, |frame| {
             row_icon(frame, &entry);
             frame.flex(1.0);
@@ -448,6 +518,9 @@ fn build_list_row(
             metadata_label(frame, tones, &modified, 124.0);
         });
         frame.pop_id();
+        if is_dragged {
+            frame.set_opacity(prev_opacity);
+        }
         return;
     }
 
@@ -463,7 +536,23 @@ fn build_list_row(
             metadata_label(frame, tones, &size, 86.0);
             metadata_label(frame, tones, &modified, 124.0);
         });
-    frame.pop_id();
+    frame.dnd_source(&entry.name, &full_path, 1);
+    if is_dragged {
+        frame.set_opacity(prev_opacity);
+    }
+    if response.pressed {
+        app.start_drag_candidate(entry.name.clone(), full_path.clone(), entry.navigable, visible_index);
+    }
+    if entry.navigable {
+        app.drop_targets.push(crate::app::DropTargetZone {
+            rect: response.rect,
+            target_path: full_path.clone(),
+            is_bookmark_zone: false,
+        });
+    }
+    if entry.name == "sub" {
+        app.sub_row_rect = Some(response.rect);
+    }
     if response.clicked {
         app.row_clicked(visible_index, &entry.name);
     } else if response.right_clicked {

@@ -38,7 +38,8 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             if bookmark.kind == BookmarkKind::Folder {
                                 continue;
                             }
-                            frame.push_id(&format!("place-{index}"));
+                            let place_id = format!("place-{index}");
+                            frame.push_id(&place_id);
                             let _ = icons::selectable_icon(
                                 frame,
                                 icons::bookmark_icon(bookmark.kind),
@@ -51,6 +52,16 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             } else if resp.right_clicked {
                                 app.open_sidebar_menu(&bookmark.path, false, resp.rect);
                             }
+                            if let Some(drop) = frame.dnd_drop_target(&place_id, 1) {
+                                if let Some(payload) = drop.payload {
+                                    app.state.drop_into(&payload, &bookmark.path);
+                                }
+                            }
+                            app.drop_targets.push(crate::app::DropTargetZone {
+                                rect: resp.rect,
+                                target_path: bookmark.path.clone(),
+                                is_bookmark_zone: false,
+                            });
                             frame.pop_id();
                         }
 
@@ -59,27 +70,74 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             .enumerate()
                             .filter(|(_, bookmark)| bookmark.kind == BookmarkKind::Folder)
                             .collect::<Vec<_>>();
-                        if !user_bookmarks.is_empty() {
-                            frame.size_next(0.0, 10.0);
-                            frame.spacer(10.0);
-                            section_label(frame, tones, "BOOKMARKS");
-                            for (index, bookmark) in user_bookmarks {
-                                frame.push_id(&format!("bookmark-{index}"));
-                                let _ = icons::selectable_icon(
-                                    frame,
-                                    ids::Folder,
-                                    &bookmark.name,
-                                    app.state.cwd() == bookmark.path,
-                                );
-                                let resp = frame.response();
-                                if resp.clicked {
-                                    target = Some(bookmark.path.clone());
-                                } else if resp.right_clicked {
-                                    app.open_sidebar_menu(&bookmark.path, true, resp.rect);
+
+                        frame.size_next(0.0, 10.0);
+                        frame.spacer(10.0);
+                        section_label(frame, tones, "BOOKMARKS");
+                        for (index, bookmark) in user_bookmarks {
+                            let b_id = format!("bookmark-{index}");
+                            frame.push_id(&b_id);
+                            let _ = icons::selectable_icon(
+                                frame,
+                                ids::Folder,
+                                &bookmark.name,
+                                app.state.cwd() == bookmark.path,
+                            );
+                            let resp = frame.response();
+                            if resp.clicked {
+                                target = Some(bookmark.path.clone());
+                            } else if resp.right_clicked {
+                                app.open_sidebar_menu(&bookmark.path, true, resp.rect);
+                            }
+                            if let Some(drop) = frame.dnd_drop_target(&b_id, 1) {
+                                if let Some(payload) = drop.payload {
+                                    app.state.drop_into(&payload, &bookmark.path);
                                 }
-                                frame.pop_id();
+                            }
+                            app.drop_targets.push(crate::app::DropTargetZone {
+                                rect: resp.rect,
+                                target_path: bookmark.path.clone(),
+                                is_bookmark_zone: false,
+                            });
+                            frame.pop_id();
+                        }
+
+                        let drop_id = "sidebar-bookmark-drop-zone";
+                        let drop_info = frame.dnd_drop_target(drop_id, 1);
+                        if let Some(drop) = &drop_info {
+                            if let Some(payload) = &drop.payload {
+                                app.state.add_bookmark(payload);
                             }
                         }
+
+                        let is_drag_active = app.active_drag.as_ref().map_or(false, |d| d.started);
+                        let is_target_hovered = drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false)
+                            || (is_drag_active
+                                && app.bookmark_drop_rect.map_or(false, |r| crate::app::rect_contains(&r, app.cursor_pos)));
+
+                        let (resp, ()) = frame
+                            .row()
+                            .id(drop_id)
+                            .with_opts(&LayoutOpts {
+                                height: 28.0,
+                                pad: 4.0,
+                                gap: 6.0,
+                                cross: Align::Center,
+                                bg: if is_target_hovered { tones.selected } else { iris::Color::TRANSPARENT },
+                                radius: 6.0,
+                                ..Default::default()
+                            })
+                            .show(|frame| {
+                                icons::icon(frame, ids::Plus, 13.0);
+                                theme::label_colored_sized(frame, "Drop to bookmark", 11.0, tones.muted);
+                            });
+
+                        app.bookmark_drop_rect = Some(resp.rect);
+                        app.drop_targets.push(crate::app::DropTargetZone {
+                            rect: resp.rect,
+                            target_path: String::new(),
+                            is_bookmark_zone: true,
+                        });
 
                         if let Some(path) = target {
                             app.state.navigate(&path);

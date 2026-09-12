@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/arca-logo.png" alt="Arca Logo" width="160" height="160">
+</p>
+
 # Arca
 
 A fast file manager for Wayland. Arca is a companion application for the

@@ -34,6 +34,7 @@ pub use config::{Config, ThemeMode, ViewMode};
 pub use desktop::DesktopEntry;
 pub use entry::{Entry, FileType, SortKey};
 pub use mime::MimeDatabase;
+pub use path::{complete_path, PathCompletion};
 pub use preview::{Preview, PreviewKind};
 pub use state::{AppState, Clipboard, MillerColumn, TabState};
 pub use thumbs::{Thumb, ThumbService};

@@ -71,11 +71,20 @@ Install the compiled binary and desktop assets to system directories:
 # Install binary
 sudo install -Dm755 target/release/arca /usr/local/bin/arca
 
-# Install desktop entry
+# Install desktop entry and metainfo
 sudo install -Dm644 assets/org.tessera.Arca.desktop /usr/local/share/applications/org.tessera.Arca.desktop
+sudo install -Dm644 assets/org.tessera.Arca.metainfo.xml /usr/local/share/metainfo/org.tessera.Arca.metainfo.xml
 
-# Update system desktop database
+# Install application icons
+sudo install -Dm644 assets/arca.png /usr/local/share/pixmaps/arca.png
+for size in 16 24 32 48 64 128 256 512; do
+  sudo install -Dm644 "assets/icons/hicolor/${size}x${size}/apps/arca.png" \
+    "/usr/local/share/icons/hicolor/${size}x${size}/apps/arca.png"
+done
+
+# Update system desktop and icon databases
 sudo update-desktop-database /usr/local/share/applications
+sudo gtk-update-icon-cache /usr/local/share/icons/hicolor/ -f -t 2>/dev/null || true
 ```
 
 ---

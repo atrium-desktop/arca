@@ -9,5 +9,5 @@ Terminal=false
 Categories=System;FileTools;FileManager;Utility;Core;
 MimeType=inode/directory;x-scheme-handler/file;
 StartupNotify=true
-StartupWMClass=arca
+StartupWMClass=io.arca.Arca
 Keywords=files;folders;directory;manager;explore;

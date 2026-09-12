@@ -24,12 +24,12 @@ fn popover_opts(tones: &Tones, anchor: Rect) -> PlaceOpts {
         rect: anchor,
         layout: LayoutOpts {
             gap: 2.0,
-            pad: 4.0,
+            pad: 6.0,
             cross: Align::Stretch,
             bg: tones.popover,
             border: tones.popover_border,
             border_width: 1.0,
-            radius: 12.0,
+            radius: 10.0,
             min_width: 180.0,
             ..Default::default()
         },

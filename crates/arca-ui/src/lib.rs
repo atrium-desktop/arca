@@ -601,4 +601,124 @@ mod tests {
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn location_bar_tab_completion_works() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        app.focus_location();
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        let partial = format!("{}/s", dir.to_str().unwrap());
+        app.location.set(&partial);
+
+        let mut tab = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        tab.push_key(lens::key::TAB, true, false);
+        frame(&mut app, &mut ui, &tab);
+
+        assert_eq!(
+            app.location.as_str(),
+            format!("{}/sub/", dir.to_str().unwrap())
+        );
+
+        // Test multiple matches: first Tab completes up to common prefix "folder_"
+        std::fs::create_dir_all(dir.join("folder_a")).unwrap();
+        std::fs::create_dir_all(dir.join("folder_b")).unwrap();
+        let prefix = format!("{}/fol", dir.to_str().unwrap());
+        app.location.set(&prefix);
+        app.location_completion = None;
+
+        // First Tab: advances to longest common prefix "folder_"
+        frame(&mut app, &mut ui, &tab);
+        assert_eq!(
+            app.location.as_str(),
+            format!("{}/folder_", dir.to_str().unwrap())
+        );
+
+        // Second Tab: cycles to first candidate "folder_a/"
+        frame(&mut app, &mut ui, &tab);
+        assert_eq!(
+            app.location.as_str(),
+            format!("{}/folder_a/", dir.to_str().unwrap())
+        );
+
+        // Third Tab: cycles to second candidate "folder_b/"
+        frame(&mut app, &mut ui, &tab);
+        assert_eq!(
+            app.location.as_str(),
+            format!("{}/folder_b/", dir.to_str().unwrap())
+        );
+
+        // Fourth Tab: wraps back to first candidate "folder_a/"
+        frame(&mut app, &mut ui, &tab);
+        assert_eq!(
+            app.location.as_str(),
+            format!("{}/folder_a/", dir.to_str().unwrap())
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn drag_and_drop_to_bookmark_and_folder() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        let sub_path = dir.join("sub").to_str().unwrap().to_string();
+        assert!(!app.state.is_bookmarked(&sub_path));
+
+        // Test interactive drag: press on "sub" row, move past threshold to show floating preview
+        let sub_r = app.sub_row_rect.expect("sub row rect captured");
+        let mut drag_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        drag_in.set_cursor(sub_r.x + 20.0, sub_r.y + 10.0);
+        drag_in.set_mouse_down(lens::MouseButton::Left, true);
+        drag_in.set_mouse_pressed(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &drag_in);
+        assert!(app.active_drag.is_some());
+
+        // Move cursor by 30px to trigger drag preview
+        drag_in.set_cursor(sub_r.x + 50.0, sub_r.y + 10.0);
+        drag_in.set_mouse_pressed(lens::MouseButton::Left, false);
+        frame(&mut app, &mut ui, &drag_in);
+        assert!(app.active_drag.as_ref().unwrap().started);
+
+        // Move cursor down-left over the bookmark drop zone and release
+        let b_r = app.bookmark_drop_rect.expect("bookmark drop rect captured");
+        let mut release_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        release_in.set_cursor(b_r.x + 10.0, b_r.y + 10.0);
+        release_in.set_mouse_down(lens::MouseButton::Left, false);
+        release_in.set_mouse_released(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &release_in);
+
+        assert!(app.active_drag.is_none());
+        assert!(app.state.is_bookmarked(&sub_path));
+
+        // Test dropping a file onto a folder in the listing
+        let file_path = dir.join("a.txt").to_str().unwrap().to_string();
+        assert!(dir.join("a.txt").exists());
+        assert!(!dir.join("sub").join("a.txt").exists());
+
+        let sub_rect = app.sub_row_rect.expect("sub row rect captured");
+        let sub_pos = (sub_rect.x + sub_rect.w * 0.5, sub_rect.y + sub_rect.h * 0.5);
+        ui.deliver_drop(&file_path, sub_pos);
+        frame(&mut app, &mut ui, &input);
+
+        assert!(!dir.join("a.txt").exists());
+        assert!(dir.join("sub").join("a.txt").exists());
+
+        app.state.toggle_bookmark(&sub_path); // clean up gtk bookmark
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

@@ -5,6 +5,7 @@
   <project_license>MIT</project_license>
   <name>Arca</name>
   <summary>A fast file manager for Wayland</summary>
+  <icon type="stock">arca</icon>
   <description>
     <p>
       Arca is a fast, keyboard-first file manager for Wayland, built on the optics

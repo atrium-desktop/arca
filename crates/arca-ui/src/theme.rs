@@ -45,8 +45,9 @@ impl Tones {
                 muted: Color::rgba(160, 168, 188, 255),
                 preview_well: Color::rgba(21, 23, 34, 255),
                 // tessera popover/scrim materials for floating panels.
-                popover: Color::rgba(255, 255, 255, 110),
-                popover_border: Color::rgba(255, 255, 255, 72),
+                // Deep translucent dark slate in dark mode with crisp contrast.
+                popover: Color::rgba(24, 28, 40, 235),
+                popover_border: Color::rgba(255, 255, 255, 42),
                 scrim: Color::rgba(8, 10, 18, 118),
             }
         } else {
