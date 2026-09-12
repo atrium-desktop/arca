@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 # The effective toolchain floor is raised by the optics bindings (edition
 # 2024, rust 1.85), which compile from source in every dependency mode.
@@ -21,16 +21,16 @@ rust-version = "1.85"
 # patch these sources to a sibling checkout through .cargo/optics-local.toml
 # without making that checkout mandatory for CI or downstream packagers; see
 # docs/dev/optics-dev-worktree.md.
-iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.37" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.37" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.37" }
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.37" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.37" }
+iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.41" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-arca-xdg = { path = "crates/arca-xdg", version = "0.2.4" }
-arca-engine = { path = "crates/arca-engine", version = "0.2.4" }
-arca-ui = { path = "crates/arca-ui", version = "0.2.4" }
+arca-xdg = { path = "crates/arca-xdg", version = "0.2.5" }
+arca-engine = { path = "crates/arca-engine", version = "0.2.5" }
+arca-ui = { path = "crates/arca-ui", version = "0.2.5" }
 
 [profile.release]
 opt-level = 3
