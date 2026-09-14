@@ -264,54 +264,215 @@ pub fn discover_applications() -> HashMap<String, DesktopEntry> {
     apps
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MimeappsSection {
+    Defaults,
+    Added,
+    Removed,
+}
+
+/// Parsed associations from XDG `mimeapps.list` files.
+#[derive(Debug, Default, Clone)]
+pub struct MimeAssociations {
+    pub defaults: HashMap<String, Vec<String>>,
+    pub added: HashMap<String, Vec<String>>,
+    pub removed: HashSet<(String, String)>,
+}
+
+impl MimeAssociations {
+    /// Parse the contents of a `mimeapps.list` file into these associations.
+    pub fn parse_content(&mut self, content: &str) {
+        let mut section = None;
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+            if line.starts_with('[') && line.ends_with(']') {
+                section = match line {
+                    "[Default Applications]" => Some(MimeappsSection::Defaults),
+                    "[Added Associations]" => Some(MimeappsSection::Added),
+                    "[Removed Associations]" => Some(MimeappsSection::Removed),
+                    _ => None,
+                };
+                continue;
+            }
+
+            let Some(sec) = section else { continue };
+            let Some((m, apps_str)) = line.split_once('=') else {
+                continue;
+            };
+            let m = m.trim().to_string();
+            for app_id in apps_str.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                match sec {
+                    MimeappsSection::Defaults => {
+                        let list = self.defaults.entry(m.clone()).or_default();
+                        if !list.iter().any(|existing| existing == app_id) {
+                            list.push(app_id.to_string());
+                        }
+                    }
+                    MimeappsSection::Added => {
+                        let list = self.added.entry(m.clone()).or_default();
+                        if !list.iter().any(|existing| existing == app_id) {
+                            list.push(app_id.to_string());
+                        }
+                    }
+                    MimeappsSection::Removed => {
+                        self.removed.insert((m.clone(), app_id.to_string()));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Find the preferred default application for `mime_type` based on `mimeapps.list`.
 #[must_use]
 pub fn default_application_for_mime(mime_type: &str) -> Option<DesktopEntry> {
     let apps = discover_applications();
     let associations = load_mimeapps_list();
+    resolve_default_application(mime_type, &apps, &associations)
+}
 
-    if let Some(default_ids) = associations.get(mime_type) {
+/// Pure helper to resolve the default application given applications and associations.
+#[must_use]
+pub fn resolve_default_application(
+    mime_type: &str,
+    apps: &HashMap<String, DesktopEntry>,
+    associations: &MimeAssociations,
+) -> Option<DesktopEntry> {
+    // 1. First check [Default Applications] in priority order
+    if let Some(default_ids) = associations.defaults.get(mime_type) {
         for id in default_ids {
+            if associations
+                .removed
+                .contains(&(mime_type.to_string(), id.clone()))
+            {
+                continue;
+            }
             if let Some(app) = apps.get(id) {
-                return Some(app.clone());
+                if !app.no_display && !app.hidden {
+                    return Some(app.clone());
+                }
             }
         }
     }
 
-    for app in apps.values() {
-        if app.mime_types.iter().any(|m| m == mime_type) && !app.no_display {
-            return Some(app.clone());
+    // 2. Then check [Added Associations]
+    if let Some(added_ids) = associations.added.get(mime_type) {
+        for id in added_ids {
+            if associations
+                .removed
+                .contains(&(mime_type.to_string(), id.clone()))
+            {
+                continue;
+            }
+            if let Some(app) = apps.get(id) {
+                if !app.no_display && !app.hidden {
+                    return Some(app.clone());
+                }
+            }
         }
     }
 
-    None
+    // 3. Fallback: all discovered apps declaring this MIME type, sorted deterministically
+    let mut fallback: Vec<&DesktopEntry> = apps
+        .values()
+        .filter(|app| {
+            !app.no_display
+                && !app.hidden
+                && !associations
+                    .removed
+                    .contains(&(mime_type.to_string(), app.id.clone()))
+                && app.mime_types.iter().any(|m| m == mime_type)
+        })
+        .collect();
+    fallback.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    fallback.first().copied().cloned()
 }
 
 /// Return all applications capable of opening `mime_type`.
 #[must_use]
 pub fn applications_for_mime(mime_type: &str) -> Vec<DesktopEntry> {
     let apps = discover_applications();
+    let associations = load_mimeapps_list();
+    resolve_applications_for_mime(mime_type, &apps, &associations)
+}
+
+/// Pure helper to resolve all capable applications in deterministic order.
+#[must_use]
+pub fn resolve_applications_for_mime(
+    mime_type: &str,
+    apps: &HashMap<String, DesktopEntry>,
+    associations: &MimeAssociations,
+) -> Vec<DesktopEntry> {
     let mut matches = Vec::new();
     let mut seen_ids = HashSet::new();
 
-    let associations = load_mimeapps_list();
-    if let Some(ids) = associations.get(mime_type) {
+    // 1. Defaults first
+    if let Some(ids) = associations.defaults.get(mime_type) {
         for id in ids {
+            if associations
+                .removed
+                .contains(&(mime_type.to_string(), id.clone()))
+            {
+                continue;
+            }
             if let Some(app) = apps.get(id) {
-                if seen_ids.insert(app.id.clone()) && !app.no_display {
+                if !app.no_display && !app.hidden && seen_ids.insert(app.id.clone()) {
                     matches.push(app.clone());
                 }
             }
         }
     }
 
-    for app in apps.values() {
-        if app.mime_types.iter().any(|m| m == mime_type)
-            && seen_ids.insert(app.id.clone())
-            && !app.no_display
-        {
-            matches.push(app.clone());
+    // 2. Added associations next
+    if let Some(ids) = associations.added.get(mime_type) {
+        for id in ids {
+            if associations
+                .removed
+                .contains(&(mime_type.to_string(), id.clone()))
+            {
+                continue;
+            }
+            if let Some(app) = apps.get(id) {
+                if !app.no_display && !app.hidden && seen_ids.insert(app.id.clone()) {
+                    matches.push(app.clone());
+                }
+            }
         }
+    }
+
+    // 3. Fallback: remaining apps advertising this MIME type, sorted deterministically
+    let mut remaining: Vec<&DesktopEntry> = apps
+        .values()
+        .filter(|app| {
+            !app.no_display
+                && !app.hidden
+                && !seen_ids.contains(&app.id)
+                && !associations
+                    .removed
+                    .contains(&(mime_type.to_string(), app.id.clone()))
+                && app.mime_types.iter().any(|m| m == mime_type)
+        })
+        .collect();
+    remaining.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    for app in remaining {
+        seen_ids.insert(app.id.clone());
+        matches.push(app.clone());
     }
 
     matches
@@ -335,60 +496,48 @@ pub fn open_path(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn load_mimeapps_list() -> HashMap<String, Vec<String>> {
-    let mut map: HashMap<String, Vec<String>> = HashMap::new();
-
+fn load_mimeapps_list() -> MimeAssociations {
+    let mut associations = MimeAssociations::default();
     let mut files = Vec::new();
-    files.push(config_home().join("mimeapps.list"));
-    for dir in config_dirs() {
+
+    let desktops: Vec<String> = std::env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_default()
+        .split(':')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .flat_map(|s| {
+            let lower = s.to_ascii_lowercase();
+            if lower != s {
+                vec![lower, s.to_string()]
+            } else {
+                vec![lower]
+            }
+        })
+        .collect();
+
+    let mut add_candidates = |dir: &Path| {
+        for desktop in &desktops {
+            files.push(dir.join(format!("{desktop}-mimeapps.list")));
+        }
         files.push(dir.join("mimeapps.list"));
+    };
+
+    add_candidates(&config_home());
+    for dir in config_dirs() {
+        add_candidates(&dir);
     }
-    files.push(data_home().join("applications/mimeapps.list"));
+    add_candidates(&data_home().join("applications"));
     for dir in data_dirs() {
-        files.push(dir.join("applications/mimeapps.list"));
+        add_candidates(&dir.join("applications"));
     }
 
     for file in files {
-        let Ok(content) = std::fs::read_to_string(&file) else {
-            continue;
-        };
-        let mut in_defaults = false;
-        let mut in_added = false;
-
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-            if line == "[Default Applications]" {
-                in_defaults = true;
-                in_added = false;
-                continue;
-            } else if line == "[Added Associations]" {
-                in_defaults = false;
-                in_added = true;
-                continue;
-            } else if line.starts_with('[') {
-                in_defaults = false;
-                in_added = false;
-                continue;
-            }
-
-            if in_defaults || in_added {
-                if let Some((m, apps_str)) = line.split_once('=') {
-                    let m = m.trim().to_string();
-                    let list = map.entry(m).or_default();
-                    for app_id in apps_str.split(';').map(str::trim).filter(|s| !s.is_empty()) {
-                        if !list.iter().any(|existing| existing == app_id) {
-                            list.push(app_id.to_string());
-                        }
-                    }
-                }
-            }
+        if let Ok(content) = std::fs::read_to_string(&file) {
+            associations.parse_content(&content);
         }
     }
 
-    map
+    associations
 }
 
 #[cfg(test)]
@@ -421,6 +570,60 @@ mod tests {
                 "Text Editor",
                 "/home/user/test1.txt",
                 "/home/user/test2.txt"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_mimeapps_priority_and_deterministic_order() {
+        let mut associations = MimeAssociations::default();
+        let content = r#"
+[Added Associations]
+image/png=viewer-added.desktop;
+[Default Applications]
+image/png=viewer-default.desktop;
+[Removed Associations]
+image/png=viewer-banned.desktop;
+"#;
+        associations.parse_content(content);
+
+        let mut apps = HashMap::new();
+        let make_app = |id: &str, name: &str| DesktopEntry {
+            id: id.into(),
+            path: PathBuf::from(format!("/usr/share/applications/{id}")),
+            name: name.into(),
+            exec: format!("{name} %f"),
+            icon: None,
+            mime_types: vec!["image/png".into()],
+            terminal: false,
+            no_display: false,
+            hidden: false,
+        };
+
+        apps.insert("viewer-default.desktop".into(), make_app("viewer-default.desktop", "Default Viewer"));
+        apps.insert("viewer-added.desktop".into(), make_app("viewer-added.desktop", "Added Viewer"));
+        apps.insert("viewer-banned.desktop".into(), make_app("viewer-banned.desktop", "Banned Viewer"));
+        apps.insert("zebra.desktop".into(), make_app("zebra.desktop", "Zebra Viewer"));
+        apps.insert("alpha.desktop".into(), make_app("alpha.desktop", "Alpha Viewer"));
+
+        // Default app should be viewer-default, despite [Added Associations] appearing first in content
+        let default_app = resolve_default_application("image/png", &apps, &associations).unwrap();
+        assert_eq!(default_app.id, "viewer-default.desktop");
+
+        // Applications list should order:
+        // 1. Defaults (viewer-default)
+        // 2. Added (viewer-added)
+        // 3. Fallback sorted alphabetically by name: Alpha Viewer ("alpha.desktop"), then Zebra Viewer ("zebra.desktop")
+        // viewer-banned must be excluded!
+        let capable = resolve_applications_for_mime("image/png", &apps, &associations);
+        let ids: Vec<&str> = capable.iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "viewer-default.desktop",
+                "viewer-added.desktop",
+                "alpha.desktop",
+                "zebra.desktop"
             ]
         );
     }

@@ -33,6 +33,9 @@ pub(crate) struct CtxMenu {
     /// happen in the menu-building scope — a trigger deep in the widget tree
     /// only records state here, and the builder performs the first open.
     pub opened: bool,
+    /// Pre-resolved "Open with" applications snapshot once when opening the menu
+    /// so per-frame rendering does not re-query disk or reorder items.
+    pub open_with: Vec<arca_xdg::desktop::DesktopEntry>,
 }
 
 pub(crate) struct SidebarMenu {
@@ -111,7 +114,10 @@ pub struct UiApp {
 }
 
 impl UiApp {
-    pub fn new(state: AppState) -> UiApp {
+    pub fn new(mut state: AppState) -> UiApp {
+        state.set_fs_event_listener(Some(std::sync::Arc::new(|| {
+            iris::post_to_main_thread(|| {});
+        })));
         let location = TextBuf::new(4096, state.cwd());
         let filter = TextBuf::new(512, state.filter());
         let observed_tab_id = state.active_tab_id();
@@ -188,6 +194,9 @@ impl UiApp {
 
         self.apply_theme(frame);
         self.handle_keys(frame, input);
+        if self.state.drain_fs_events() {
+            iris::request_animation_frame();
+        }
         self.sync_active_tab();
         self.thumbs.sync_cwd(self.state.cwd());
         self.thumbs.set_enabled(self.state.show_thumbnails);
@@ -546,9 +555,16 @@ impl UiApp {
 
     pub(crate) fn row_right_clicked(&mut self, visible_idx: usize, anchor: Rect) {
         self.state.select_visible(visible_idx);
+        let open_with = self
+            .state
+            .selected_entry()
+            .filter(|e| !e.navigable)
+            .map(|e| arca_xdg::desktop::applications_for_mime(&e.mime_type))
+            .unwrap_or_default();
         self.ctx_menu = Some(CtxMenu {
             anchor,
             opened: false,
+            open_with,
         });
     }
 
@@ -567,6 +583,7 @@ impl UiApp {
             None => Some(CtxMenu {
                 anchor,
                 opened: false,
+                open_with: Vec::new(),
             }),
         };
     }

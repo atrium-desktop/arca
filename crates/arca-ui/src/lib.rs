@@ -433,6 +433,48 @@ mod tests {
     }
 
     #[test]
+    fn context_menu_open_with_stability() {
+        let (dir, mut app) = fixture();
+        let file_path = dir.join("test.txt");
+        std::fs::write(&file_path, "sample text").unwrap();
+        app.state.navigate(dir.to_str().unwrap());
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input);
+
+        // Right click row 0
+        app.row_right_clicked(0, lens::Rect { x: 100.0, y: 100.0, w: 10.0, h: 10.0 });
+        assert!(app.ctx_menu.is_some());
+
+        let open_with_snapshot: Vec<String> = app
+            .ctx_menu
+            .as_ref()
+            .unwrap()
+            .open_with
+            .iter()
+            .map(|a| a.id.clone())
+            .collect();
+
+        // Build multiple frames while context menu is open; menu content must stay stable
+        for _ in 0..5 {
+            frame(&mut app, &mut ui, &input);
+            assert!(app.ctx_menu.is_some());
+            let current_ids: Vec<String> = app
+                .ctx_menu
+                .as_ref()
+                .unwrap()
+                .open_with
+                .iter()
+                .map(|a| a.id.clone())
+                .collect();
+            assert_eq!(current_ids, open_with_snapshot);
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn filter_textfield_hover_cursor_hint() {
         let mut ui = lens::Ui::headless().expect("headless ui");
         let mut tf_buf = lens::TextBuf::new(64, "test");
@@ -719,6 +761,37 @@ mod tests {
 
         app.state.toggle_bookmark(&sub_path); // clean up gtk bookmark
 
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn ui_updates_file_list_on_external_fs_change() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input);
+        assert_eq!(app.state.entries().len(), 2); // sub, a.txt
+
+        // External process downloads a file
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let new_file = dir.join("external_download.iso");
+        std::fs::write(&new_file, b"iso contents").unwrap();
+
+        let start = std::time::Instant::now();
+        let mut updated = false;
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            frame(&mut app, &mut ui, &input);
+            if app.state.entries().iter().any(|e| e.name == "external_download.iso") {
+                updated = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert!(
+            updated,
+            "expected UI to pick up external file download on subsequent frames"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

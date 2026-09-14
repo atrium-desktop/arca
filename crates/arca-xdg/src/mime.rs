@@ -212,6 +212,11 @@ fn glob_match(pattern: &str, text: &str, case_sensitive: bool) -> bool {
 }
 
 fn sniff_file_magic(path: &Path) -> Option<&'static str> {
+    // Only sniff regular files; opening FIFOs, device nodes, or sockets can block indefinitely.
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
     let mut f = File::open(path).ok()?;
     let mut buf = [0u8; 512];
     let n = f.read(&mut buf).ok()?;

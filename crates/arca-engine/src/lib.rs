@@ -17,6 +17,7 @@ pub mod path;
 pub mod preview;
 pub mod state;
 pub mod thumbs;
+pub mod watch;
 
 // Re-export standard Linux/XDG specifications from arca-xdg
 pub use arca_xdg as xdg;
@@ -39,3 +40,4 @@ pub use preview::{Preview, PreviewKind};
 pub use state::{AppState, Clipboard, MillerColumn, TabState};
 pub use thumbs::{Thumb, ThumbService};
 pub use trash::TrashItem;
+pub use watch::FsWatcher;

@@ -15,7 +15,7 @@ pub enum FileType {
 }
 
 /// One row in the file list.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
     pub file_type: FileType,

@@ -4,7 +4,7 @@
 //! methods in response to input. All methods are synchronous and cheap
 //! (directory reads of even large folders are milliseconds).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::bookmarks::{self, Bookmark};
 use crate::chooser::FileFilter;
@@ -14,6 +14,7 @@ use crate::history::History;
 use crate::ops;
 use crate::path;
 use crate::trash;
+use crate::watch::{FsWatcher, WakeFn};
 
 /// Clipboard supporting standard Linux / XDG file transfer formats
 /// (`x-special/gnome-copied-files` and `text/uri-list`).
@@ -116,6 +117,7 @@ pub struct AppState {
     pub file_filter: Option<FileFilter>,
 
     config_file: String,
+    pub watcher: Option<FsWatcher>,
 }
 
 /// One independent browsing session. Navigation, selection and filtering are
@@ -180,9 +182,11 @@ impl AppState {
             status: None,
             file_filter: None,
             config_file,
+            watcher: FsWatcher::new().ok(),
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
         state.navigate(&path::home_dir());
+        state.sync_fs_watches();
         state
     }
 
@@ -203,9 +207,11 @@ impl AppState {
             status: None,
             file_filter: None,
             config_file,
+            watcher: FsWatcher::new().ok(),
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
         state.navigate(start_dir);
+        state.sync_fs_watches();
         state
     }
 
@@ -357,6 +363,7 @@ impl AppState {
             }
         }
         self.rebuild_miller_columns();
+        self.sync_fs_watches();
     }
 
     pub fn go_back(&mut self) {
@@ -423,6 +430,94 @@ impl AppState {
         let state = if self.show_thumbnails { "on" } else { "off" };
         self.set_status(format!("Thumbnails {state}"));
         self.save_config();
+    }
+
+    // ---- filesystem watcher ---------------------------------------------
+
+    /// All directories currently displayed in the UI across tabs and Miller columns.
+    pub fn active_view_paths(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        for tab in &self.tabs {
+            if !tab.cwd.is_empty() {
+                let p = PathBuf::from(&tab.cwd);
+                if !paths.contains(&p) {
+                    paths.push(p);
+                }
+            }
+        }
+        if self.view_mode == ViewMode::Miller {
+            for col in &self.active_tab().miller_columns {
+                if !col.path.is_empty() {
+                    let p = PathBuf::from(&col.path);
+                    if !paths.contains(&p) {
+                        paths.push(p);
+                    }
+                }
+            }
+        }
+        paths
+    }
+
+    /// Synchronize the filesystem watcher with the currently visible directory paths.
+    pub fn sync_fs_watches(&self) {
+        if let Some(watcher) = &self.watcher {
+            let paths = self.active_view_paths();
+            watcher.set_watched_paths(&paths);
+        }
+    }
+
+    /// Register a wake callback with the filesystem watcher.
+    pub fn set_fs_event_listener(&mut self, wake_fn: Option<WakeFn>) {
+        if let Some(watcher) = &self.watcher {
+            watcher.set_wake_fn(wake_fn);
+        }
+    }
+
+    /// Process any pending filesystem events and update directory state accordingly.
+    /// Returns true if any directory was refreshed.
+    pub fn drain_fs_events(&mut self) -> bool {
+        let changed_paths = match &self.watcher {
+            Some(w) => w.drain(),
+            None => return false,
+        };
+        if changed_paths.is_empty() {
+            return false;
+        }
+
+        let mut refreshed_active = false;
+        let active_cwd = PathBuf::from(self.cwd());
+
+        for path in changed_paths {
+            if path == active_cwd {
+                self.refresh();
+                refreshed_active = true;
+            } else {
+                for (idx, tab) in self.tabs.iter_mut().enumerate() {
+                    if idx != self.active_tab && Path::new(&tab.cwd) == path {
+                        if let Ok(entries) = entry::read_dir(
+                            &tab.cwd,
+                            self.show_hidden,
+                            self.sort_key,
+                            self.sort_ascending,
+                        ) {
+                            tab.entries = entries;
+                            tab.read_error = None;
+                        }
+                    }
+                }
+                if self.view_mode == ViewMode::Miller && !refreshed_active {
+                    let in_miller = self
+                        .active_tab()
+                        .miller_columns
+                        .iter()
+                        .any(|col| Path::new(&col.path) == path);
+                    if in_miller {
+                        self.rebuild_miller_columns();
+                    }
+                }
+            }
+        }
+        true
     }
 
     // ---- listing --------------------------------------------------------
@@ -511,6 +606,10 @@ impl AppState {
     pub fn set_view_mode(&mut self, mode: ViewMode) {
         if self.view_mode != mode {
             self.view_mode = mode;
+            if mode == ViewMode::Miller {
+                self.rebuild_miller_columns();
+            }
+            self.sync_fs_watches();
             self.save_config();
         }
     }
@@ -1151,6 +1250,55 @@ mod tests {
         s.set_view_mode(ViewMode::Miller);
         let cfg = config::load(dir.join("cfg/arca.conf").to_str().unwrap());
         assert_eq!(cfg.view_mode, ViewMode::Miller);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn fs_watcher_updates_directory_listing_on_external_mutation() {
+        let (dir, mut s) = fixture();
+        assert_eq!(s.entries().len(), 3); // sub, a.txt, b.txt
+
+        // Allow watcher thread to register watch
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // 1. External download / creation
+        let new_file = dir.join("downloaded.zip");
+        std::fs::write(&new_file, b"content").unwrap();
+
+        let start = std::time::Instant::now();
+        let mut updated = false;
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if s.drain_fs_events() {
+                updated = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert!(updated, "expected drain_fs_events to report refresh");
+        assert!(
+            s.entries().iter().any(|e| e.name == "downloaded.zip"),
+            "new file should appear in active entries"
+        );
+
+        // 2. External deletion
+        std::fs::remove_file(&new_file).unwrap();
+        let start = std::time::Instant::now();
+        let mut removed_updated = false;
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if s.drain_fs_events() {
+                removed_updated = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert!(removed_updated, "expected drain_fs_events to report refresh after deletion");
+        assert!(
+            !s.entries().iter().any(|e| e.name == "downloaded.zip"),
+            "deleted file should disappear from active entries"
+        );
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

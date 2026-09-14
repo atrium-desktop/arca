@@ -118,21 +118,13 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
             }
             keep_open = false;
         }
-        let selected_file = app
-            .state
-            .selected_entry()
-            .filter(|e| !e.navigable)
-            .cloned();
-        if let Some(entry) = selected_file {
-            let apps = arca_xdg::desktop::applications_for_mime(&entry.mime_type);
-            for app_entry in apps.iter().take(3) {
-                let label = format!("Open with {}", app_entry.name);
-                if f.selectable(&label, false) {
-                    if let Some(path_str) = app.state.selected_path() {
-                        let _ = app_entry.spawn(&[std::path::Path::new(&path_str)]);
-                    }
-                    keep_open = false;
+        for app_entry in menu.open_with.iter().take(3) {
+            let label = format!("Open with {}", app_entry.name);
+            if f.selectable(&label, false) {
+                if let Some(path_str) = app.state.selected_path() {
+                    let _ = app_entry.spawn(&[std::path::Path::new(&path_str)]);
                 }
+                keep_open = false;
             }
         }
         f.separator();
