@@ -267,7 +267,7 @@ fn build_grid_card(
     let Some(entry) = app.state.entries().get(entry_index).cloned() else {
         return;
     };
-    let selected = app.state.selected() == Some(visible_index);
+    let selected = app.state.is_selected(visible_index);
     let full_path = std::path::Path::new(app.state.cwd())
         .join(&entry.name)
         .to_string_lossy()
@@ -346,7 +346,18 @@ fn build_grid_card(
                 },
             );
         });
-    frame.dnd_source(&grid_id, &full_path, 1);
+    let dnd_payload = if selected && app.state.selected_count() > 1 {
+        let paths = app.state.selected_paths();
+        let mut out = String::new();
+        for p in paths {
+            out.push_str(&arca_xdg::uri::encode_file_uri(std::path::Path::new(&p)));
+            out.push_str("\r\n");
+        }
+        out
+    } else {
+        full_path.clone()
+    };
+    frame.dnd_source(&grid_id, &dnd_payload, 1);
     if is_dragged {
         frame.set_opacity(prev_opacity);
     }
@@ -482,6 +493,7 @@ fn build_list_row(
         }
     }
     let drop_hovered = drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false);
+    let selected = app.state.is_selected(visible_index);
 
     let is_dragged = app
         .active_drag
@@ -493,7 +505,7 @@ fn build_list_row(
         gap: 10.0,
         pad: 7.0,
         cross: Align::Center,
-        bg: if drop_hovered || app.state.selected() == Some(visible_index) {
+        bg: if drop_hovered || selected {
             tones.selected
         } else {
             Color::TRANSPARENT
@@ -536,7 +548,18 @@ fn build_list_row(
             metadata_label(frame, tones, &size, 86.0);
             metadata_label(frame, tones, &modified, 124.0);
         });
-    frame.dnd_source(&entry.name, &full_path, 1);
+    let dnd_payload = if selected && app.state.selected_count() > 1 {
+        let paths = app.state.selected_paths();
+        let mut out = String::new();
+        for p in paths {
+            out.push_str(&arca_xdg::uri::encode_file_uri(std::path::Path::new(&p)));
+            out.push_str("\r\n");
+        }
+        out
+    } else {
+        full_path.clone()
+    };
+    frame.dnd_source(&entry.name, &dnd_payload, 1);
     if is_dragged {
         frame.set_opacity(prev_opacity);
     }
@@ -956,6 +979,9 @@ mod tests {
         let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..3 {
             ui.frame(&settle, |f| app.build(f, &settle));
+            if let Ok(snap) = ui.snapshot() {
+                let _ = ui.activate(&snap);
+            }
         }
         let before = last_list_window().expect("list window recorded");
         assert_eq!(before.0, 0, "unscrolled list starts at the top");
@@ -966,6 +992,9 @@ mod tests {
         wheel.set_scroll(0.0, -2.0);
         for _ in 0..4 {
             ui.frame(&wheel, |f| app.build(f, &wheel));
+            if let Ok(snap) = ui.snapshot() {
+                let _ = ui.activate(&snap);
+            }
         }
         let after = last_list_window().expect("list window recorded");
         assert!(

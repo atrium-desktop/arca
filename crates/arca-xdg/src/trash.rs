@@ -81,9 +81,12 @@ unsafe fn libc_getuid() -> u32 {
     getuid()
 }
 
-/// Move every path into the appropriate trash.
-pub fn trash_paths<P: AsRef<Path>>(paths: &[P], custom_root: Option<&Path>) -> io::Result<usize> {
-    let mut trashed = 0;
+/// Move every path into the appropriate trash and return the recorded TrashItems.
+pub fn trash_paths_record<P: AsRef<Path>>(
+    paths: &[P],
+    custom_root: Option<&Path>,
+) -> io::Result<Vec<TrashItem>> {
+    let mut trashed = Vec::new();
 
     for p in paths {
         let path = p.as_ref();
@@ -96,6 +99,13 @@ pub fn trash_paths<P: AsRef<Path>>(paths: &[P], custom_root: Option<&Path>) -> i
         fs::create_dir_all(&files_dir)?;
         fs::create_dir_all(&info_dir)?;
 
+        let is_dir = path.is_dir();
+        let size = if is_dir {
+            0
+        } else {
+            fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+        };
+
         let filename = path
             .file_name()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no filename"))?
@@ -107,10 +117,11 @@ pub fn trash_paths<P: AsRef<Path>>(paths: &[P], custom_root: Option<&Path>) -> i
         let info_file = info_dir.join(format!("{unique}.trashinfo"));
 
         let absolute = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let deletion_date = local_deletion_date_now();
         let info_content = format!(
             "[Trash Info]\nPath={}\nDeletionDate={}\n",
             percent_encode(&absolute.to_string_lossy()),
-            local_deletion_date_now()
+            deletion_date
         );
 
         fs::write(&info_file, info_content)?;
@@ -118,7 +129,7 @@ pub fn trash_paths<P: AsRef<Path>>(paths: &[P], custom_root: Option<&Path>) -> i
         match fs::rename(path, &target) {
             Ok(()) => {}
             Err(_) => {
-                if path.is_dir() {
+                if is_dir {
                     copy_dir_recursive(path, &target)?;
                     fs::remove_dir_all(path)?;
                 } else {
@@ -128,10 +139,24 @@ pub fn trash_paths<P: AsRef<Path>>(paths: &[P], custom_root: Option<&Path>) -> i
             }
         }
 
-        trashed += 1;
+        trashed.push(TrashItem {
+            id: unique,
+            original_name: filename,
+            original_path: absolute,
+            deletion_date,
+            file_path: target,
+            info_path: info_file,
+            is_dir,
+            size,
+        });
     }
 
     Ok(trashed)
+}
+
+/// Move every path into the appropriate trash.
+pub fn trash_paths<P: AsRef<Path>>(paths: &[P], custom_root: Option<&Path>) -> io::Result<usize> {
+    trash_paths_record(paths, custom_root).map(|items| items.len())
 }
 
 /// List all items currently in the user's home trash.

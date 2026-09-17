@@ -89,8 +89,8 @@ impl DesktopEntry {
         result
     }
 
-    /// Spawn this application detached with given paths.
-    pub fn spawn(&self, paths: &[&Path]) -> std::io::Result<()> {
+    /// Spawn this application detached with given paths and optional XDG activation token.
+    pub fn spawn_with_token(&self, paths: &[&Path], activation_token: Option<&str>) -> std::io::Result<()> {
         let args = self.format_exec(paths);
         if args.is_empty() {
             return Err(std::io::Error::new(
@@ -104,6 +104,9 @@ impl DesktopEntry {
             let mut cmd = Command::new(term);
             cmd.arg("-e");
             cmd.args(&args);
+            if let Some(token) = activation_token {
+                cmd.env("XDG_ACTIVATION_TOKEN", token);
+            }
             cmd.stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -113,12 +116,20 @@ impl DesktopEntry {
             if args.len() > 1 {
                 cmd.args(&args[1..]);
             }
+            if let Some(token) = activation_token {
+                cmd.env("XDG_ACTIVATION_TOKEN", token);
+            }
             cmd.stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()?;
         }
         Ok(())
+    }
+
+    /// Spawn this application detached with given paths.
+    pub fn spawn(&self, paths: &[&Path]) -> std::io::Result<()> {
+        self.spawn_with_token(paths, None)
     }
 }
 
@@ -479,21 +490,29 @@ pub fn resolve_applications_for_mime(
 }
 
 /// Open a path with the desktop default application, or fall back to `xdg-open`.
-pub fn open_path(path: &Path) -> std::io::Result<()> {
+pub fn open_path_with_token(path: &Path, token: Option<&str>) -> std::io::Result<()> {
     let mime_type = guess_mime_type(path);
     if let Some(app) = default_application_for_mime(&mime_type) {
-        if app.spawn(&[path]).is_ok() {
+        if app.spawn_with_token(&[path], token).is_ok() {
             return Ok(());
         }
     }
 
-    Command::new("xdg-open")
-        .arg(path)
-        .stdin(std::process::Stdio::null())
+    let mut cmd = Command::new("xdg-open");
+    cmd.arg(path);
+    if let Some(t) = token {
+        cmd.env("XDG_ACTIVATION_TOKEN", t);
+    }
+    cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()?;
     Ok(())
+}
+
+/// Open a path with the desktop default application, or fall back to `xdg-open`.
+pub fn open_path(path: &Path) -> std::io::Result<()> {
+    open_path_with_token(path, None)
 }
 
 fn load_mimeapps_list() -> MimeAssociations {

@@ -111,6 +111,8 @@ pub struct UiApp {
     pub(crate) cursor_pos: (f32, f32),
     pub(crate) bookmark_drop_rect: Option<Rect>,
     pub(crate) sub_row_rect: Option<Rect>,
+    pub(crate) pending_paste: bool,
+    pub(crate) mods: u32,
 }
 
 impl UiApp {
@@ -133,6 +135,8 @@ impl UiApp {
             cursor_pos: (0.0, 0.0),
             bookmark_drop_rect: None,
             sub_row_rect: None,
+            pending_paste: false,
+            mods: 0,
             filter,
             filter_id: 0,
             filter_focused: false,
@@ -161,6 +165,7 @@ impl UiApp {
         let display = input.as_raw().display_size;
         self.viewport = (display.x, display.y);
         self.cursor_pos = (input.as_raw().cursor.x, input.as_raw().cursor.y);
+        self.mods = input.as_raw().mods;
         let mouse_down = input.as_raw().mouse_down[0];
 
         if let Some(drag) = &mut self.active_drag {
@@ -193,8 +198,18 @@ impl UiApp {
         self.drop_targets.clear();
 
         self.apply_theme(frame);
+        if self.pending_paste {
+            if let Some(text) = frame.take_paste() {
+                self.pending_paste = false;
+                self.state.paste_text(&text);
+            }
+        }
         self.handle_keys(frame, input);
-        if self.state.drain_fs_events() {
+        for path in crate::ipc::drain_pending_open_requests() {
+            self.new_tab_at(&path);
+            iris::window_restore();
+        }
+        if self.state.drain_fs_events() || self.state.poll_async_jobs() {
             iris::request_animation_frame();
         }
         self.sync_active_tab();
@@ -513,6 +528,20 @@ impl UiApp {
 
     pub(crate) fn row_clicked(&mut self, visible_idx: usize, name: &str) {
         let now = Instant::now();
+        let ctrl = self.mods & lens::mods::CTRL != 0;
+        let shift = self.mods & lens::mods::SHIFT != 0;
+
+        if ctrl {
+            self.state.toggle_select_visible(visible_idx);
+            self.last_click = Some((visible_idx, now));
+            return;
+        }
+        if shift {
+            self.state.select_range_visible(visible_idx);
+            self.last_click = Some((visible_idx, now));
+            return;
+        }
+
         if let Some((last_idx, at)) = self.last_click {
             if last_idx == visible_idx && now.duration_since(at).as_millis() < DOUBLE_CLICK_MS {
                 self.last_click = None;
@@ -554,7 +583,9 @@ impl UiApp {
     }
 
     pub(crate) fn row_right_clicked(&mut self, visible_idx: usize, anchor: Rect) {
-        self.state.select_visible(visible_idx);
+        if !self.state.is_selected(visible_idx) {
+            self.state.select_visible(visible_idx);
+        }
         let open_with = self
             .state
             .selected_entry()
@@ -614,6 +645,12 @@ impl UiApp {
             let key = ev.key;
 
             if key == lens::key::ESCAPE {
+                if self.renaming.is_some() {
+                    frame.consume_key(lens::key::ESCAPE);
+                    self.renaming = None;
+                    frame.clear_focus();
+                    continue;
+                }
                 if let Some(chooser) = &mut self.chooser {
                     frame.consume_key(lens::key::ESCAPE);
                     if chooser.overwrite_confirm.is_some() {
@@ -678,7 +715,7 @@ impl UiApp {
                     } else {
                         1
                     };
-                    self.state.move_selection(-step);
+                    self.state.move_selection_ext(-step, shift);
                 }
                 lens::key::DOWN if !ctrl && !alt => {
                     let step = if self.state.view_mode == ViewMode::Grid {
@@ -690,7 +727,7 @@ impl UiApp {
                     } else {
                         1
                     };
-                    self.state.move_selection(step);
+                    self.state.move_selection_ext(step, shift);
                 }
                 lens::key::RETURN if !ctrl && !alt => {
                     if self.chooser.is_some() {
@@ -699,6 +736,10 @@ impl UiApp {
                         self.preview.close();
                         self.state.open_selected();
                     }
+                }
+                lens::key::DELETE if shift && !ctrl && !alt => {
+                    self.preview.close();
+                    self.state.delete_selected_permanently();
                 }
                 lens::key::DELETE if !ctrl && !alt => {
                     self.preview.close();
@@ -712,6 +753,10 @@ impl UiApp {
                     'f' if !shift => self.focus_filter(),
                     't' if !shift && self.chooser.is_none() => self.new_tab(),
                     'w' if !shift && self.chooser.is_none() => self.close_active_tab(),
+                    'z' if !shift => self.state.undo(),
+                    'z' if shift => self.state.redo(),
+                    'y' if !shift => self.state.redo(),
+                    'a' if !shift => self.state.select_all(),
                     'n' if shift => {
                         if let Some(name) = self.state.create_folder() {
                             self.begin_rename(name);
@@ -736,7 +781,18 @@ impl UiApp {
                             frame.copy(&payload);
                         }
                     }
-                    'v' if !shift => self.state.paste(),
+                    'v' if !shift => {
+                        if let Some(text) = frame.take_paste() {
+                            self.state.paste_text(&text);
+                        } else {
+                            self.pending_paste = true;
+                            frame.request_paste();
+                            if self.state.clipboard.is_some() {
+                                self.state.paste();
+                                self.pending_paste = false;
+                            }
+                        }
+                    }
                     '1'..='9' if !shift && self.chooser.is_none() => {
                         self.switch_tab((k as u8 - b'1') as usize)
                     }

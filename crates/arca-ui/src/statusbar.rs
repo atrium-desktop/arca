@@ -15,17 +15,34 @@ pub(crate) fn build_statusbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones)
     } else {
         format!("{filtered} of {total} items")
     };
-    if let Some(selected) = app.state.selected_entry() {
+    let count = app.state.selected_count();
+    if count > 1 {
+        let total_size: u64 = app.state.selected_entries().iter().map(|e| e.size).sum();
+        left.push_str(&format!(
+            "  ·  {count} items selected ({})",
+            arca_engine::format::format_size(total_size)
+        ));
+    } else if let Some(selected) = app.state.selected_entry() {
         left.push_str(&format!("  ·  {}", selected.name));
     }
 
-    let right = app.state.status.clone().unwrap_or_else(|| {
-        if app.viewport.0 > 800.0 {
-            "SPACE Preview   ENTER Open".into()
-        } else {
-            String::new()
-        }
-    });
+    let right = if let Some(prog) = &app.state.io_engine.current_progress {
+        format!(
+            "Transferring {}: {:.0}% ({}/{})",
+            prog.current_file,
+            prog.percent(),
+            arca_engine::format::format_size(prog.bytes_copied),
+            arca_engine::format::format_size(prog.total_bytes),
+        )
+    } else {
+        app.state.status.clone().unwrap_or_else(|| {
+            if app.viewport.0 > 800.0 {
+                "SPACE Preview   ENTER Open".into()
+            } else {
+                String::new()
+            }
+        })
+    };
     frame.size_next(0.0, 32.0);
     frame.row_ex(
         &LayoutOpts {

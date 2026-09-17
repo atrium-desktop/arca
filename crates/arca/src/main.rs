@@ -8,35 +8,50 @@ use arca_engine::chooser::{
 use arca_engine::{AppState, ViewMode};
 
 fn main() {
-    let mut args = std::env::args().skip(1).peekable();
+    let args_vec: Vec<String> = std::env::args().skip(1).collect();
 
     // Check if prompter mode was requested
-    if std::env::args().any(|arg| arg == "--chooser-prompt" || arg == "--prompter") {
+    if args_vec.iter().any(|arg| arg == "--chooser-prompt" || arg == "--prompter") {
         run_prompter_mode();
         return;
     }
 
     // Check if CLI chooser mode was requested
-    if let Some(first) = args.peek() {
+    if let Some(first) = args_vec.first() {
         if first == "--choose-file"
             || first == "--choose-files"
             || first == "--choose-dir"
             || first == "--save-file"
         {
-            let mode_flag = args.next().unwrap();
-            run_cli_chooser_mode(mode_flag, args);
+            let mut iter = args_vec.into_iter();
+            let mode_flag = iter.next().unwrap();
+            run_cli_chooser_mode(mode_flag, iter);
+            return;
+        }
+    }
+
+    let is_help_or_version = args_vec
+        .iter()
+        .any(|a| a == "-h" || a == "--help" || a == "-V" || a == "--version");
+    if !is_help_or_version && !args_vec.iter().any(|a| a == "--new-window") {
+        let target_path = args_vec
+            .iter()
+            .find(|a| !a.starts_with('-'))
+            .map(String::as_str)
+            .unwrap_or(".");
+        if arca_ui::ipc::try_forward_to_existing(target_path) {
             return;
         }
     }
 
     let mut state = AppState::new();
-    for argument in args {
+    for argument in &args_vec {
         match argument.as_str() {
             "-h" | "--help" => {
                 println!(
                     "Arca file manager\n\n\
                      Usage:\n  \
-                       arca [--grid|--list|--miller] [DIRECTORY]\n  \
+                       arca [--new-window] [--grid|--list|--miller] [DIRECTORY]\n  \
                        arca --chooser-prompt\n  \
                        arca --choose-file [--title TITLE] [DIRECTORY]\n  \
                        arca --choose-files [--title TITLE] [DIRECTORY]\n  \
@@ -49,6 +64,7 @@ fn main() {
                 println!("arca {}", env!("CARGO_PKG_VERSION"));
                 return;
             }
+            "--new-window" => {}
             "--grid" => state.view_mode = ViewMode::Grid,
             "--list" => state.view_mode = ViewMode::List,
             "--miller" => state.view_mode = ViewMode::Miller,

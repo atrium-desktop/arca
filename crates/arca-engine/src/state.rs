@@ -4,6 +4,7 @@
 //! methods in response to input. All methods are synchronous and cheap
 //! (directory reads of even large folders are milliseconds).
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::bookmarks::{self, Bookmark};
@@ -115,6 +116,8 @@ pub struct AppState {
     /// One-line feedback for the status bar ("Moved foo to Trash", …).
     pub status: Option<String>,
     pub file_filter: Option<FileFilter>,
+    pub undo_stack: crate::undo::UndoStack,
+    pub io_engine: crate::worker::AsyncIoEngine,
 
     config_file: String,
     pub watcher: Option<FsWatcher>,
@@ -130,8 +133,12 @@ pub struct TabState {
     entries: Vec<Entry>,
     pub read_error: Option<String>,
     history: History,
-    /// Index into this tab's visible (filtered) entries.
+    /// Index into this tab's visible (filtered) entries (primary cursor).
     pub selected: Option<usize>,
+    /// Set of selected indices for multi-selection.
+    pub selected_indices: BTreeSet<usize>,
+    /// Anchor index for range selection.
+    pub anchor: Option<usize>,
     pub filter: String,
     miller_columns: Vec<MillerColumn>,
 }
@@ -156,6 +163,8 @@ impl TabState {
             read_error: None,
             history: History::new(),
             selected: None,
+            selected_indices: BTreeSet::new(),
+            anchor: None,
             filter: String::new(),
             miller_columns: Vec::new(),
         }
@@ -181,6 +190,8 @@ impl AppState {
             clipboard: None,
             status: None,
             file_filter: None,
+            undo_stack: crate::undo::UndoStack::new(),
+            io_engine: crate::worker::AsyncIoEngine::new(),
             config_file,
             watcher: FsWatcher::new().ok(),
         };
@@ -206,6 +217,8 @@ impl AppState {
             clipboard: None,
             status: None,
             file_filter: None,
+            undo_stack: crate::undo::UndoStack::new(),
+            io_engine: crate::worker::AsyncIoEngine::new(),
             config_file,
             watcher: FsWatcher::new().ok(),
         };
@@ -351,6 +364,8 @@ impl AppState {
         let tab = &mut self.tabs[self.active_tab];
         tab.cwd = path.to_string();
         tab.selected = None;
+        tab.selected_indices.clear();
+        tab.anchor = None;
         tab.filter.clear();
         match listing {
             Ok(entries) => {
@@ -555,42 +570,169 @@ impl AppState {
     /// Set an active file filter (e.g. for portal file chooser mode).
     pub fn set_file_filter(&mut self, filter: Option<FileFilter>) {
         self.file_filter = filter;
-        self.tabs[self.active_tab].selected = None;
+        let tab = &mut self.tabs[self.active_tab];
+        tab.selected = None;
+        tab.selected_indices.clear();
+        tab.anchor = None;
         self.sync_miller_selection();
     }
 
-    /// The selected entry, resolved through the filter.
+    /// The primary selected entry (active cursor), resolved through the filter.
     pub fn selected_entry(&self) -> Option<&Entry> {
         let visible = self.visible();
         let idx = *visible.get(self.selected()?)?;
         self.entries().get(idx)
     }
 
-    /// Absolute path of the selected entry.
+    /// Absolute path of the primary selected entry.
     pub fn selected_path(&self) -> Option<String> {
         self.selected_entry()
             .map(|e| entry::child_path(self.cwd(), &e.name))
     }
 
-    /// Move the selection by `delta` rows within the visible list. With no
-    /// current selection, `+1` selects the first row and `-1` the last.
-    pub fn move_selection(&mut self, delta: i64) {
+    /// Check whether a visible entry index is selected.
+    pub fn is_selected(&self, index: usize) -> bool {
+        self.active_tab().selected_indices.contains(&index)
+    }
+
+    /// Number of currently selected items in the active tab.
+    pub fn selected_count(&self) -> usize {
+        self.active_tab().selected_indices.len()
+    }
+
+    /// Set of selected visible indices.
+    pub fn selected_indices(&self) -> &BTreeSet<usize> {
+        &self.active_tab().selected_indices
+    }
+
+    /// All selected entries, resolved through the visible filter.
+    pub fn selected_entries(&self) -> Vec<&Entry> {
+        let visible = self.visible();
+        let entries = self.entries();
+        self.active_tab()
+            .selected_indices
+            .iter()
+            .filter_map(|&v_idx| visible.get(v_idx))
+            .filter_map(|&e_idx| entries.get(e_idx))
+            .collect()
+    }
+
+    /// Absolute paths of all selected entries.
+    pub fn selected_paths(&self) -> Vec<String> {
+        let cwd = self.cwd();
+        let entries = self.selected_entries();
+        if entries.is_empty() {
+            if let Some(p) = self.selected_path() {
+                return vec![p];
+            }
+        }
+        entries
+            .into_iter()
+            .map(|e| entry::child_path(cwd, &e.name))
+            .collect()
+    }
+
+    /// Move the selection cursor, optionally extending the selection range (Shift+Arrow).
+    pub fn move_selection_ext(&mut self, delta: i64, extend_selection: bool) {
         let count = self.visible().len();
         if count == 0 {
-            self.tabs[self.active_tab].selected = None;
+            self.clear_selection();
             return;
         }
-        let selected = self.selected();
-        self.tabs[self.active_tab].selected = Some(match selected {
+        let current = self.selected();
+        let next_idx = match current {
             None if delta >= 0 => 0,
             None => count - 1,
             Some(cur) => (cur as i64 + delta).clamp(0, count as i64 - 1) as usize,
-        });
+        };
+        if extend_selection {
+            self.select_range_visible(next_idx);
+        } else {
+            self.select_visible(next_idx);
+        }
+    }
+
+    /// Move the selection by `delta` rows within the visible list.
+    pub fn move_selection(&mut self, delta: i64) {
+        self.move_selection_ext(delta, false);
+    }
+
+    /// Select a single visible index, clearing others and setting anchor.
+    pub fn select_visible(&mut self, index: usize) {
+        let count = self.visible().len();
+        let tab = &mut self.tabs[self.active_tab];
+        if index < count {
+            tab.selected = Some(index);
+            tab.selected_indices.clear();
+            tab.selected_indices.insert(index);
+            tab.anchor = Some(index);
+        } else {
+            tab.selected = None;
+            tab.selected_indices.clear();
+            tab.anchor = None;
+        }
         self.sync_miller_selection();
     }
 
-    pub fn select_visible(&mut self, index: usize) {
-        self.tabs[self.active_tab].selected = (index < self.visible().len()).then_some(index);
+    /// Toggle selection of a visible item (Ctrl+Click).
+    pub fn toggle_select_visible(&mut self, index: usize) {
+        let count = self.visible().len();
+        if index >= count {
+            return;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        if tab.selected_indices.contains(&index) {
+            tab.selected_indices.remove(&index);
+            if tab.selected == Some(index) {
+                tab.selected = tab.selected_indices.iter().copied().next();
+            }
+        } else {
+            tab.selected_indices.insert(index);
+            tab.selected = Some(index);
+            tab.anchor = Some(index);
+        }
+        self.sync_miller_selection();
+    }
+
+    /// Range selection from anchor to index (Shift+Click or Shift+Arrows).
+    pub fn select_range_visible(&mut self, index: usize) {
+        let count = self.visible().len();
+        if count == 0 {
+            return;
+        }
+        let target = index.min(count - 1);
+        let tab = &mut self.tabs[self.active_tab];
+        let anchor = tab.anchor.unwrap_or(tab.selected.unwrap_or(0)).min(count - 1);
+        let start = anchor.min(target);
+        let end = anchor.max(target);
+
+        tab.selected_indices.clear();
+        for i in start..=end {
+            tab.selected_indices.insert(i);
+        }
+        tab.selected = Some(target);
+        self.sync_miller_selection();
+    }
+
+    /// Select all visible items (Ctrl+A).
+    pub fn select_all(&mut self) {
+        let count = self.visible().len();
+        let tab = &mut self.tabs[self.active_tab];
+        tab.selected_indices.clear();
+        for i in 0..count {
+            tab.selected_indices.insert(i);
+        }
+        tab.selected = (count > 0).then_some(0);
+        tab.anchor = (count > 0).then_some(0);
+        self.sync_miller_selection();
+    }
+
+    /// Clear all selection.
+    pub fn clear_selection(&mut self) {
+        let tab = &mut self.tabs[self.active_tab];
+        tab.selected = None;
+        tab.selected_indices.clear();
+        tab.anchor = None;
         self.sync_miller_selection();
     }
 
@@ -600,6 +742,8 @@ impl AppState {
         let tab = &mut self.tabs[self.active_tab];
         tab.filter = filter;
         tab.selected = None;
+        tab.selected_indices.clear();
+        tab.anchor = None;
         self.sync_miller_selection();
     }
 
@@ -680,27 +824,37 @@ impl AppState {
 
     // ---- actions --------------------------------------------------------
 
-    /// Open the selected entry: navigate into directories, `xdg-open` files.
-    pub fn open_selected(&mut self) {
+    /// Open the selected entry: navigate into directories, `xdg-open` files with optional activation token.
+    pub fn open_selected_with_token(&mut self, token: Option<&str>) {
         let Some(entry) = self.selected_entry().cloned() else {
             return;
         };
         let target = entry::child_path(self.cwd(), &entry.name);
         if entry.navigable {
             self.navigate(&target);
-        } else if let Err(e) = ops::open(&target) {
+        } else if let Err(e) = ops::open_with_token(&target, token) {
             self.set_status(format!("Cannot open {}: {e}", entry.name));
+        }
+    }
+
+    /// Open the selected entry: navigate into directories, `xdg-open` files.
+    pub fn open_selected(&mut self) {
+        self.open_selected_with_token(None);
+    }
+
+    /// Open `name` with optional activation token.
+    pub fn open_child_with_token(&mut self, name: &str, token: Option<&str>) {
+        let target = entry::child_path(self.cwd(), name);
+        if entry::dir_exists(&target) {
+            self.navigate(&target);
+        } else if let Err(e) = ops::open_with_token(&target, token) {
+            self.set_status(format!("Cannot open {name}: {e}"));
         }
     }
 
     /// Open `name` (a child of cwd) — the mouse path of [`Self::open_selected`].
     pub fn open_child(&mut self, name: &str) {
-        let target = entry::child_path(self.cwd(), name);
-        if entry::dir_exists(&target) {
-            self.navigate(&target);
-        } else if let Err(e) = ops::open(&target) {
-            self.set_status(format!("Cannot open {name}: {e}"));
-        }
+        self.open_child_with_token(name, None);
     }
 
     /// Activate an item from any Miller column. Directories become the active
@@ -725,6 +879,7 @@ impl AppState {
         match ops::create_folder(self.cwd()) {
             Ok(path) => {
                 let name = path.file_name()?.to_string_lossy().into_owned();
+                self.undo_stack.push(crate::undo::UndoAction::CreateFolder(path));
                 self.refresh();
                 self.select_by_name(&name);
                 self.set_status(format!("Created {name}"));
@@ -747,6 +902,10 @@ impl AppState {
         let to = PathBuf::from(entry::child_path(self.cwd(), to_name));
         match ops::rename_path(&from, &to) {
             Ok(()) => {
+                self.undo_stack.push(crate::undo::UndoAction::Rename {
+                    original: from,
+                    new_path: to,
+                });
                 self.refresh();
                 self.select_by_name(to_name);
                 self.set_status(format!("Renamed {from_name} → {to_name}"));
@@ -759,37 +918,84 @@ impl AppState {
         }
     }
 
-    /// Move the selected entry to the trash.
+    /// Move all selected entries to the trash (atomic batch undo transaction).
     pub fn trash_selected(&mut self) {
-        let Some(path) = self.selected_path() else {
+        let paths = self.selected_paths();
+        if paths.is_empty() {
             return;
-        };
-        let name = self
-            .selected_entry()
-            .map(|e| e.name.clone())
-            .unwrap_or_default();
-        match trash::trash_paths(&[&path], None) {
-            Ok(_) => {
-                self.set_status(format!("Moved {name} to Trash"));
+        }
+        let count = paths.len();
+        let path_refs: Vec<&Path> = paths.iter().map(|p| Path::new(p.as_str())).collect();
+        match trash::trash_paths_record(&path_refs, None) {
+            Ok(items) => {
+                self.undo_stack.push(crate::undo::UndoAction::Trash(items));
+                self.clear_selection();
+                self.set_status(if count == 1 {
+                    "Moved 1 item to Trash".into()
+                } else {
+                    format!("Moved {count} items to Trash")
+                });
                 self.refresh();
             }
-            Err(e) => self.set_status(format!("Cannot trash {name}: {e}")),
+            Err(e) => self.set_status(format!("Cannot trash items: {e}")),
         }
     }
 
-    /// Copy (`cut = false`) or cut the selected entry into the clipboard.
-    pub fn yank_selected(&mut self, cut: bool) {
-        let Some(path) = self.selected_path() else {
+    /// Permanently delete all selected entries bypassing Trash.
+    pub fn delete_selected_permanently(&mut self) {
+        let paths = self.selected_paths();
+        if paths.is_empty() {
             return;
-        };
+        }
+        let mut deleted = 0;
+        for p in &paths {
+            if ops::delete_path(Path::new(p)).is_ok() {
+                deleted += 1;
+            }
+        }
+        self.clear_selection();
+        self.set_status(format!("Permanently deleted {deleted} item(s)"));
+        self.refresh();
+    }
+
+    /// Undo the most recent reversible file operation.
+    pub fn undo(&mut self) {
+        match self.undo_stack.undo() {
+            Ok(msg) => {
+                self.set_status(msg);
+                self.refresh();
+            }
+            Err(err) => self.set_status(err),
+        }
+    }
+
+    /// Redo the most recently undone file operation.
+    pub fn redo(&mut self) {
+        match self.undo_stack.redo() {
+            Ok(msg) => {
+                self.set_status(msg);
+                self.refresh();
+            }
+            Err(err) => self.set_status(err),
+        }
+    }
+
+    /// Copy (`cut = false`) or cut all selected entries into the clipboard.
+    pub fn yank_selected(&mut self, cut: bool) {
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            return;
+        }
+        let count = paths.len();
+        let path_bufs: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
         self.clipboard = Some(Clipboard {
-            paths: vec![PathBuf::from(path)],
+            paths: path_bufs,
             cut,
         });
         self.set_status(if cut {
-            "Cut — paste with Ctrl+V".to_string()
+            format!("Cut {count} item(s) — paste with Ctrl+V")
         } else {
-            "Copied — paste with Ctrl+V".to_string()
+            format!("Copied {count} item(s) — paste with Ctrl+V")
         });
     }
 
@@ -800,6 +1006,7 @@ impl AppState {
         };
         let dest_dir = PathBuf::from(self.cwd());
         let mut done = 0usize;
+        let mut created_dsts = Vec::new();
         for src in &clipboard.paths {
             let result = if clipboard.cut {
                 ops::move_into(src, &dest_dir)
@@ -807,12 +1014,25 @@ impl AppState {
                 ops::copy_into(src, &dest_dir)
             };
             match result {
-                Ok(_) => done += 1,
+                Ok(dst) => {
+                    done += 1;
+                    created_dsts.push(dst);
+                }
                 Err(e) => self.set_status(format!(
                     "Cannot paste {}: {e}",
                     src.file_name().unwrap_or_default().to_string_lossy()
                 )),
             }
+        }
+        if clipboard.cut {
+            self.undo_stack.push(crate::undo::UndoAction::Move {
+                sources: clipboard.paths.clone(),
+                destinations: created_dsts,
+            });
+        } else if !created_dsts.is_empty() {
+            self.undo_stack.push(crate::undo::UndoAction::Copy {
+                destinations: created_dsts,
+            });
         }
         if clipboard.cut && done == clipboard.paths.len() {
             self.clipboard = None;
@@ -838,6 +1058,64 @@ impl AppState {
             self.clipboard = Some(clip);
             self.paste();
         }
+    }
+
+    /// Submit an asynchronous copy job to the background IO worker.
+    pub fn copy_async(
+        &mut self,
+        sources: Vec<PathBuf>,
+        destination: PathBuf,
+    ) -> crate::worker::JobId {
+        self.io_engine.submit_copy(sources, destination)
+    }
+
+    /// Submit an asynchronous move job to the background IO worker.
+    pub fn move_async(
+        &mut self,
+        sources: Vec<PathBuf>,
+        destination: PathBuf,
+    ) -> crate::worker::JobId {
+        self.io_engine.submit_move(sources, destination)
+    }
+
+    /// Poll for async job progress and completion, committing finished jobs to the UndoStack.
+    pub fn poll_async_jobs(&mut self) -> bool {
+        let mut completed_any = false;
+        while let Some(completed) = self.io_engine.poll() {
+            completed_any = true;
+            match completed.kind {
+                crate::worker::JobKind::Copy { sources: _, destination: _ } => {
+                    if !completed.created_destinations.is_empty() {
+                        self.undo_stack.push(crate::undo::UndoAction::Copy {
+                            destinations: completed.created_destinations.clone(),
+                        });
+                        self.set_status(format!(
+                            "Copied {} item(s)",
+                            completed.created_destinations.len()
+                        ));
+                    }
+                }
+                crate::worker::JobKind::Move { sources, destination: _ } => {
+                    if !completed.created_destinations.is_empty() {
+                        self.undo_stack.push(crate::undo::UndoAction::Move {
+                            sources,
+                            destinations: completed.created_destinations.clone(),
+                        });
+                        self.set_status(format!(
+                            "Moved {} item(s)",
+                            completed.created_destinations.len()
+                        ));
+                    }
+                }
+            }
+            if let Some(err) = completed.error {
+                self.set_status(format!("Operation error: {err}"));
+            }
+        }
+        if completed_any {
+            self.refresh();
+        }
+        completed_any
     }
 
     // ---- bookmarks & theme ----------------------------------------------
@@ -1298,6 +1576,99 @@ mod tests {
             !s.entries().iter().any(|e| e.name == "downloaded.zip"),
             "deleted file should disappear from active entries"
         );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn undo_and_redo_file_operations() {
+        let (dir, mut s) = fixture();
+
+        // 1. Test create folder + undo/redo
+        let folder_name = s.create_folder().expect("folder created");
+        assert!(dir.join(&folder_name).exists());
+        assert!(s.undo_stack.can_undo());
+
+        s.undo();
+        assert!(!dir.join(&folder_name).exists());
+        assert!(s.undo_stack.can_redo());
+
+        s.redo();
+        assert!(dir.join(&folder_name).exists());
+
+        // 2. Test rename + undo/redo
+        s.select_by_name(&folder_name);
+        assert!(s.rename(&folder_name, "renamed_folder"));
+        assert!(dir.join("renamed_folder").exists());
+        assert!(!dir.join(&folder_name).exists());
+
+        s.undo();
+        assert!(dir.join(&folder_name).exists());
+        assert!(!dir.join("renamed_folder").exists());
+
+        s.redo();
+        assert!(dir.join("renamed_folder").exists());
+        assert!(!dir.join(&folder_name).exists());
+
+        // 3. Test trash + undo/redo
+        s.select_by_name("renamed_folder");
+        s.trash_selected();
+        assert!(!dir.join("renamed_folder").exists());
+
+        s.undo();
+        assert!(dir.join("renamed_folder").exists());
+
+        // 4. Test permanent delete
+        s.select_by_name("renamed_folder");
+        s.delete_selected_permanently();
+        assert!(!dir.join("renamed_folder").exists());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn multi_selection_and_batch_operations() {
+        let (dir, mut s) = fixture();
+        assert_eq!(s.entries().len(), 3);
+
+        // 1. Initial single selection
+        assert_eq!(s.selected_count(), 0);
+        s.select_visible(0);
+        assert_eq!(s.selected_count(), 1);
+        assert!(s.is_selected(0));
+        assert!(!s.is_selected(1));
+
+        // 2. Range selection 0..=2 (selects all 3)
+        s.select_range_visible(2);
+        assert_eq!(s.selected_count(), 3);
+        assert!(s.is_selected(0));
+        assert!(s.is_selected(1));
+        assert!(s.is_selected(2));
+        assert_eq!(s.selected_paths().len(), 3);
+
+        // 3. Toggle selection (Ctrl+Click removes index 1)
+        s.toggle_select_visible(1);
+        assert_eq!(s.selected_count(), 2);
+        assert!(s.is_selected(0));
+        assert!(!s.is_selected(1));
+        assert!(s.is_selected(2));
+
+        // 4. Batch Yank (Copy)
+        s.yank_selected(false);
+        assert_eq!(s.clipboard.as_ref().unwrap().paths.len(), 2);
+
+        // 5. Select All (Ctrl+A)
+        s.select_all();
+        assert_eq!(s.selected_count(), 3);
+
+        // 6. Batch Trash all items
+        s.trash_selected();
+        assert_eq!(s.entries().len(), 0);
+        assert_eq!(s.selected_count(), 0);
+
+        // 7. Undo restores all 3 items at once!
+        s.undo();
+        assert_eq!(s.entries().len(), 3);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

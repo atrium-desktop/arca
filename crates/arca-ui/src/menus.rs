@@ -111,6 +111,19 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
             }
             keep_open = false;
         }
+        if f.selectable("Paste", false) {
+            if let Some(text) = f.take_paste() {
+                app.state.paste_text(&text);
+            } else {
+                app.pending_paste = true;
+                f.request_paste();
+                if app.state.clipboard.is_some() {
+                    app.state.paste();
+                    app.pending_paste = false;
+                }
+            }
+            keep_open = false;
+        }
         if f.selectable("Copy Path", false) {
             if let Some(path) = app.state.selected_path() {
                 f.copy(&path);

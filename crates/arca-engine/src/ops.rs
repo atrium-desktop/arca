@@ -7,8 +7,13 @@ use std::path::{Path, PathBuf};
 
 /// Open `path` with the desktop's default application (`mimeapps.list` / `.desktop` / `xdg-open`),
 /// detached — Arca never blocks on the child.
+pub fn open_with_token(path: &str, token: Option<&str>) -> io::Result<()> {
+    crate::desktop::open_path_with_token(Path::new(path), token)
+}
+
+/// Open `path` with the desktop's default application.
 pub fn open(path: &str) -> io::Result<()> {
-    crate::desktop::open_path(Path::new(path))
+    open_with_token(path, None)
 }
 
 /// Create `parent/New Folder` (or `"New Folder 2"`, … on collision) and
@@ -36,6 +41,15 @@ pub fn rename_path(from: &Path, to: &Path) -> io::Result<()> {
         ));
     }
     std::fs::rename(from, to)
+}
+
+/// Permanently delete a file or directory.
+pub fn delete_path(path: &Path) -> io::Result<()> {
+    if path.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    }
 }
 
 /// Copy `src` (file or directory, recursively) into `dst_dir`, choosing a

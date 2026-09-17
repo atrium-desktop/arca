@@ -15,6 +15,7 @@ mod tabs;
 mod theme;
 mod thumbs;
 mod toolbar;
+pub mod ipc;
 
 pub use app::UiApp;
 pub use chooser::run_chooser;
@@ -23,6 +24,7 @@ use arca_engine::state::AppState;
 
 /// Open the Arca window and run the event loop until it closes.
 pub fn run(state: AppState) -> Result<(), iris::RunError> {
+    let _ipc_server = ipc::IpcServer::start();
     let mut app = UiApp::new(state);
     let config = iris::Config::new("Arca")?
         .app_id("io.arca.Arca")?
@@ -72,6 +74,9 @@ mod tests {
 
     fn frame(app: &mut UiApp, ui: &mut lens::Ui, input: &lens::Input) {
         ui.frame(input, |f| app.build(f, input));
+        if let Ok(snap) = ui.snapshot() {
+            let _ = ui.activate(&snap);
+        }
     }
 
     #[test]
@@ -239,6 +244,115 @@ mod tests {
         for _ in 0..3 {
             frame(&mut app, &mut ui, &settle);
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn keyboard_shortcuts_rename_and_delete_undo() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &settle);
+
+        // Select first item
+        let mut down = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        down.push_key(lens::key::DOWN, true, false);
+        frame(&mut app, &mut ui, &down);
+        assert!(app.state.selected().is_some());
+
+        // Press Ctrl+E to begin rename
+        let mut rename_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        rename_in.set_mods(lens::mods::CTRL);
+        rename_in.push_key('e' as i32, true, false);
+        frame(&mut app, &mut ui, &rename_in);
+        assert!(app.renaming.is_some());
+
+        // Cancel rename with Esc
+        let mut esc = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        esc.push_key(lens::key::ESCAPE, true, false);
+        frame(&mut app, &mut ui, &esc);
+        assert!(app.renaming.is_none());
+
+        // Delete item to trash
+        let mut del = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        del.push_key(lens::key::DELETE, true, false);
+        frame(&mut app, &mut ui, &del);
+        assert_eq!(app.state.entries().len(), 1);
+
+        // Ctrl+Z to undo trash
+        let mut undo = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        undo.set_mods(lens::mods::CTRL);
+        undo.push_key('z' as i32, true, false);
+        frame(&mut app, &mut ui, &undo);
+        assert_eq!(app.state.entries().len(), 2);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn paste_from_external_system_clipboard_uri_list() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &settle);
+
+        // Create an external file to copy into the sub folder
+        let sub_dir = dir.join("sub");
+        let external = dir.join("a.txt");
+        assert!(external.exists());
+
+        // Navigate inside sub folder
+        app.state.navigate(sub_dir.to_str().unwrap());
+        frame(&mut app, &mut ui, &settle);
+        assert_eq!(app.state.entries().len(), 0);
+
+        // Simulate incoming paste text from system clipboard (text/uri-list)
+        let uri_payload = format!("file://{}\r\n", external.display());
+        ui.paste(&uri_payload);
+
+        let mut paste_input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        paste_input.set_mods(lens::mods::CTRL);
+        paste_input.push_key('v' as i32, true, false);
+        frame(&mut app, &mut ui, &paste_input);
+        frame(&mut app, &mut ui, &settle);
+
+        assert!(sub_dir.join("a.txt").exists());
+        assert_eq!(app.state.entries().len(), 1);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn ui_multi_selection_ctrl_a_and_batch_trash() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &settle);
+
+        // Select all with Ctrl+A
+        let mut ctrl_a = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        ctrl_a.set_mods(lens::mods::CTRL);
+        ctrl_a.push_key('a' as i32, true, false);
+        frame(&mut app, &mut ui, &ctrl_a);
+
+        assert_eq!(app.state.selected_count(), 2);
+        assert_eq!(app.state.selected_paths().len(), 2);
+
+        // Batch delete selected items to trash
+        let mut del = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        del.push_key(lens::key::DELETE, true, false);
+        frame(&mut app, &mut ui, &del);
+
+        assert_eq!(app.state.entries().len(), 0);
+
+        // Ctrl+Z restores all items
+        let mut undo = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        undo.set_mods(lens::mods::CTRL);
+        undo.push_key('z' as i32, true, false);
+        frame(&mut app, &mut ui, &undo);
+
+        assert_eq!(app.state.entries().len(), 2);
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -485,6 +599,9 @@ mod tests {
             f.size_next(200.0, 36.0);
             f.textfield_placeholder("##tf", &mut tf_buf, "placeholder");
         });
+        if let Ok(snap) = ui.snapshot() {
+            let _ = ui.activate(&snap);
+        }
 
         // Frame 2: hover cursor over the textfield at (50, 18)
         let mut hover_input = lens::Input::new((400.0, 200.0), 1.0 / 60.0);
