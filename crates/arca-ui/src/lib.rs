@@ -290,6 +290,65 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_shortcuts_function_keys() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &settle);
+
+        // Select first item
+        let mut down = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        down.push_key(lens::key::DOWN, true, false);
+        frame(&mut app, &mut ui, &down);
+        assert!(app.state.selected().is_some());
+
+        // Press F2 to begin rename
+        let mut f2 = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f2.push_key(lens::key::F2, true, false);
+        frame(&mut app, &mut ui, &f2);
+        assert!(app.renaming.is_some());
+
+        // Cancel rename with Esc
+        let mut esc = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        esc.push_key(lens::key::ESCAPE, true, false);
+        frame(&mut app, &mut ui, &esc);
+        assert!(app.renaming.is_none());
+
+        // Press F3 to focus search/filter
+        let mut f3 = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f3.push_key(lens::key::F3, true, false);
+        frame(&mut app, &mut ui, &f3);
+        frame(&mut app, &mut ui, &settle);
+        assert!(app.filter_focused);
+
+        // Escape clears filter focus
+        let mut esc_filter = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        esc_filter.push_key(lens::key::ESCAPE, true, false);
+        frame(&mut app, &mut ui, &esc_filter);
+        frame(&mut app, &mut ui, &settle);
+        assert!(!app.filter_focused);
+
+        // Press F5 to refresh
+        let mut f5 = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f5.push_key(lens::key::F5, true, false);
+        frame(&mut app, &mut ui, &f5);
+
+        // Press F11 to toggle fullscreen
+        assert!(!app.fullscreen);
+        let mut f11 = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f11.push_key(lens::key::F11, true, false);
+        frame(&mut app, &mut ui, &f11);
+        assert!(app.fullscreen);
+
+        let mut f11_off = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f11_off.push_key(lens::key::F11, true, false);
+        frame(&mut app, &mut ui, &f11_off);
+        assert!(!app.fullscreen);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn paste_from_external_system_clipboard_uri_list() {
         let (dir, mut app) = fixture();
         let mut ui = lens::Ui::headless().expect("headless ui");

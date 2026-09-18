@@ -20,7 +20,7 @@ pub(crate) const SETTINGS_MENU_ID: &str = "arca-settings";
 pub(crate) const SIDEBAR_MENU_ID: &str = "arca-sidebar-ctx";
 const DOUBLE_CLICK_MS: u128 = 400;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FocusTarget {
     Location,
     Filter,
@@ -113,6 +113,7 @@ pub struct UiApp {
     pub(crate) sub_row_rect: Option<Rect>,
     pub(crate) pending_paste: bool,
     pub(crate) mods: u32,
+    pub(crate) fullscreen: bool,
 }
 
 impl UiApp {
@@ -137,6 +138,7 @@ impl UiApp {
             sub_row_rect: None,
             pending_paste: false,
             mods: 0,
+            fullscreen: false,
             filter,
             filter_id: 0,
             filter_focused: false,
@@ -208,6 +210,7 @@ impl UiApp {
         for path in crate::ipc::drain_pending_open_requests() {
             self.new_tab_at(&path);
             iris::window_restore();
+            iris::window_focus();
         }
         if self.state.drain_fs_events() || self.state.poll_async_jobs() {
             iris::request_animation_frame();
@@ -564,7 +567,8 @@ impl UiApp {
                         }
                     }
                 }
-                self.state.open_child(name);
+                let token = iris::window_create_activation_token(None);
+                self.state.open_child_with_token(name, token.as_deref());
                 return;
             }
         }
@@ -651,6 +655,13 @@ impl UiApp {
                     frame.clear_focus();
                     continue;
                 }
+                if self.filter_focused || self.location_focused {
+                    frame.consume_key(lens::key::ESCAPE);
+                    frame.clear_focus();
+                    self.filter_focused = false;
+                    self.location_focused = false;
+                    continue;
+                }
                 if let Some(chooser) = &mut self.chooser {
                     frame.consume_key(lens::key::ESCAPE);
                     if chooser.overwrite_confirm.is_some() {
@@ -707,7 +718,8 @@ impl UiApp {
                 }
                 lens::key::RIGHT if !ctrl && !alt && self.state.view_mode == ViewMode::Miller => {
                     self.preview.close();
-                    self.state.open_selected();
+                    let token = iris::window_create_activation_token(None);
+                    self.state.open_selected_with_token(token.as_deref());
                 }
                 lens::key::UP if !ctrl && !alt => {
                     let step = if self.state.view_mode == ViewMode::Grid {
@@ -734,7 +746,8 @@ impl UiApp {
                         chooser::trigger_accept(self);
                     } else {
                         self.preview.close();
-                        self.state.open_selected();
+                        let token = iris::window_create_activation_token(None);
+                        self.state.open_selected_with_token(token.as_deref());
                     }
                 }
                 lens::key::DELETE if shift && !ctrl && !alt => {
@@ -744,6 +757,23 @@ impl UiApp {
                 lens::key::DELETE if !ctrl && !alt => {
                     self.preview.close();
                     self.state.trash_selected();
+                }
+                lens::key::F2 if !ctrl && !alt => {
+                    if let Some(name) =
+                        self.state.selected_entry().map(|entry| entry.name.clone())
+                    {
+                        self.begin_rename(name);
+                    }
+                }
+                lens::key::F3 if !ctrl && !alt => self.focus_filter(),
+                lens::key::F5 if !alt => self.state.refresh(),
+                lens::key::F11 if !ctrl && !alt => {
+                    self.fullscreen = !self.fullscreen;
+                    if self.fullscreen {
+                        iris::window_fullscreen();
+                    } else {
+                        iris::window_windowed();
+                    }
                 }
                 32 if !ctrl && !alt => self.preview.toggle(&mut self.state),
                 k if ctrl => match k as u8 as char {

@@ -63,7 +63,8 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
     let mut keep_open = true;
     f.place(CTX_MENU_ID, &popover_opts(tones, menu.anchor), |f| {
         if f.selectable("Open", false) {
-            app.state.open_selected();
+            let token = iris::window_create_activation_token(None);
+            app.state.open_selected_with_token(token.as_deref());
             keep_open = false;
         }
         if f.selectable("Quick Look", false) {
@@ -135,7 +136,11 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
             let label = format!("Open with {}", app_entry.name);
             if f.selectable(&label, false) {
                 if let Some(path_str) = app.state.selected_path() {
-                    let _ = app_entry.spawn(&[std::path::Path::new(&path_str)]);
+                    let token = iris::window_create_activation_token(Some(&app_entry.id));
+                    let _ = app_entry.spawn_with_token(
+                        &[std::path::Path::new(&path_str)],
+                        token.as_deref(),
+                    );
                 }
                 keep_open = false;
             }
