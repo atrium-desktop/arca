@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "arca"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "arca-engine",
  "arca-ui",
@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "arca-engine"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "arca-xdg",
  "image",
@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "arca-ui"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "arca-engine",
  "arca-xdg",
@@ -50,7 +50,7 @@ dependencies = [
 
 [[package]]
 name = "arca-xdg"
-version = "0.2.8"
+version = "0.2.9"
 
 [[package]]
 name = "autocfg"
