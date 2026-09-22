@@ -197,12 +197,10 @@ mod linux_impl {
                     close(pipe_read);
                 }
             })
-            .inspect_err(|_e| {
-                unsafe {
-                    close(inotify_fd);
-                    close(pipe_read);
-                    close(pipe_write);
-                }
+            .inspect_err(|_e| unsafe {
+                close(inotify_fd);
+                close(pipe_read);
+                close(pipe_write);
             })?;
 
         Ok(FsWatcher {
@@ -259,7 +257,11 @@ mod linux_impl {
             // 1. Drain wakeup pipe and process incoming commands
             if poll_rc > 0 && (poll_fds[0].revents & (POLLIN | POLLERR | POLLHUP) != 0) {
                 unsafe {
-                    read(pipe_read, pipe_buf.as_mut_ptr() as *mut c_void, pipe_buf.len());
+                    read(
+                        pipe_read,
+                        pipe_buf.as_mut_ptr() as *mut c_void,
+                        pipe_buf.len(),
+                    );
                 }
             }
 
@@ -289,15 +291,9 @@ mod linux_impl {
                         // Add new paths not currently watched
                         for path in new_set.keys() {
                             if !path_to_wd.contains_key(path) {
-                                if let Ok(c_path) =
-                                    CString::new(path.as_os_str().as_bytes())
-                                {
+                                if let Ok(c_path) = CString::new(path.as_os_str().as_bytes()) {
                                     let wd = unsafe {
-                                        inotify_add_watch(
-                                            inotify_fd,
-                                            c_path.as_ptr(),
-                                            WATCH_MASK,
-                                        )
+                                        inotify_add_watch(inotify_fd, c_path.as_ptr(), WATCH_MASK)
                                     };
                                     if wd >= 0 {
                                         path_to_wd.insert(path.clone(), wd);
@@ -337,9 +333,8 @@ mod linux_impl {
                     let n = bytes as usize;
                     let mut offset = 0;
                     while offset + 16 <= n {
-                        let wd = i32::from_ne_bytes(
-                            inotify_buf[offset..offset + 4].try_into().unwrap(),
-                        );
+                        let wd =
+                            i32::from_ne_bytes(inotify_buf[offset..offset + 4].try_into().unwrap());
                         let mask = u32::from_ne_bytes(
                             inotify_buf[offset + 4..offset + 8].try_into().unwrap(),
                         );

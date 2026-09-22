@@ -65,9 +65,7 @@ pub fn runtime_dir() -> Option<PathBuf> {
 #[must_use]
 pub fn data_dirs() -> Vec<PathBuf> {
     if let Some(val) = env::var_os("XDG_DATA_DIRS") {
-        let dirs: Vec<PathBuf> = env::split_paths(&val)
-            .filter(|p| p.is_absolute())
-            .collect();
+        let dirs: Vec<PathBuf> = env::split_paths(&val).filter(|p| p.is_absolute()).collect();
         if !dirs.is_empty() {
             return dirs;
         }
@@ -91,9 +89,7 @@ pub fn all_data_dirs() -> Vec<PathBuf> {
 #[must_use]
 pub fn config_dirs() -> Vec<PathBuf> {
     if let Some(val) = env::var_os("XDG_CONFIG_DIRS") {
-        let dirs: Vec<PathBuf> = env::split_paths(&val)
-            .filter(|p| p.is_absolute())
-            .collect();
+        let dirs: Vec<PathBuf> = env::split_paths(&val).filter(|p| p.is_absolute()).collect();
         if !dirs.is_empty() {
             return dirs;
         }

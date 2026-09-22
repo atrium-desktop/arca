@@ -59,6 +59,12 @@ pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &iris::Input
                 TabAction::Select(index) => app.switch_tab(index),
                 TabAction::Close(index) => app.close_tab(index),
                 TabAction::NewTab => app.new_tab(),
+                // Post-removal coordinates straight from the lens strip;
+                // engine applies remove-then-insert verbatim.
+                TabAction::Move(from, to) => app.move_tab(from, to),
+                // Press frame inside the strip: no model change; the CSD
+                // logic below only reads the flag to suppress the move grab.
+                TabAction::PressedOnTab => {}
                 TabAction::None => {}
             }
 
@@ -76,14 +82,21 @@ pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &iris::Input
             // The top bar background is purely non-interactive (not a button widget,
             // no hover, no focus outline). When pointer press occurs on the top bar
             // area outside the close button, request interactive move from compositor.
+            // A press that landed on the strip itself (tab / close / new button)
+            // suppresses the move grab: the strip owns the gesture — a tab drag
+            // must reorder tabs, not move the window.
             let raw_in = input.as_raw();
             if raw_in.mouse_pressed[0]
                 && !close_clicked
-                && matches!(action, TabAction::None | TabAction::Select(_))
+                && !matches!(action, TabAction::PressedOnTab)
             {
                 let cursor = raw_in.cursor;
                 let display = raw_in.display_size;
-                if cursor.y >= 0.0 && cursor.y <= 38.0 && cursor.x >= 0.0 && cursor.x < display.x - 34.0 {
+                if cursor.y >= 0.0
+                    && cursor.y <= 38.0
+                    && cursor.x >= 0.0
+                    && cursor.x < display.x - 34.0
+                {
                     iris::window_start_move();
                 }
             }

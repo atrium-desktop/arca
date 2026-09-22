@@ -90,7 +90,11 @@ impl DesktopEntry {
     }
 
     /// Spawn this application detached with given paths and optional XDG activation token.
-    pub fn spawn_with_token(&self, paths: &[&Path], activation_token: Option<&str>) -> std::io::Result<()> {
+    pub fn spawn_with_token(
+        &self,
+        paths: &[&Path],
+        activation_token: Option<&str>,
+    ) -> std::io::Result<()> {
         let args = self.format_exec(paths);
         if args.is_empty() {
             return Err(std::io::Error::new(
@@ -619,11 +623,26 @@ image/png=viewer-banned.desktop;
             hidden: false,
         };
 
-        apps.insert("viewer-default.desktop".into(), make_app("viewer-default.desktop", "Default Viewer"));
-        apps.insert("viewer-added.desktop".into(), make_app("viewer-added.desktop", "Added Viewer"));
-        apps.insert("viewer-banned.desktop".into(), make_app("viewer-banned.desktop", "Banned Viewer"));
-        apps.insert("zebra.desktop".into(), make_app("zebra.desktop", "Zebra Viewer"));
-        apps.insert("alpha.desktop".into(), make_app("alpha.desktop", "Alpha Viewer"));
+        apps.insert(
+            "viewer-default.desktop".into(),
+            make_app("viewer-default.desktop", "Default Viewer"),
+        );
+        apps.insert(
+            "viewer-added.desktop".into(),
+            make_app("viewer-added.desktop", "Added Viewer"),
+        );
+        apps.insert(
+            "viewer-banned.desktop".into(),
+            make_app("viewer-banned.desktop", "Banned Viewer"),
+        );
+        apps.insert(
+            "zebra.desktop".into(),
+            make_app("zebra.desktop", "Zebra Viewer"),
+        );
+        apps.insert(
+            "alpha.desktop".into(),
+            make_app("alpha.desktop", "Alpha Viewer"),
+        );
 
         // Default app should be viewer-default, despite [Added Associations] appearing first in content
         let default_app = resolve_default_application("image/png", &apps, &associations).unwrap();

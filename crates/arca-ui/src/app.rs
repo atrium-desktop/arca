@@ -2,10 +2,10 @@
 
 use std::time::Instant;
 
-use iris::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
 use arca_engine::chooser::{FileChooserMode, PromptColorScheme};
 use arca_engine::config::{ThemeMode, ViewMode};
 use arca_engine::state::AppState;
+use iris::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
 
 use crate::chooser::{self, ChooserState};
 use crate::icons::ids;
@@ -116,6 +116,11 @@ pub struct UiApp {
     pub(crate) fullscreen: bool,
 }
 
+pub(crate) fn set_focus(frame: &mut Frame, id: u64) {
+    // SAFETY: the frame is live inside the build callback.
+    unsafe { lens_sys::lens_set_focus(frame.as_raw(), id) };
+}
+
 impl UiApp {
     pub fn new(mut state: AppState) -> UiApp {
         state.set_fs_event_listener(Some(std::sync::Arc::new(|| {
@@ -161,6 +166,12 @@ impl UiApp {
             preview: PreviewOverlay::new(),
             chooser: None,
         }
+    }
+
+    /// Shutdown callback invoked from iris lifecycle stop hook (ADR-0045).
+    /// Releases GPU-backed thumbnail textures cleanly before device teardown.
+    pub fn shutdown(&mut self) {
+        self.thumbs.release_all();
     }
 
     pub fn build(&mut self, frame: &mut Frame, input: &Input) {
@@ -377,7 +388,7 @@ impl UiApp {
                 FocusTarget::Rename => self.rename_id,
             };
             if id != 0 {
-                unsafe { lens_sys::lens_set_focus(frame.as_raw(), id) };
+                set_focus(frame, id);
                 self.pending_focus = None;
             }
         }
@@ -428,6 +439,12 @@ impl UiApp {
 
     pub(crate) fn close_tab(&mut self, index: usize) {
         if self.state.close_tab(index) {
+            self.sync_active_tab();
+        }
+    }
+
+    pub(crate) fn move_tab(&mut self, from: usize, to: usize) {
+        if self.state.move_tab(from, to) {
             self.sync_active_tab();
         }
     }
@@ -697,6 +714,8 @@ impl UiApp {
             let alt = mods & lens::mods::ALT != 0;
             let shift = mods & lens::mods::SHIFT != 0;
 
+            const KEY_SPACE: i32 = b' ' as i32;
+
             match key {
                 lens::key::TAB if ctrl => {
                     frame.consume_key(lens::key::TAB);
@@ -759,8 +778,7 @@ impl UiApp {
                     self.state.trash_selected();
                 }
                 lens::key::F2 if !ctrl && !alt => {
-                    if let Some(name) =
-                        self.state.selected_entry().map(|entry| entry.name.clone())
+                    if let Some(name) = self.state.selected_entry().map(|entry| entry.name.clone())
                     {
                         self.begin_rename(name);
                     }
@@ -775,7 +793,7 @@ impl UiApp {
                         iris::window_windowed();
                     }
                 }
-                32 if !ctrl && !alt => self.preview.toggle(&mut self.state),
+                KEY_SPACE if !ctrl && !alt => self.preview.toggle(&mut self.state),
                 k if ctrl => match k as u8 as char {
                     'r' if !shift => self.state.refresh(),
                     'h' if !shift => self.state.toggle_hidden(),

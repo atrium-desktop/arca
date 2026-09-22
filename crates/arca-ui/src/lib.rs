@@ -7,6 +7,7 @@ pub mod chooser;
 mod content;
 mod device;
 mod icons;
+pub mod ipc;
 mod menus;
 mod preview;
 mod sidebar;
@@ -15,7 +16,6 @@ mod tabs;
 mod theme;
 mod thumbs;
 mod toolbar;
-pub mod ipc;
 
 pub use app::UiApp;
 pub use chooser::run_chooser;
@@ -25,20 +25,25 @@ use arca_engine::state::AppState;
 /// Open the Arca window and run the event loop until it closes.
 pub fn run(state: AppState) -> Result<(), iris::RunError> {
     let _ipc_server = ipc::IpcServer::start();
-    let mut app = UiApp::new(state);
+    let app = std::rc::Rc::new(std::cell::RefCell::new(UiApp::new(state)));
+    let app_build = app.clone();
+    let app_stop = app.clone();
     let config = iris::Config::new("Arca")?
         .app_id("io.arca.Arca")?
         .size(1040, 700);
-    iris::Application::run_with_start(
+    iris::Application::run_with_lifecycle(
         config,
-        // Borrow iris's device for the texture uploads (icon glyphs and
-        // thumbnails); a paint callback would also hand it over but disables
-        // the idle frame-skip.
-        |host| {
-            device::set_device(host.flux_device().as_raw() as *mut std::ffi::c_void);
+        // Borrow iris's device for texture uploads (icon glyphs and thumbnails).
+        Some(|host: iris::StartHost| {
+            device::set_device(host.flux_device().as_raw());
             true
-        },
-        move |frame, input| app.build(frame, input),
+        }),
+        // Cleanly release all GPU textures before iris tears down device (ADR-0045).
+        Some(move |_host: iris::StopHost| {
+            app_stop.borrow_mut().shutdown();
+            device::clear_device();
+        }),
+        move |frame, input| app_build.borrow_mut().build(frame, input),
         None::<fn(iris::PaintHost)>,
     )
 }
@@ -476,12 +481,61 @@ mod tests {
             for _ in 0..3 {
                 ui.frame(&input, |f| {
                     app.build(f, &input);
-                    // SAFETY: the frame is live inside the build callback.
-                    overflowed |= unsafe { lens_sys::lens_overflowed(f.as_raw()) };
                 });
+                overflowed |= ui.overflowed();
             }
             assert!(!overflowed, "{mode:?} overflowed the lens frame arena");
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Drag-to-reorder end-to-end through the headless UI: press on the
+    /// first tab, move past the 14px threshold onto the second tab's slot,
+    /// release. The engine model must reflect the new order and the dragged
+    /// tab must stay active. Tab rows live in the 30px strip inside the 38px
+    /// bar; with min width 100 + close button, tab centres sit near
+    /// y = 21 and x ≈ 58 / 168.
+    #[test]
+    fn tab_drag_reorder_updates_tab_order() {
+        let (dir, mut app) = fixture();
+        let cwd = app.state.cwd().to_string();
+        app.new_tab_at(&cwd); // second tab, same directory
+        assert_eq!(app.state.tabs().len(), 2);
+        let original_ids: Vec<u64> = app.state.tabs().iter().map(|t| t.id).collect();
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &settle);
+        }
+
+        let mk_input = |x: f32, down: bool, pressed: bool, released: bool| {
+            let mut i = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+            i.set_cursor(x, 21.0);
+            i.set_mouse_down(lens::MouseButton::Left, down);
+            i.set_mouse_pressed(lens::MouseButton::Left, pressed);
+            i.set_mouse_released(lens::MouseButton::Left, released);
+            i
+        };
+
+        // Press on tab 0, hold; frames advance the drag state machine.
+        let press = mk_input(58.0, true, true, false);
+        frame(&mut app, &mut ui, &press);
+        // Cross the threshold while held.
+        let drag = mk_input(58.0, true, false, false);
+        frame(&mut app, &mut ui, &drag);
+        // Move into tab 1's slot while still held.
+        let drag = mk_input(168.0, true, false, false);
+        frame(&mut app, &mut ui, &drag);
+        // Release: MOVE(0 -> 1) applies and tab 0 remains active.
+        let release = mk_input(168.0, false, false, true);
+        frame(&mut app, &mut ui, &release);
+
+        let ids: Vec<u64> = app.state.tabs().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![original_ids[1], original_ids[0]]);
+        // The active tab follows its document: the new tab was active before
+        // the drag and simply moved with the reorder (no SELECT fires).
+        assert_eq!(app.state.active_tab_id(), original_ids[1]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -617,7 +671,15 @@ mod tests {
         frame(&mut app, &mut ui, &input);
 
         // Right click row 0
-        app.row_right_clicked(0, lens::Rect { x: 100.0, y: 100.0, w: 10.0, h: 10.0 });
+        app.row_right_clicked(
+            0,
+            lens::Rect {
+                x: 100.0,
+                y: 100.0,
+                w: 10.0,
+                h: 10.0,
+            },
+        );
         assert!(app.ctx_menu.is_some());
 
         let open_with_snapshot: Vec<String> = app
@@ -957,7 +1019,12 @@ mod tests {
         let mut updated = false;
         while start.elapsed() < std::time::Duration::from_secs(2) {
             frame(&mut app, &mut ui, &input);
-            if app.state.entries().iter().any(|e| e.name == "external_download.iso") {
+            if app
+                .state
+                .entries()
+                .iter()
+                .any(|e| e.name == "external_download.iso")
+            {
                 updated = true;
                 break;
             }
@@ -968,6 +1035,14 @@ mod tests {
             updated,
             "expected UI to pick up external file download on subsequent frames"
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn app_shutdown_cleans_up_resources() {
+        let (dir, mut app) = fixture();
+        app.shutdown();
+        assert!(crate::device::device().is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -135,6 +135,9 @@ mod tests {
         assert_eq!(drained, vec!["/tmp/test-ipc-folder"]);
 
         drop(server);
-        assert!(!socket_path().exists(), "socket should be cleaned up on drop");
+        assert!(
+            !socket_path().exists(),
+            "socket should be cleaned up on drop"
+        );
     }
 }

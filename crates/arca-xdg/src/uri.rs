@@ -46,7 +46,9 @@ pub fn decode_file_uri(uri: &str) -> Option<PathBuf> {
     let mut i = 0;
     while i < chars.len() {
         if chars[i] == b'%' && i + 2 < chars.len() {
-            if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&chars[i + 1..i + 3]).unwrap_or(""), 16) {
+            if let Ok(byte) =
+                u8::from_str_radix(std::str::from_utf8(&chars[i + 1..i + 3]).unwrap_or(""), 16)
+            {
                 bytes.push(byte);
                 i += 3;
                 continue;

@@ -172,7 +172,9 @@ pub fn standard_bookmarks() -> Vec<Bookmark> {
         }
     }
 
-    let trash_path = crate::trash::home_trash_root().to_string_lossy().into_owned();
+    let trash_path = crate::trash::home_trash_root()
+        .to_string_lossy()
+        .into_owned();
     out.push(Bookmark {
         name: "Trash".into(),
         path: trash_path,
@@ -237,6 +239,9 @@ mod tests {
         let simple_mark = parse_gtk_bookmark_line(simple_line).expect("parse simple mark");
         assert_eq!(simple_mark.path, "/home/user/music");
         assert_eq!(simple_mark.name, "music");
-        assert_eq!(format_gtk_bookmark_line(&simple_mark), "file:///home/user/music");
+        assert_eq!(
+            format_gtk_bookmark_line(&simple_mark),
+            "file:///home/user/music"
+        );
     }
 }

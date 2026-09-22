@@ -8,10 +8,10 @@
 //! an open overlay on Escape or an outside press (with a same-frame grace
 //! for the opening click), which these builders mirror back into app state.
 
-use iris::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 use arca_engine::config::ThemeMode;
+use iris::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
-use crate::app::{CTX_MENU_ID, SETTINGS_MENU_ID, SIDEBAR_MENU_ID, UiApp};
+use crate::app::{UiApp, CTX_MENU_ID, SETTINGS_MENU_ID, SIDEBAR_MENU_ID};
 use crate::icons::{self, ids};
 use crate::theme::Tones;
 
@@ -137,10 +137,8 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
             if f.selectable(&label, false) {
                 if let Some(path_str) = app.state.selected_path() {
                     let token = iris::window_create_activation_token(Some(&app_entry.id));
-                    let _ = app_entry.spawn_with_token(
-                        &[std::path::Path::new(&path_str)],
-                        token.as_deref(),
-                    );
+                    let _ = app_entry
+                        .spawn_with_token(&[std::path::Path::new(&path_str)], token.as_deref());
                 }
                 keep_open = false;
             }
@@ -151,9 +149,13 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
             if f.selectable("Restore", false) {
                 if let Some(entry) = app.state.selected_entry() {
                     if let Ok(items) = arca_xdg::trash::list_trash() {
-                        if let Some(item) = items.into_iter().find(|i| i.id == entry.name || i.file_path.ends_with(&entry.name)) {
+                        if let Some(item) = items
+                            .into_iter()
+                            .find(|i| i.id == entry.name || i.file_path.ends_with(&entry.name))
+                        {
                             if let Ok(restored) = arca_xdg::trash::restore_trash_item(&item) {
-                                app.state.set_status(format!("Restored to {}", restored.display()));
+                                app.state
+                                    .set_status(format!("Restored to {}", restored.display()));
                                 app.state.refresh();
                             }
                         }
@@ -206,7 +208,8 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) 
             f.separator();
             if f.selectable("Empty Trash", false) {
                 if let Ok(count) = arca_xdg::trash::empty_trash() {
-                    app.state.set_status(format!("Emptied Trash ({count} items deleted)"));
+                    app.state
+                        .set_status(format!("Emptied Trash ({count} items deleted)"));
                     app.state.refresh();
                 }
                 keep_open = false;

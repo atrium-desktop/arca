@@ -1,8 +1,8 @@
 //! Primary command bar: navigation, location/search and view controls.
 
+use arca_engine::ViewMode;
 use iris::{Align, Frame, LayoutOpts, Rect};
 use lens::patterns::{SegmentedControl, SegmentedItem};
-use arca_engine::ViewMode;
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -36,7 +36,8 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             frame.size_next(4.0, 0.0);
             frame.spacer(4.0);
 
-            if !app.location_focused && app.pending_focus != Some(crate::app::FocusTarget::Location) {
+            if !app.location_focused && app.pending_focus != Some(crate::app::FocusTarget::Location)
+            {
                 let cwd = app.state.cwd().to_string();
                 if app.location.as_str() != cwd {
                     app.location.set(&cwd);
@@ -98,13 +99,8 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             frame.size_next(6.0, 0.0);
             frame.spacer(6.0);
 
-            if icons::icon_toggle_button(
-                frame,
-                ids::EyeOff,
-                ids::Eye,
-                30.0,
-                app.state.show_hidden,
-            ) {
+            if icons::icon_toggle_button(frame, ids::EyeOff, ids::Eye, 30.0, app.state.show_hidden)
+            {
                 app.state.toggle_hidden();
             }
 

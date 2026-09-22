@@ -1,8 +1,8 @@
 //! Persistent places sidebar with interactive split dragging.
 
-use iris::{Align, Frame, LayoutOpts};
-use lens::patterns::{SplitOpts, split_handle_v};
 use arca_engine::bookmarks::BookmarkKind;
+use iris::{Align, Frame, LayoutOpts};
+use lens::patterns::{split_handle_v, SplitOpts};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -111,9 +111,12 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                         }
 
                         let is_drag_active = app.active_drag.as_ref().is_some_and(|d| d.started);
-                        let is_target_hovered = drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false)
-                            || (is_drag_active
-                                && app.bookmark_drop_rect.is_some_and(|r| crate::app::rect_contains(&r, app.cursor_pos)));
+                        let is_target_hovered =
+                            drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false)
+                                || (is_drag_active
+                                    && app.bookmark_drop_rect.is_some_and(|r| {
+                                        crate::app::rect_contains(&r, app.cursor_pos)
+                                    }));
 
                         let (resp, ()) = frame
                             .row()
@@ -123,13 +126,22 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                 pad: 4.0,
                                 gap: 6.0,
                                 cross: Align::Center,
-                                bg: if is_target_hovered { tones.selected } else { iris::Color::TRANSPARENT },
+                                bg: if is_target_hovered {
+                                    tones.selected
+                                } else {
+                                    iris::Color::TRANSPARENT
+                                },
                                 radius: 6.0,
                                 ..Default::default()
                             })
                             .show(|frame| {
                                 icons::icon(frame, ids::Plus, 13.0);
-                                theme::label_colored_sized(frame, "Drop to bookmark", 11.0, tones.muted);
+                                theme::label_colored_sized(
+                                    frame,
+                                    "Drop to bookmark",
+                                    11.0,
+                                    tones.muted,
+                                );
                             });
 
                         app.bookmark_drop_rect = Some(resp.rect);
@@ -155,7 +167,12 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
         handle_width: 1.0,
         hit_expand: 4.0,
     };
-    split_handle_v(frame, "##sidebar-split", &mut app.sidebar_width, &split_opts);
+    split_handle_v(
+        frame,
+        "##sidebar-split",
+        &mut app.sidebar_width,
+        &split_opts,
+    );
 }
 
 fn section_label(frame: &mut Frame, tones: &Tones, title: &str) {

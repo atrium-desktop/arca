@@ -1,23 +1,28 @@
-//! The iris-owned flux device, captured once from the start callback.
+//! The iris-owned flux device, captured from the lifecycle start callback.
 //!
 //! Both the icon glyph store and the thumbnail store upload textures through
-//! it. `None` in headless tests, where upload paths are skipped and widgets
-//! fall back to same-sized empty boxes.
+//! it. `None` in headless tests or after shutdown, where upload paths are skipped
+//! and widgets fall back to same-sized empty boxes.
 
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
-struct DevicePtr(*mut lens_sys::flux_device);
-// lens/flux calls all happen on iris's single UI thread.
-unsafe impl Send for DevicePtr {}
-unsafe impl Sync for DevicePtr {}
+static DEVICE: AtomicPtr<flux_sys::flux_device> = AtomicPtr::new(std::ptr::null_mut());
 
-static DEVICE: OnceLock<DevicePtr> = OnceLock::new();
-
-/// Called from the iris start callback (see `lib.rs::run`).
-pub(crate) fn set_device(device: *mut std::ffi::c_void) {
-    let _ = DEVICE.set(DevicePtr(device as *mut lens_sys::flux_device));
+/// Called from the iris lifecycle start callback (see `lib.rs::run`).
+pub(crate) fn set_device(device: *mut flux_sys::flux_device) {
+    DEVICE.store(device, Ordering::Release);
 }
 
-pub(crate) fn device() -> Option<*mut lens_sys::flux_device> {
-    DEVICE.get().map(|d| d.0)
+/// Called from the iris lifecycle stop callback during teardown.
+pub(crate) fn clear_device() {
+    DEVICE.store(std::ptr::null_mut(), Ordering::Release);
+}
+
+pub(crate) fn device() -> Option<*mut flux_sys::flux_device> {
+    let ptr = DEVICE.load(Ordering::Acquire);
+    if ptr.is_null() {
+        None
+    } else {
+        Some(ptr)
+    }
 }

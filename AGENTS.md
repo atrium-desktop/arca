@@ -53,10 +53,12 @@ full workflow is in `docs/dev/optics-dev-worktree.md`. Local patch
 state (`Cargo.lock`, `.cargo/config.toml`) never enters commits — the
 pre-commit hook (`git config core.hooksPath .githooks`) unstages it.
 
-Arca relies on optics APIs added after v0.0.10 —
-`iris::Application::run_with_start` (device handover for texture uploads),
-`lens_icon_register_svg` (runtime icons) and `lens_scroll_offset` — so a
-canonical build needs an optics tag containing them (v0.0.11+).
+Arca relies on modern optics APIs (v0.0.45+) —
+`iris::Application::run_with_lifecycle` (lifecycle hooks for texture upload
+handover and clean teardown), `iris::window_create_activation_token` (focus
+activation), `lens_icon_register_svg` (runtime icons), extended function keys,
+and MIME clipboard interop — so a canonical build needs an optics tag containing
+them (v0.0.45+).
 
 Never add `LD_LIBRARY_PATH` workarounds: runtime library lookup is handled
 by rpath-relay `build.rs` files reading `DEP_IRIS_RS_RPATHS` (mirrors the

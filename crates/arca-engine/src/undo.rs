@@ -1,7 +1,7 @@
 //! Undo/Redo operations stack for file manager actions.
 
-use std::path::PathBuf;
 use arca_xdg::trash::TrashItem;
+use std::path::PathBuf;
 
 /// Reversible file operation.
 #[derive(Clone, Debug)]
@@ -9,11 +9,17 @@ pub enum UndoAction {
     /// File(s) moved to XDG Trash, restorable via TrashItem info.
     Trash(Vec<TrashItem>),
     /// Renamed file: original path -> new path.
-    Rename { original: PathBuf, new_path: PathBuf },
+    Rename {
+        original: PathBuf,
+        new_path: PathBuf,
+    },
     /// Created folder: path to created empty directory.
     CreateFolder(PathBuf),
     /// Moved file(s): original locations -> new destinations.
-    Move { sources: Vec<PathBuf>, destinations: Vec<PathBuf> },
+    Move {
+        sources: Vec<PathBuf>,
+        destinations: Vec<PathBuf>,
+    },
     /// Copied file(s): list of newly created copied files.
     Copy { destinations: Vec<PathBuf> },
 }
@@ -62,8 +68,16 @@ impl UndoStack {
                 Ok(format!("Restored {restored} of {count} item(s) from Trash"))
             }
             UndoAction::Rename { original, new_path } => {
-                let orig_name = original.file_name().unwrap_or_default().to_string_lossy().to_string();
-                let new_name = new_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let orig_name = original
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let new_name = new_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 crate::ops::rename_path(&new_path, &original)
                     .map_err(|e| format!("Cannot undo rename: {e}"))?;
                 self.redo_items.push(UndoAction::Rename {
@@ -73,14 +87,21 @@ impl UndoStack {
                 Ok(format!("Renamed '{new_name}' back to '{orig_name}'"))
             }
             UndoAction::CreateFolder(path) => {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 if path.exists() {
                     let _ = std::fs::remove_dir(&path);
                 }
                 self.redo_items.push(UndoAction::CreateFolder(path));
                 Ok(format!("Removed created folder '{name}'"))
             }
-            UndoAction::Move { sources, destinations } => {
+            UndoAction::Move {
+                sources,
+                destinations,
+            } => {
                 let mut moved = 0;
                 let mut redone_dsts = Vec::new();
                 for (src, dst) in sources.iter().zip(destinations.iter()) {
@@ -127,7 +148,8 @@ impl UndoStack {
 
         match action {
             UndoAction::Trash(items) => {
-                let paths: Vec<&std::path::Path> = items.iter().map(|i| i.original_path.as_path()).collect();
+                let paths: Vec<&std::path::Path> =
+                    items.iter().map(|i| i.original_path.as_path()).collect();
                 if let Ok(new_items) = arca_xdg::trash::trash_paths_record(&paths, None) {
                     let count = new_items.len();
                     self.undo_items.push(UndoAction::Trash(new_items));
@@ -137,20 +159,37 @@ impl UndoStack {
                 }
             }
             UndoAction::Rename { original, new_path } => {
-                let orig_name = original.file_name().unwrap_or_default().to_string_lossy().to_string();
-                let new_name = new_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let orig_name = original
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let new_name = new_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 crate::ops::rename_path(&original, &new_path)
                     .map_err(|e| format!("Cannot redo rename: {e}"))?;
-                self.undo_items.push(UndoAction::Rename { original, new_path });
+                self.undo_items
+                    .push(UndoAction::Rename { original, new_path });
                 Ok(format!("Renamed '{orig_name}' to '{new_name}'"))
             }
             UndoAction::CreateFolder(path) => {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                std::fs::create_dir_all(&path).map_err(|e| format!("Cannot recreate folder: {e}"))?;
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                std::fs::create_dir_all(&path)
+                    .map_err(|e| format!("Cannot recreate folder: {e}"))?;
                 self.undo_items.push(UndoAction::CreateFolder(path));
                 Ok(format!("Recreated folder '{name}'"))
             }
-            UndoAction::Move { sources, destinations } => {
+            UndoAction::Move {
+                sources,
+                destinations,
+            } => {
                 let mut moved = 0;
                 let mut redone_dsts = Vec::new();
                 for (src, dst) in sources.iter().zip(destinations.iter()) {

@@ -8,9 +8,9 @@
 
 use std::sync::OnceLock;
 
-use iris::Frame;
 use arca_engine::bookmarks::BookmarkKind;
 use arca_engine::entry::{Entry, FileType};
+use iris::Frame;
 
 /// One glyph of arca's icon set; the variant name is the PascalCase of
 /// the SVG file name in `assets/icons/`.
@@ -156,8 +156,7 @@ pub(crate) fn lens_id(id: AssetId) -> lens_sys::lens_icon_id {
             .iter()
             .map(|asset| {
                 // LENS_ICON_INVALID is (lens_icon_id)-1.
-                lens::register_svg_icon(asset.svg())
-                    .unwrap_or(lens_sys::lens_icon_id(u32::MAX))
+                lens::register_svg_icon(asset.svg()).unwrap_or(lens_sys::lens_icon_id(u32::MAX))
             })
             .collect()
     });
@@ -306,7 +305,11 @@ fn file_icon(name: &str) -> AssetId {
         _ => ids::File,
     };
     // No extension (or the extension is the whole name, e.g. ".gitignore").
-    if ext == lower { ids::File } else { icon }
+    if ext == lower {
+        ids::File
+    } else {
+        icon
+    }
 }
 
 fn dir_icon(name: &str) -> AssetId {

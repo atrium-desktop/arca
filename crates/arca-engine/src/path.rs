@@ -129,7 +129,10 @@ pub fn complete_path(cwd: &str, input: &str) -> Option<PathCompletion> {
             name.to_lowercase().starts_with(&file_prefix.to_lowercase())
         };
         if matched {
-            let is_dir = entry.file_type().map(|ft| ft.is_dir() || ft.is_symlink()).unwrap_or(false);
+            let is_dir = entry
+                .file_type()
+                .map(|ft| ft.is_dir() || ft.is_symlink())
+                .unwrap_or(false);
             matches.push((name, is_dir));
         }
     }
@@ -160,7 +163,8 @@ pub fn complete_path(cwd: &str, input: &str) -> Option<PathCompletion> {
     let mut common_len = first_name.len();
     for (name, _) in &matches[1..] {
         common_len = common_len.min(name.len());
-        while common_len > 0 && !name[..common_len].eq_ignore_ascii_case(&first_name[..common_len]) {
+        while common_len > 0 && !name[..common_len].eq_ignore_ascii_case(&first_name[..common_len])
+        {
             common_len -= 1;
         }
     }
@@ -260,7 +264,10 @@ mod tests {
         assert_eq!(multi.completed, format!("{dir_str}/do"));
         assert_eq!(
             multi.candidates,
-            vec![format!("{dir_str}/documents/"), format!("{dir_str}/downloads/")]
+            vec![
+                format!("{dir_str}/documents/"),
+                format!("{dir_str}/downloads/")
+            ]
         );
 
         // Single file match does NOT append "/"

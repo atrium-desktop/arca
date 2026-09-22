@@ -27,7 +27,7 @@ pub(crate) fn is_thumbable(name: &str) -> bool {
 
 pub(crate) struct ThumbStore {
     service: ThumbService,
-    images: HashMap<String, *mut lens_sys::flux_image>,
+    images: HashMap<String, *mut flux_sys::flux_image>,
     order: VecDeque<String>,
     cwd: String,
     /// Mirrors `AppState::show_thumbnails`; when off, no decodes are
@@ -77,7 +77,7 @@ impl ThumbStore {
     /// The uploaded image for `path`, requesting a decode on miss. Returns
     /// None headless, while decoding, for files without artwork, or when
     /// thumbnails are disabled.
-    pub fn image_for(&mut self, path: &str) -> Option<*mut lens_sys::flux_image> {
+    pub fn image_for(&mut self, path: &str) -> Option<*mut flux_sys::flux_image> {
         if !self.enabled {
             return None;
         }
@@ -99,7 +99,7 @@ impl ThumbStore {
         None
     }
 
-    fn insert(&mut self, path: String, image: *mut lens_sys::flux_image) {
+    fn insert(&mut self, path: String, image: *mut flux_sys::flux_image) {
         if self.images.insert(path.clone(), image).is_some() {
             self.order.retain(|p| p != &path);
         }
@@ -113,12 +113,28 @@ impl ThumbStore {
             }
         }
     }
-    // No Drop: by the time UiApp drops, iris has already torn the device
-    // down, so releasing here could crash. The OS reclaims the textures.
+
+    /// Explicitly release all uploaded GPU textures. Called on shutdown via iris
+    /// lifecycle stop hook before device teardown (ADR-0045).
+    pub fn release_all(&mut self) {
+        for (_, image) in self.images.drain() {
+            // SAFETY: called while device is alive.
+            unsafe { flux_sys::flux_image_release(image) };
+        }
+        self.order.clear();
+    }
+}
+
+impl Drop for ThumbStore {
+    fn drop(&mut self) {
+        if device::device().is_some() {
+            self.release_all();
+        }
+    }
 }
 
 /// Premultiply and upload one decode.
-fn upload(thumb: &Thumb) -> Option<*mut lens_sys::flux_image> {
+fn upload(thumb: &Thumb) -> Option<*mut flux_sys::flux_image> {
     let device = device::device()?;
     let mut pixels = thumb.rgba.clone();
     for px in pixels.chunks_exact_mut(4) {

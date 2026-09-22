@@ -7,12 +7,12 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf};
 use arca_engine::chooser::{
     BytePath, Choice, FileChooserMode, FileChooserRequest, FileChooserResponse, FileFilter,
     PromptAppearance, PromptColorScheme,
 };
 use arca_engine::state::AppState;
+use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -40,10 +40,7 @@ pub struct ChooserState {
 }
 
 impl ChooserState {
-    pub fn new(
-        request: FileChooserRequest,
-        appearance: Option<PromptAppearance>,
-    ) -> ChooserState {
+    pub fn new(request: FileChooserRequest, appearance: Option<PromptAppearance>) -> ChooserState {
         let initial_save_name = if let Some(name) = request.current_name.as_deref() {
             name.to_string()
         } else if let Some(file) = &request.current_file {
@@ -175,7 +172,8 @@ pub(crate) fn build_chooser_header(
         if raw_in.mouse_pressed[0] {
             let cursor = raw_in.cursor;
             let display = raw_in.display_size;
-            if cursor.y >= 0.0 && cursor.y <= 42.0 && cursor.x >= 0.0 && cursor.x < display.x - 34.0 {
+            if cursor.y >= 0.0 && cursor.y <= 42.0 && cursor.x >= 0.0 && cursor.x < display.x - 34.0
+            {
                 iris::window_start_move();
             }
         }
@@ -183,11 +181,7 @@ pub(crate) fn build_chooser_header(
 }
 
 /// Build the bottom action bar for Chooser mode (filename field, filters, choices, cancel & accept buttons).
-pub(crate) fn build_chooser_footer(
-    app: &mut UiApp,
-    frame: &mut Frame,
-    tones: &Tones,
-) {
+pub(crate) fn build_chooser_footer(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
     let Some(chooser) = &mut app.chooser else {
         return;
     };
@@ -354,7 +348,9 @@ fn build_choice_widget(
             if let Some(pos) = chooser.choices.iter().position(|(id, _)| id == &choice.id) {
                 chooser.choices[pos].1 = new_val.to_string();
             } else {
-                chooser.choices.push((choice.id.clone(), new_val.to_string()));
+                chooser
+                    .choices
+                    .push((choice.id.clone(), new_val.to_string()));
             }
         }
     } else {
@@ -393,7 +389,9 @@ fn build_choice_widget(
             |frame| {
                 for (opt_id, opt_label) in &choice.options {
                     if frame.button(opt_label) {
-                        if let Some(pos) = chooser.choices.iter().position(|(id, _)| id == &choice.id) {
+                        if let Some(pos) =
+                            chooser.choices.iter().position(|(id, _)| id == &choice.id)
+                        {
                             chooser.choices[pos].1 = opt_id.clone();
                         } else {
                             chooser.choices.push((choice.id.clone(), opt_id.clone()));
@@ -407,11 +405,7 @@ fn build_choice_widget(
 }
 
 /// Render the filter dropdown popup if active.
-pub(crate) fn build_filter_popover(
-    app: &mut UiApp,
-    frame: &mut Frame,
-    tones: &Tones,
-) {
+pub(crate) fn build_filter_popover(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
     let Some(chooser) = &mut app.chooser else {
         return;
     };
@@ -467,11 +461,7 @@ pub(crate) fn build_filter_popover(
 }
 
 /// Render the overwrite confirmation modal if needed.
-pub(crate) fn build_overwrite_modal(
-    app: &mut UiApp,
-    frame: &mut Frame,
-    tones: &Tones,
-) {
+pub(crate) fn build_overwrite_modal(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
     let Some(chooser) = &mut app.chooser else {
         return;
     };
@@ -554,19 +544,25 @@ pub(crate) fn build_overwrite_modal(
     match action {
         Some(true) => {
             frame.place_close(CHOOSER_OVERWRITE_MODAL);
-            let Some(chooser) = &mut app.chooser else { return };
+            let Some(chooser) = &mut app.chooser else {
+                return;
+            };
             chooser.overwrite_confirm = None;
             chooser.accept_paths(vec![target]);
             iris::window_close();
         }
         Some(false) => {
             frame.place_close(CHOOSER_OVERWRITE_MODAL);
-            let Some(chooser) = &mut app.chooser else { return };
+            let Some(chooser) = &mut app.chooser else {
+                return;
+            };
             chooser.overwrite_confirm = None;
         }
         None => {
             if !frame.place_is_open(CHOOSER_OVERWRITE_MODAL) {
-                let Some(chooser) = &mut app.chooser else { return };
+                let Some(chooser) = &mut app.chooser else {
+                    return;
+                };
                 chooser.overwrite_confirm = None;
             }
         }
@@ -718,13 +714,22 @@ pub fn run_chooser(
         .app_id(&app_id)?
         .size(960, 640);
 
-    iris::Application::run_with_start(
+    let app = std::rc::Rc::new(std::cell::RefCell::new(app));
+    let app_build = app.clone();
+    let app_stop = app.clone();
+
+    iris::Application::run_with_lifecycle(
         config,
-        |host| {
-            crate::device::set_device(host.flux_device().as_raw() as *mut std::ffi::c_void);
+        Some(|host: iris::StartHost| {
+            crate::device::set_device(host.flux_device().as_raw());
             true
-        },
+        }),
+        Some(move |_host: iris::StopHost| {
+            app_stop.borrow_mut().shutdown();
+            crate::device::clear_device();
+        }),
         move |frame, input| {
+            let mut app = app_build.borrow_mut();
             app.build(frame, input);
             if let Some(chooser) = &app.chooser {
                 if chooser.done && chooser.result.is_some() {

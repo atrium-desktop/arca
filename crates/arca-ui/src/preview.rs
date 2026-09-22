@@ -1,7 +1,7 @@
 //! Animated Space-bar Quick Look overlay.
 
-use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 use arca_engine::{AppState, Preview, PreviewKind};
+use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
 use crate::icons::{self, ids};
 use crate::theme::{self, Tones};
@@ -77,6 +77,11 @@ impl PreviewOverlay {
     }
 }
 
+pub(crate) fn frame_reduced_motion(frame: &mut Frame) -> bool {
+    // SAFETY: the frame is live inside the build callback.
+    unsafe { lens_sys::lens_reduced_motion(frame.as_raw()) }
+}
+
 pub(crate) fn build_preview(
     preview: &mut PreviewOverlay,
     thumbs: &mut crate::thumbs::ThumbStore,
@@ -84,7 +89,7 @@ pub(crate) fn build_preview(
     input: &Input,
     tones: &Tones,
 ) {
-    let reduced = unsafe { lens_sys::lens_reduced_motion(frame.as_raw()) };
+    let reduced = frame_reduced_motion(frame);
     preview.advance(input, reduced);
     if preview.progress <= 0.0 {
         return;
@@ -265,9 +270,10 @@ fn build_body(
                                 // Album cover / the picture itself when the
                                 // thumbnail store has it decoded; the kind
                                 // glyph otherwise.
-                                let art = matches!(data.kind, PreviewKind::Audio | PreviewKind::Image)
-                                    .then(|| thumbs.image_for(&data.path))
-                                    .flatten();
+                                let art =
+                                    matches!(data.kind, PreviewKind::Audio | PreviewKind::Image)
+                                        .then(|| thumbs.image_for(&data.path))
+                                        .flatten();
                                 match art {
                                     Some(image) => {
                                         let max_w = (width - facts_width - 72.0).max(120.0);

@@ -232,7 +232,9 @@ impl AppState {
         self.bookmarks = bookmarks::standard_bookmarks();
         let home = path::home_dir();
         for bookmark in bookmarks::read_gtk_bookmarks_file(&home) {
-            if !self.bookmarks.iter().any(|b| b.path == bookmark.path) && entry::dir_exists(&bookmark.path) {
+            if !self.bookmarks.iter().any(|b| b.path == bookmark.path)
+                && entry::dir_exists(&bookmark.path)
+            {
                 self.bookmarks.push(bookmark);
             }
         }
@@ -315,6 +317,28 @@ impl AppState {
         }
         self.refresh();
         self.set_status("Tab closed".into());
+        true
+    }
+
+    /// Reorder tabs by moving the tab at `from` to the slot `to`, expressed
+    /// in post-removal coordinates (remove `from` first, then insert at
+    /// `to`) — the same convention the lens tab strip reports, so the drag
+    /// action applies without index translation. The active tab follows its
+    /// document, never its old position.
+    pub fn move_tab(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.tabs.len() || to >= self.tabs.len() || from == to {
+            return false;
+        }
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        // Track where the active tab landed after removal/insertion.
+        if self.active_tab == from {
+            self.active_tab = to;
+        } else if from < self.active_tab && to >= self.active_tab {
+            self.active_tab -= 1;
+        } else if to <= self.active_tab && from > self.active_tab {
+            self.active_tab += 1;
+        }
         true
     }
 
@@ -702,7 +726,10 @@ impl AppState {
         }
         let target = index.min(count - 1);
         let tab = &mut self.tabs[self.active_tab];
-        let anchor = tab.anchor.unwrap_or(tab.selected.unwrap_or(0)).min(count - 1);
+        let anchor = tab
+            .anchor
+            .unwrap_or(tab.selected.unwrap_or(0))
+            .min(count - 1);
         let start = anchor.min(target);
         let end = anchor.max(target);
 
@@ -879,7 +906,8 @@ impl AppState {
         match ops::create_folder(self.cwd()) {
             Ok(path) => {
                 let name = path.file_name()?.to_string_lossy().into_owned();
-                self.undo_stack.push(crate::undo::UndoAction::CreateFolder(path));
+                self.undo_stack
+                    .push(crate::undo::UndoAction::CreateFolder(path));
                 self.refresh();
                 self.select_by_name(&name);
                 self.set_status(format!("Created {name}"));
@@ -1084,7 +1112,10 @@ impl AppState {
         while let Some(completed) = self.io_engine.poll() {
             completed_any = true;
             match completed.kind {
-                crate::worker::JobKind::Copy { sources: _, destination: _ } => {
+                crate::worker::JobKind::Copy {
+                    sources: _,
+                    destination: _,
+                } => {
                     if !completed.created_destinations.is_empty() {
                         self.undo_stack.push(crate::undo::UndoAction::Copy {
                             destinations: completed.created_destinations.clone(),
@@ -1095,7 +1126,10 @@ impl AppState {
                         ));
                     }
                 }
-                crate::worker::JobKind::Move { sources, destination: _ } => {
+                crate::worker::JobKind::Move {
+                    sources,
+                    destination: _,
+                } => {
                     if !completed.created_destinations.is_empty() {
                         self.undo_stack.push(crate::undo::UndoAction::Move {
                             sources,
@@ -1508,6 +1542,34 @@ mod tests {
     }
 
     #[test]
+    fn move_tab_reorders_and_follows_active_tab() {
+        let (dir, mut s) = fixture();
+        s.new_tab(None); // tab 1
+        s.new_tab(None); // tab 2
+        assert_eq!(s.tabs().len(), 3);
+        assert_eq!(s.active_tab_index(), 2);
+
+        // Lens reports `to` in post-removal coordinates.
+        assert!(s.move_tab(2, 0));
+        assert_eq!(s.active_tab_index(), 0);
+        let ids: Vec<u64> = s.tabs().iter().map(|t| t.id).collect();
+        assert_eq!(ids[0], 3, "dragged tab lands at the insertion slot");
+
+        // Moving a non-active tab leftwards past the active tab shifts the
+        // active index up (insertion before it pushes it right).
+        s.switch_tab(0);
+        let active_id = s.active_tab_id();
+        assert!(s.move_tab(2, 0));
+        assert_eq!(s.active_tab_id(), active_id, "active follows its tab");
+
+        // Degenerate moves are rejected.
+        assert!(!s.move_tab(0, 0));
+        assert!(!s.move_tab(0, s.tabs().len()));
+        assert!(!s.move_tab(s.tabs().len(), 0));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn miller_columns_end_at_active_directory() {
         let (dir, mut s) = fixture();
         s.navigate("sub");
@@ -1571,7 +1633,10 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
 
-        assert!(removed_updated, "expected drain_fs_events to report refresh after deletion");
+        assert!(
+            removed_updated,
+            "expected drain_fs_events to report refresh after deletion"
+        );
         assert!(
             !s.entries().iter().any(|e| e.name == "downloaded.zip"),
             "deleted file should disappear from active entries"

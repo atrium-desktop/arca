@@ -11,7 +11,10 @@ fn main() {
     let args_vec: Vec<String> = std::env::args().skip(1).collect();
 
     // Check if prompter mode was requested
-    if args_vec.iter().any(|arg| arg == "--chooser-prompt" || arg == "--prompter") {
+    if args_vec
+        .iter()
+        .any(|arg| arg == "--chooser-prompt" || arg == "--prompter")
+    {
         run_prompter_mode();
         return;
     }
@@ -86,9 +89,7 @@ fn run_prompter_mode() {
             eprintln!("arca: invalid prompter request: {error}");
             let _ = write_prompter_response(
                 std::io::stdout(),
-                FileChooserResponse::Failed {
-                    message: error,
-                },
+                FileChooserResponse::Failed { message: error },
             );
             std::process::exit(1);
         }

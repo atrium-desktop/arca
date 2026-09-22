@@ -74,7 +74,9 @@ impl MimeDatabase {
             }
             // Format: weight:mime_type:glob[:flags]
             let mut parts = line.split(':');
-            let Some(weight_str) = parts.next() else { continue };
+            let Some(weight_str) = parts.next() else {
+                continue;
+            };
             let Some(mime) = parts.next() else { continue };
             let Some(glob) = parts.next() else { continue };
             let flags = parts.next().unwrap_or("");
@@ -101,7 +103,8 @@ impl MimeDatabase {
                 continue;
             }
             if let Some((alias, canonical)) = line.split_once(' ') {
-                self.aliases.insert(alias.trim().into(), canonical.trim().into());
+                self.aliases
+                    .insert(alias.trim().into(), canonical.trim().into());
             }
         }
     }
@@ -196,7 +199,10 @@ fn glob_match(pattern: &str, text: &str, case_sensitive: bool) -> bool {
             text.to_ascii_lowercase()
                 .ends_with(&suffix.to_ascii_lowercase())
         }
-    } else if pattern.ends_with('*') && pattern.len() > 1 && !pattern[..pattern.len() - 1].contains('*') {
+    } else if pattern.ends_with('*')
+        && pattern.len() > 1
+        && !pattern[..pattern.len() - 1].contains('*')
+    {
         let prefix = &pattern[..pattern.len() - 1];
         if case_sensitive {
             text.starts_with(prefix)
@@ -323,7 +329,10 @@ mod tests {
     fn test_builtin_mimes() {
         assert_eq!(builtin_extension_mime("png"), Some("image/png"));
         assert_eq!(builtin_extension_mime("rs"), Some("text/rust"));
-        assert_eq!(builtin_extension_mime("desktop"), Some("application/x-desktop"));
+        assert_eq!(
+            builtin_extension_mime("desktop"),
+            Some("application/x-desktop")
+        );
     }
 
     #[test]

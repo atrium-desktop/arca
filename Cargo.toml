@@ -21,11 +21,11 @@ rust-version = "1.85"
 # patch these sources to a sibling checkout through .cargo/optics-local.toml
 # without making that checkout mandatory for CI or downstream packagers; see
 # docs/dev/optics-dev-worktree.md.
-iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.44" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.44" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.44" }
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.44" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.44" }
+iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.46" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.46" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.46" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.46" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.46" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 arca-xdg = { path = "crates/arca-xdg", version = "0.2.8" }

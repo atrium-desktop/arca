@@ -30,8 +30,8 @@ pub use arca_xdg::trash;
 pub use bookmarks::{Bookmark, BookmarkKind};
 pub use chooser::{
     BytePath, Choice, FileChooserMode, FileChooserRequest, FileChooserResponse, FileFilter,
-    FilterRule, FilterRuleKind, PromptAccent, PromptAppearance, PromptColorScheme,
-    PrompterRequest, PrompterResponse,
+    FilterRule, FilterRuleKind, PromptAccent, PromptAppearance, PromptColorScheme, PrompterRequest,
+    PrompterResponse,
 };
 pub use config::{Config, ThemeMode, ViewMode};
 pub use desktop::DesktopEntry;
@@ -43,5 +43,5 @@ pub use state::{AppState, Clipboard, MillerColumn, TabState};
 pub use thumbs::{Thumb, ThumbService};
 pub use trash::TrashItem;
 pub use undo::{UndoAction, UndoStack};
-pub use worker::{AsyncIoEngine, JobCompleted, JobId, JobKind, JobProgress};
 pub use watch::FsWatcher;
+pub use worker::{AsyncIoEngine, JobCompleted, JobId, JobKind, JobProgress};

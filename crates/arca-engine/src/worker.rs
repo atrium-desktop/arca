@@ -178,14 +178,16 @@ fn count_path(p: &Path, bytes: &mut u64, files: &mut usize) {
     }
 }
 
-fn run_job(
-    req: JobRequest,
-    prog_tx: &Sender<JobProgress>,
-    comp_tx: &Sender<JobCompleted>,
-) {
+fn run_job(req: JobRequest, prog_tx: &Sender<JobProgress>, comp_tx: &Sender<JobCompleted>) {
     let (sources, dest, is_move) = match &req.kind {
-        JobKind::Copy { sources, destination } => (sources, destination, false),
-        JobKind::Move { sources, destination } => (sources, destination, true),
+        JobKind::Copy {
+            sources,
+            destination,
+        } => (sources, destination, false),
+        JobKind::Move {
+            sources,
+            destination,
+        } => (sources, destination, true),
     };
 
     let (total_bytes, total_files) = calculate_total_bytes(sources);
@@ -272,11 +274,7 @@ struct ProgressContext<'a> {
     prog_tx: &'a Sender<JobProgress>,
 }
 
-fn copy_with_progress(
-    src: &Path,
-    dst: &Path,
-    ctx: &mut ProgressContext<'_>,
-) -> io::Result<()> {
+fn copy_with_progress(src: &Path, dst: &Path, ctx: &mut ProgressContext<'_>) -> io::Result<()> {
     if ctx.cancel.load(Ordering::Relaxed) {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
     }
@@ -298,7 +296,11 @@ fn copy_with_progress(
         let mut w = File::create(dst)?;
         let mut buf = [0u8; 64 * 1024];
 
-        let file_name = src.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let file_name = src
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
         loop {
             if ctx.cancel.load(Ordering::Relaxed) {

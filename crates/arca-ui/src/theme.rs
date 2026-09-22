@@ -98,14 +98,24 @@ pub fn branded_theme_with_accent(
             .with_accent(accent_col)
             .with_border(Color::rgba(255, 255, 255, 42))
             .with_hover(Color::rgba(255, 255, 255, 24))
-            .with_active(Color::rgba(accent_col.r(), accent_col.g(), accent_col.b(), 56))
+            .with_active(Color::rgba(
+                accent_col.r(),
+                accent_col.g(),
+                accent_col.b(),
+                56,
+            ))
     } else {
         base.with_bg(Color::rgba(243, 245, 249, 255))
             .with_fg(Color::rgba(29, 33, 44, 255))
             .with_accent(accent_col)
             .with_border(Color::rgba(28, 32, 44, 32))
             .with_hover(Color::rgba(28, 32, 44, 12))
-            .with_active(Color::rgba(accent_col.r(), accent_col.g(), accent_col.b(), 44))
+            .with_active(Color::rgba(
+                accent_col.r(),
+                accent_col.g(),
+                accent_col.b(),
+                44,
+            ))
     };
     // Geometry follows the tessera control/hairline/scrollbar tokens. No
     // active_indicator_width: the accent rail is off-language for tessera
@@ -200,7 +210,8 @@ pub(crate) fn break_lines(
     }
     if !rest.is_empty() {
         let last = lines.last_mut().expect("max_lines >= 1");
-        while !last.is_empty() && frame.measure_text(&format!("{last}…"), size).width > max_width {
+        while !last.is_empty() && frame.measure_text(&format!("{last}…"), size).width > max_width
+        {
             last.pop();
         }
         let trimmed = last.trim_end().len();

@@ -1,10 +1,10 @@
 //! Three production content presentations: grid, detailed list and Miller
 //! columns. All share the same selection and file-operation model.
 
-use iris::{Align, Color, Frame, LayoutOpts};
 use arca_engine::entry::{FileType, SortKey};
 use arca_engine::format::{format_size, format_time};
 use arca_engine::{Entry, ViewMode};
+use iris::{Align, Color, Frame, LayoutOpts};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -87,8 +87,7 @@ fn visible_rows(
         return (0, row_count.min(fallback_rows));
     };
     let first = ((offset / pitch).floor() as usize).saturating_sub(OVERSCAN_ROWS);
-    let last =
-        (((offset + viewport_h) / pitch).ceil() as usize + OVERSCAN_ROWS + 1).min(row_count);
+    let last = (((offset + viewport_h) / pitch).ceil() as usize + OVERSCAN_ROWS + 1).min(row_count);
     if first >= last {
         // Stale offset right after navigating away from a longer listing:
         // anchor to the content end — lens clamps the offset during layout,
@@ -222,9 +221,12 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                 ..Default::default()
             },
             |frame| {
-                let (first, last) =
-                    visible_rows(geometry, row_count, GRID_ROW_PITCH, fallback);
-                row_spacer(frame, "##grid-vtop", spacer_height(first, GRID_ROW_PITCH, 10.0));
+                let (first, last) = visible_rows(geometry, row_count, GRID_ROW_PITCH, fallback);
+                row_spacer(
+                    frame,
+                    "##grid-vtop",
+                    spacer_height(first, GRID_ROW_PITCH, 10.0),
+                );
                 for row in first..last {
                     let start = row * columns;
                     let chunk = &visible[start..(start + columns).min(visible.len())];
@@ -362,7 +364,12 @@ fn build_grid_card(
         frame.set_opacity(prev_opacity);
     }
     if response.pressed {
-        app.start_drag_candidate(entry.name.clone(), full_path.clone(), entry.navigable, visible_index);
+        app.start_drag_candidate(
+            entry.name.clone(),
+            full_path.clone(),
+            entry.navigable,
+            visible_index,
+        );
     }
     if entry.navigable {
         app.drop_targets.push(crate::app::DropTargetZone {
@@ -392,11 +399,14 @@ fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                 ..Default::default()
             },
             |frame| {
-                let (first, last) =
-                    visible_rows(geometry, visible.len(), LIST_ROW_PITCH, fallback);
+                let (first, last) = visible_rows(geometry, visible.len(), LIST_ROW_PITCH, fallback);
                 #[cfg(test)]
                 record_list_window((first, last));
-                row_spacer(frame, "##list-vtop", spacer_height(first, LIST_ROW_PITCH, 2.0));
+                row_spacer(
+                    frame,
+                    "##list-vtop",
+                    spacer_height(first, LIST_ROW_PITCH, 2.0),
+                );
                 for (visible_index, &entry_index) in
                     visible.iter().enumerate().take(last).skip(first)
                 {
@@ -564,7 +574,12 @@ fn build_list_row(
         frame.set_opacity(prev_opacity);
     }
     if response.pressed {
-        app.start_drag_candidate(entry.name.clone(), full_path.clone(), entry.navigable, visible_index);
+        app.start_drag_candidate(
+            entry.name.clone(),
+            full_path.clone(),
+            entry.navigable,
+            visible_index,
+        );
     }
     if entry.navigable {
         app.drop_targets.push(crate::app::DropTargetZone {
@@ -630,8 +645,9 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             miller_header(frame, tones, &column.path, current);
                             frame.flex(1.0);
                             let scroll_id = format!("miller-list-{column_index}");
-                            let fallback =
-                                (column_height / MILLER_ROW_PITCH).ceil() as usize + OVERSCAN_ROWS + 2;
+                            let fallback = (column_height / MILLER_ROW_PITCH).ceil() as usize
+                                + OVERSCAN_ROWS
+                                + 2;
                             let geometry = scroll_geometry(frame, &scroll_id);
                             frame.scroll(&scroll_id, |frame| {
                                 frame.column_ex(
@@ -658,11 +674,8 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                             spacer_height(first, MILLER_ROW_PITCH, 2.0),
                                         );
                                         if current {
-                                            for (visible_index, &entry_index) in visible
-                                                .iter()
-                                                .enumerate()
-                                                .take(last)
-                                                .skip(first)
+                                            for (visible_index, &entry_index) in
+                                                visible.iter().enumerate().take(last).skip(first)
                                             {
                                                 if let Some(entry) = column.entries.get(entry_index)
                                                 {
@@ -902,7 +915,7 @@ fn sort_cell(
 }
 
 fn capture_rename(app: &mut UiApp, frame: &mut Frame) {
-    let response = unsafe { lens_sys::lens_get_response(frame.as_raw()) };
+    let response = frame.response();
     app.rename_id = response.id;
     app.rename_focused_now = response.focused;
 }

@@ -176,10 +176,7 @@ pub fn list_trash_in_root(root: &Path) -> io::Result<Vec<TrashItem>> {
 
     for entry in entries.flatten() {
         let info_path = entry.path();
-        if !info_path
-            .extension()
-            .is_some_and(|ext| ext == "trashinfo")
-        {
+        if !info_path.extension().is_some_and(|ext| ext == "trashinfo") {
             continue;
         }
 
@@ -344,7 +341,9 @@ fn percent_decode(s: &str) -> Option<String> {
     let mut i = 0;
     while i < chars.len() {
         if chars[i] == b'%' && i + 2 < chars.len() {
-            if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&chars[i + 1..i + 3]).unwrap_or(""), 16) {
+            if let Ok(byte) =
+                u8::from_str_radix(std::str::from_utf8(&chars[i + 1..i + 3]).unwrap_or(""), 16)
+            {
                 bytes.push(byte);
                 i += 3;
                 continue;

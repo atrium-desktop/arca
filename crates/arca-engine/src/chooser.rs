@@ -366,11 +366,7 @@ fn validate_choices(choices: &[Choice]) -> Result<(), String> {
                     choice.id
                 ));
             }
-        } else if !choice
-            .options
-            .iter()
-            .any(|(id, _)| id == &choice.selected)
-        {
+        } else if !choice.options.iter().any(|(id, _)| id == &choice.selected) {
             return Err(format!(
                 "choice {:?} initial value {:?} is not among its options",
                 choice.id, choice.selected
@@ -380,10 +376,7 @@ fn validate_choices(choices: &[Choice]) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_choice_answers(
-    answers: &[(String, String)],
-    choices: &[Choice],
-) -> Result<(), String> {
+fn validate_choice_answers(answers: &[(String, String)], choices: &[Choice]) -> Result<(), String> {
     if answers.len() != choices.len() {
         return Err(format!(
             "prompter returned {} choice answer(s), expected {}",
@@ -731,10 +724,7 @@ mod tests {
         let (decoded_fc, appearance) = read_prompter_request(json.as_bytes()).unwrap();
         assert_eq!(decoded_fc.app_id, req.app_id);
         assert_eq!(decoded_fc.title, req.title);
-        assert_eq!(
-            appearance.unwrap().color_scheme,
-            PromptColorScheme::Dark
-        );
+        assert_eq!(appearance.unwrap().color_scheme, PromptColorScheme::Dark);
 
         let response = FileChooserResponse::Selected {
             paths: vec![BytePath::from_path("/home/user/document.txt")],
