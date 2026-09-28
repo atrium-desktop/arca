@@ -10,12 +10,13 @@ use crate::app::UiApp;
 use crate::icons::{self, ids};
 use crate::theme::{self, Tones};
 
-const GRID_CARD_WIDTH: f32 = 136.0;
-const GRID_CARD_HEIGHT: f32 = 120.0;
+pub(crate) const GRID_CARD_WIDTH: f32 = 82.0;
+pub(crate) const GRID_CARD_HEIGHT: f32 = 78.0;
+pub(crate) const GRID_GAP: f32 = 4.0;
 
 /// Row pitches (row height + the parent column's gap) for the virtualized
 /// listings.
-const GRID_ROW_PITCH: f32 = GRID_CARD_HEIGHT + 10.0;
+pub(crate) const GRID_ROW_PITCH: f32 = GRID_CARD_HEIGHT + GRID_GAP;
 const LIST_ROW_PITCH: f32 = 42.0 + 2.0;
 const MILLER_ROW_PITCH: f32 = 36.0 + 2.0;
 /// Extra rows built past each viewport edge so one-frame-stale geometry
@@ -124,8 +125,6 @@ pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             ..Default::default()
         },
         |frame| {
-            build_directory_heading(app, frame, tones);
-
             if let Some(error) = app.state.read_error().map(str::to_string) {
                 placeholder(
                     frame,
@@ -168,44 +167,6 @@ pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
     );
 }
 
-fn build_directory_heading(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
-    let title = std::path::Path::new(app.state.cwd())
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "Computer".into());
-    let count = app.state.visible().len();
-    frame.size_next(0.0, 40.0);
-    frame.row_ex(
-        &LayoutOpts {
-            height: 40.0,
-            gap: 12.0,
-            pad: 4.0,
-            cross: Align::Center,
-            ..Default::default()
-        },
-        |frame| {
-            frame.heading(&title, 2);
-            theme::label_colored_sized(
-                frame,
-                &format!("{count} item{}", if count == 1 { "" } else { "s" }),
-                12.0,
-                tones.muted,
-            );
-            // In Grid mode, provide a clean sort selector instead of confusing list headers
-            if app.state.view_mode == ViewMode::Grid {
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                sort_cell(app, frame, tones, SortKey::Name, "Name", 0.0);
-            } else if app.state.view_mode == ViewMode::Miller {
-                frame.flex(1.0);
-                frame.spacer(0.0);
-                sort_cell(app, frame, tones, SortKey::Name, "Sort: Name", 0.0);
-            }
-        },
-    );
-}
-
 fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usize]) {
     let columns = app.grid_columns();
     let row_count = visible.len().div_ceil(columns);
@@ -215,8 +176,8 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
     frame.scroll("grid-files", |frame| {
         frame.column_ex(
             &LayoutOpts {
-                gap: 10.0,
-                pad: 2.0,
+                gap: GRID_GAP,
+                pad: 4.0,
                 cross: Align::Stretch,
                 ..Default::default()
             },
@@ -225,7 +186,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                 row_spacer(
                     frame,
                     "##grid-vtop",
-                    spacer_height(first, GRID_ROW_PITCH, 10.0),
+                    spacer_height(first, GRID_ROW_PITCH, GRID_GAP),
                 );
                 for row in first..last {
                     let start = row * columns;
@@ -233,7 +194,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                     frame.push_id(&format!("grid-row-{row}"));
                     frame.row_ex(
                         &LayoutOpts {
-                            gap: 10.0,
+                            gap: GRID_GAP,
                             cross: Align::Center,
                             ..Default::default()
                         },
@@ -249,7 +210,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                 row_spacer(
                     frame,
                     "##grid-vbot",
-                    spacer_height(row_count - last, GRID_ROW_PITCH, 10.0),
+                    spacer_height(row_count - last, GRID_ROW_PITCH, GRID_GAP),
                 );
             },
         );
@@ -259,7 +220,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
 fn build_grid_card(
     app: &mut UiApp,
     frame: &mut Frame,
-    tones: &Tones,
+    _tones: &Tones,
     entry_index: usize,
     visible_index: usize,
 ) {
@@ -293,18 +254,23 @@ fn build_grid_card(
         .as_ref()
         .is_some_and(|d| d.started && d.path == full_path);
 
+    let is_hovered = app.hovered_grid_index == Some(visible_index);
+    let text_color = if selected || drop_hovered {
+        frame.theme().accent()
+    } else if is_hovered {
+        iris::Color::rgba(255, 255, 255, 255)
+    } else {
+        iris::Color::rgba(215, 222, 235, 255)
+    };
+
     let options = LayoutOpts {
         width: GRID_CARD_WIDTH,
         height: GRID_CARD_HEIGHT,
         gap: 0.0,
-        pad: 10.0,
+        pad: 2.0,
         cross: Align::Center,
-        bg: if drop_hovered || selected {
-            tones.selected
-        } else {
-            Color::TRANSPARENT
-        },
-        radius: 10.0,
+        bg: Color::TRANSPARENT,
+        radius: 6.0,
         ..Default::default()
     };
 
@@ -316,10 +282,10 @@ fn build_grid_card(
     if app.renaming.as_deref() == Some(entry.name.as_str()) {
         frame.push_id(&entry.name);
         frame.column_ex(&options, |frame| {
-            icons::icon(frame, icons::entry_icon(&entry), 46.0);
-            frame.size_next(0.0, 8.0);
-            frame.spacer(8.0);
-            frame.size_next(GRID_CARD_WIDTH - 20.0, 0.0);
+            icons::icon(frame, icons::entry_icon(&entry), 50.0);
+            frame.size_next(0.0, 2.0);
+            frame.spacer(2.0);
+            frame.size_next(GRID_CARD_WIDTH - 4.0, 0.0);
             frame.textfield("##grid-rename", &mut app.rename);
             capture_rename(app, frame);
         });
@@ -337,17 +303,28 @@ fn build_grid_card(
         .show(|frame| {
             frame.column_ex(
                 &LayoutOpts {
-                    width: GRID_CARD_WIDTH - 20.0,
-                    gap: 7.0,
+                    width: GRID_CARD_WIDTH - 4.0,
+                    gap: 2.0,
                     cross: Align::Center,
                     ..Default::default()
                 },
                 |frame| {
-                    card_art(app, frame, &entry, 48.0);
-                    theme::label_centered(frame, &entry.name, 12.5, GRID_CARD_WIDTH - 22.0, 2);
+                    card_art(app, frame, &entry, 50.0);
+                    theme::label_centered_styled(
+                        frame,
+                        &entry.name,
+                        12.5,
+                        GRID_CARD_WIDTH - 4.0,
+                        2,
+                        text_color,
+                        Color::TRANSPARENT,
+                    );
                 },
             );
         });
+    if response.hovered {
+        app.next_hovered_grid_index = Some(visible_index);
+    }
     let dnd_payload = if selected && app.state.selected_count() > 1 {
         let paths = app.state.selected_paths();
         let mut out = String::new();

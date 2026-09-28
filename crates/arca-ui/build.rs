@@ -1,6 +1,6 @@
 //! Relay the rpaths published by the `iris` crate (`links = "iris_rs"`,
 //! re-exported from iris-sys) so this crate's test binaries find
-//! libiris/liblens/libflux in the optics meson build tree at runtime
+//! libiris/liblens/libflux/libglyph in the optics meson build tree at runtime
 //! without `LD_LIBRARY_PATH`.
 
 fn main() {

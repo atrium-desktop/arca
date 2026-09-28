@@ -1,3 +1,10 @@
+---
+id: ADR-0002
+title: "0002. XDG Desktop Portal FileChooser Prompter Protocol"
+status: accepted
+date: 2026-09-02
+---
+
 # 0002. XDG Desktop Portal FileChooser Prompter Protocol
 
 - Status: Accepted

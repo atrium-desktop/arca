@@ -114,6 +114,8 @@ pub struct UiApp {
     pub(crate) pending_paste: bool,
     pub(crate) mods: u32,
     pub(crate) fullscreen: bool,
+    pub(crate) hovered_grid_index: Option<usize>,
+    pub(crate) next_hovered_grid_index: Option<usize>,
 }
 
 pub(crate) fn set_focus(frame: &mut Frame, id: u64) {
@@ -144,6 +146,8 @@ impl UiApp {
             pending_paste: false,
             mods: 0,
             fullscreen: false,
+            hovered_grid_index: None,
+            next_hovered_grid_index: None,
             filter,
             filter_id: 0,
             filter_focused: false,
@@ -178,6 +182,7 @@ impl UiApp {
         let display = input.as_raw().display_size;
         self.viewport = (display.x, display.y);
         self.cursor_pos = (input.as_raw().cursor.x, input.as_raw().cursor.y);
+        self.hovered_grid_index = self.next_hovered_grid_index.take();
         self.mods = input.as_raw().mods;
         let mouse_down = input.as_raw().mouse_down[0];
 
@@ -454,16 +459,16 @@ impl UiApp {
     }
 
     pub(crate) fn grid_columns(&self) -> usize {
-        let available = (self.viewport.0 - self.sidebar_width - 20.0).max(160.0);
+        let available = (self.viewport.0 - self.sidebar_width - 20.0).max(120.0);
         let plan = lens::patterns::virtual_grid_calc(
             available,
             self.viewport.1,
             0.0,
             100,
-            136.0,
-            176.0,
-            120.0,
-            12.0,
+            content::GRID_CARD_WIDTH,
+            content::GRID_CARD_WIDTH * 1.35,
+            content::GRID_CARD_HEIGHT,
+            content::GRID_GAP,
             2,
         );
         plan.columns.max(1) as usize

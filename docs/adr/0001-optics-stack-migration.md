@@ -1,3 +1,10 @@
+---
+id: ADR-0001
+title: "0001. Optics Stack Migration and Workspace Modularization"
+status: accepted
+date: 2026-08-20
+---
+
 # 0001. Optics Stack Migration and Workspace Modularization
 
 - Status: Accepted

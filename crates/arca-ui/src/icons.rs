@@ -168,6 +168,7 @@ pub fn icon(frame: &mut Frame, id: AssetId, size: f32) {
 }
 
 /// Ghost icon button in a square `box_size` hit target.
+/// Borderless and transparent at rest, subtle background fill on hover/press.
 pub fn icon_button(frame: &mut Frame, id: AssetId, box_size: f32) -> bool {
     let id_str = format!("##icon-{id:?}");
     let c = std::ffi::CString::new(id_str).unwrap();
@@ -179,6 +180,7 @@ pub fn icon_button(frame: &mut Frame, id: AssetId, box_size: f32) -> bool {
             ..Default::default()
         },
         icon: lens_id(id),
+        variant: lens_sys::lens_button_variant::LENS_BUTTON_SUBTLE,
         ..Default::default()
     };
     unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
@@ -203,6 +205,11 @@ pub fn icon_button_active_rounded(
             ..Default::default()
         },
         icon: lens_id(id),
+        variant: if active {
+            lens_sys::lens_button_variant::LENS_BUTTON_PRIMARY
+        } else {
+            lens_sys::lens_button_variant::LENS_BUTTON_SUBTLE
+        },
         active,
         ..Default::default()
     };
@@ -210,6 +217,8 @@ pub fn icon_button_active_rounded(
 }
 
 /// Icon button that swaps glyph with its checked state (eye/eye-off, star…).
+/// Borderless and transparent at rest; reveals subtle background on hover,
+/// and accent/active surface when checked.
 pub fn icon_toggle_button(
     frame: &mut Frame,
     unchecked: AssetId,
@@ -228,15 +237,37 @@ pub fn icon_toggle_button(
             ..Default::default()
         },
         icon: lens_id(icon_id),
+        variant: lens_sys::lens_button_variant::LENS_BUTTON_SUBTLE,
         active: is_checked,
         ..Default::default()
     };
     unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
 }
 
-/// Full-width sidebar/menu row with a leading icon.
+/// Full-width sidebar/menu row with a leading icon and compact 30px height.
 pub fn selectable_icon(frame: &mut Frame, id: AssetId, label: &str, selected: bool) -> bool {
-    frame.selectable_icon(label, lens_id(id), selected)
+    selectable_icon_sized(frame, id, label, selected, 30.0)
+}
+
+/// Full-width sidebar/menu row with explicit height.
+pub fn selectable_icon_sized(
+    frame: &mut Frame,
+    id: AssetId,
+    label: &str,
+    selected: bool,
+    height: f32,
+) -> bool {
+    let c = std::ffi::CString::new(label).unwrap();
+    let opts = lens_sys::lens_selectable_opts {
+        box_: lens_sys::lens_box {
+            height,
+            ..Default::default()
+        },
+        label: c.as_ptr(),
+        icon: lens_id(id),
+        selected,
+    };
+    unsafe { lens_sys::lens_selectable(frame.as_raw(), &opts).clicked }
 }
 
 /// Icon for a directory entry (type glyph + MIME / extension mapping).

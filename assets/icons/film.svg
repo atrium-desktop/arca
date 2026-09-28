@@ -1,1 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <rect fill="#E11D48" x="2.5" y="4" width="19" height="16" rx="3"/>
+  <path fill="#BE123C" d="M2.5 7C2.5 5.34 3.84 4 5.5 4H18.5C20.16 4 21.5 5.34 21.5 7V9H2.5V7Z"/>
+  <polygon fill="#FFFFFF" points="5.5,4 7.5,4 5,9 3,9"/>
+  <polygon fill="#FFFFFF" points="10,4 12,4 9.5,9 7.5,9"/>
+  <polygon fill="#FFFFFF" points="14.5,4 16.5,4 14,9 12,9"/>
+  <polygon fill="#FFFFFF" points="19,4 21,4 18.5,9 16.5,9"/>
+  <polygon fill="#FFFFFF" points="10,12 16,15 10,18"/>
+</svg>

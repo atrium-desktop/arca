@@ -16,22 +16,16 @@ fn tab_title(cwd: &str) -> String {
     name
 }
 
-pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &iris::Input, tones: &Tones) {
+pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &iris::Input, _tones: &Tones) {
     frame.size_next(0.0, 38.0);
     frame.row_ex(
         &LayoutOpts {
             gap: 6.0,
             pad: 4.0,
             cross: Align::Center,
-            bg: tones.tab_bar,
             ..Default::default()
         },
         |frame| {
-            // Subtle logo icon
-            icons::icon(frame, ids::Aperture, 16.0);
-            frame.size_next(4.0, 0.0);
-            frame.spacer(4.0);
-
             let tabs: Vec<TabItem> = app
                 .state
                 .tabs()

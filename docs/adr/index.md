@@ -15,3 +15,4 @@ For the record template and guidelines, see [ADR Template](template.md).
 |--------|-------|--------|------|
 | [0001](0001-optics-stack-migration.md) | Optics Stack Migration and Workspace Modularization | Accepted | 2026-08-20 |
 | [0002](0002-xdg-desktop-portal-prompter.md) | XDG Desktop Portal FileChooser Prompter Protocol | Accepted | 2026-09-02 |
+| [0003](0003-borderless-chrome-and-dense-hierarchy.md) | Borderless Surfaces, Subtle Controls, and Visual Density Hierarchy | Accepted | 2026-09-10 |

@@ -15,7 +15,7 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
         &LayoutOpts {
             width: sidebar_w,
             gap: 2.0,
-            pad: 8.0,
+            pad: 6.0,
             cross: Align::Stretch,
             bg: tones.sidebar,
             ..Default::default()
@@ -71,8 +71,8 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             .filter(|(_, bookmark)| bookmark.kind == BookmarkKind::Folder)
                             .collect::<Vec<_>>();
 
-                        frame.size_next(0.0, 10.0);
-                        frame.spacer(10.0);
+                        frame.size_next(0.0, 6.0);
+                        frame.spacer(6.0);
                         section_label(frame, tones, "BOOKMARKS");
                         for (index, bookmark) in user_bookmarks {
                             let b_id = format!("bookmark-{index}");
@@ -176,16 +176,16 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
 }
 
 fn section_label(frame: &mut Frame, tones: &Tones, title: &str) {
-    frame.size_next(0.0, 20.0);
+    frame.size_next(0.0, 18.0);
     frame.row_ex(
         &LayoutOpts {
-            height: 20.0,
-            pad: 4.0,
+            height: 18.0,
+            pad: 2.0,
             cross: Align::Center,
             ..Default::default()
         },
         |frame| {
-            theme::label_colored_sized(frame, title, 10.5, tones.muted);
+            theme::label_colored_sized(frame, title, 10.0, tones.muted);
         },
     );
 }

@@ -21,12 +21,16 @@ pub struct Tones {
     pub popover: Color,
     pub popover_border: Color,
     pub scrim: Color,
+    pub input_bg: Color,
 }
 
 impl Tones {
     pub fn from_theme(theme: &Theme) -> Tones {
         let (r, g, b, _) = theme.bg().components();
         let is_dark = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) < 128.0;
+        let surface = theme.surface();
+        let surface_sunken = theme.surface_sunken();
+        let surface_elevated = theme.surface_elevated();
         if is_dark {
             Tones {
                 // Stepped surface family around the tessera application
@@ -36,8 +40,8 @@ impl Tones {
                 toolbar: Color::rgba(32, 36, 51, 255),
                 sidebar: Color::rgba(28, 32, 46, 255),
                 content: Color::rgba(25, 28, 40, 255),
-                card: Color::rgba(35, 40, 56, 255),
-                elevated: Color::rgba(41, 47, 65, 255),
+                card: if surface.a() > 0 { surface } else { Color::rgba(35, 40, 56, 255) },
+                elevated: if surface_elevated.a() > 0 { surface_elevated } else { Color::rgba(41, 47, 65, 255) },
                 status_bar: Color::rgba(28, 32, 46, 255),
                 // Selection is the shared low-alpha accent wash, not a rail
                 // or an outline.
@@ -49,6 +53,7 @@ impl Tones {
                 popover: Color::rgba(24, 28, 40, 235),
                 popover_border: Color::rgba(255, 255, 255, 42),
                 scrim: Color::rgba(8, 10, 18, 118),
+                input_bg: if surface_sunken.a() > 0 { surface_sunken } else { Color::rgba(21, 24, 35, 255) },
             }
         } else {
             Tones {
@@ -57,8 +62,8 @@ impl Tones {
                 toolbar: Color::rgba(249, 251, 255, 255),
                 sidebar: Color::rgba(237, 240, 246, 255),
                 content: Color::rgba(249, 251, 255, 255),
-                card: Color::rgba(255, 255, 255, 255),
-                elevated: Color::rgba(255, 255, 255, 255),
+                card: if surface.a() > 0 { surface } else { Color::rgba(255, 255, 255, 255) },
+                elevated: if surface_elevated.a() > 0 { surface_elevated } else { Color::rgba(255, 255, 255, 255) },
                 status_bar: Color::rgba(237, 240, 246, 255),
                 selected: Color::rgba(43, 101, 232, 44),
                 muted: Color::rgba(99, 105, 123, 255),
@@ -66,6 +71,7 @@ impl Tones {
                 popover: Color::rgba(250, 251, 253, 216),
                 popover_border: Color::rgba(28, 32, 44, 30),
                 scrim: Color::rgba(28, 32, 44, 104),
+                input_bg: if surface_sunken.a() > 0 { surface_sunken } else { Color::rgba(233, 236, 244, 255) },
             }
         }
     }
@@ -104,6 +110,9 @@ pub fn branded_theme_with_accent(
                 accent_col.b(),
                 56,
             ))
+            .with_surface(Color::rgba(35, 40, 56, 255))
+            .with_surface_sunken(Color::rgba(21, 24, 35, 255))
+            .with_surface_elevated(Color::rgba(41, 47, 65, 255))
     } else {
         base.with_bg(Color::rgba(243, 245, 249, 255))
             .with_fg(Color::rgba(29, 33, 44, 255))
@@ -116,12 +125,15 @@ pub fn branded_theme_with_accent(
                 accent_col.b(),
                 44,
             ))
+            .with_surface(Color::rgba(255, 255, 255, 255))
+            .with_surface_sunken(Color::rgba(233, 236, 244, 255))
+            .with_surface_elevated(Color::rgba(255, 255, 255, 255))
     };
     // Geometry follows the tessera control/hairline/scrollbar tokens. No
     // active_indicator_width: the accent rail is off-language for tessera
     // applications, and it defaults to 0 in lens.
     colored
-        .with_corner_radius(12.0)
+        .with_corner_radius(8.0)
         .with_border_width(1.0)
         .with_scrollbar_width(SCROLLBAR_W)
         .with_scrollbar_radius(2.5)
@@ -149,6 +161,7 @@ pub fn label_colored_sized(frame: &mut Frame, text: &str, size: f32, color: Colo
 /// `max_lines`, ellipsizing the last visible line. Tiled cards read ragged
 /// with left-aligned text, and unbounded wrapping overflowed the fixed card
 /// height on long names.
+#[allow(dead_code)]
 pub(crate) fn label_centered(
     frame: &mut Frame,
     text: &str,
@@ -156,10 +169,30 @@ pub(crate) fn label_centered(
     max_width: f32,
     max_lines: usize,
 ) {
+    let fg = frame.theme().fg();
+    label_centered_styled(frame, text, size, max_width, max_lines, fg, Color::TRANSPARENT);
+}
+
+/// Wrapped label with custom text color and optional pill background.
+pub(crate) fn label_centered_styled(
+    frame: &mut Frame,
+    text: &str,
+    size: f32,
+    max_width: f32,
+    max_lines: usize,
+    fg: Color,
+    bg: Color,
+) {
     let lines = break_lines(frame, text, size, max_width, max_lines);
+    let theme = frame.theme();
+    frame.set_theme(theme.with_fg(fg));
+    let has_bg = (bg.raw() & 0xFF000000) != 0;
     frame.column_ex(
         &LayoutOpts {
             gap: 2.0,
+            pad: if has_bg { 2.0 } else { 0.0 },
+            bg,
+            radius: 4.0,
             cross: Align::Center,
             ..Default::default()
         },
@@ -169,6 +202,7 @@ pub(crate) fn label_centered(
             }
         },
     );
+    frame.set_theme(theme);
 }
 
 /// Split `text` into at most `max_lines` lines that each fit `max_width`.

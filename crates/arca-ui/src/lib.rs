@@ -233,7 +233,10 @@ mod tests {
         // Row 0 is the "sub" directory. Two quick clicks on it trigger the
         // double-click open mid-build; the rows built afterwards in the same
         // frame still reference the old (now stale) entry indices.
-        let row0 = (500.0, 219.0);
+        let row0 = app
+            .sub_row_rect
+            .map(|r| (r.x + r.w * 0.5, r.y + r.h * 0.5))
+            .unwrap_or((500.0, 150.0));
         for _ in 0..2 {
             let mut press = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
             press.set_cursor(row0.0, row0.1);
@@ -539,6 +542,48 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Hovering over a tab's close button and clicking it closes that tab.
+    #[test]
+    fn tab_close_button_closes_tab() {
+        let (dir, mut app) = fixture();
+        let cwd = app.state.cwd().to_string();
+        app.new_tab_at(&cwd);
+        assert_eq!(app.state.tabs().len(), 2);
+        let remaining_id = app.state.tabs()[1].id;
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &settle);
+        }
+
+        // Tab 0 has cwd "arca-ui-test-..." which maxes out at max_tab_width = 180.
+        // It starts at x = 7, so it spans x = 7..187; its close button is at x ≈ 165..181, y ≈ 21.
+        let close_pt = (173.0, 21.0);
+        let mut hover = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        hover.set_cursor(close_pt.0, close_pt.1);
+        frame(&mut app, &mut ui, &hover);
+
+        let mut press = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        press.set_cursor(close_pt.0, close_pt.1);
+        press.set_mouse_down(lens::MouseButton::Left, true);
+        press.set_mouse_pressed(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &press);
+
+        let mut release = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        release.set_cursor(close_pt.0, close_pt.1);
+        release.set_mouse_released(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &release);
+
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &settle);
+        }
+
+        assert_eq!(app.state.tabs().len(), 1);
+        assert_eq!(app.state.tabs()[0].id, remaining_id);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// The window close button sits at the right edge of the 42px tab
     /// strip; `iris_window_close` outside an active app run is a no-op.
     #[test]
@@ -629,6 +674,35 @@ mod tests {
             assert_ne!(id.0, u32::MAX, "{asset:?} failed to parse/register");
             assert!(id.0 >= lens_sys::lens_icon_id::LENS_ICON_COUNT.0);
         }
+    }
+
+    #[test]
+    fn light_and_dark_mode_renders_all_views_and_icons() {
+        let (dir, mut app) = fixture();
+        std::fs::write(dir.join("photo.png"), b"fake png").unwrap();
+        std::fs::write(dir.join("song.mp3"), b"fake mp3").unwrap();
+        std::fs::write(dir.join("clip.mp4"), b"fake mp4").unwrap();
+        std::fs::write(dir.join("archive.zip"), b"fake zip").unwrap();
+        std::fs::write(dir.join("main.rs"), b"fn main() {}").unwrap();
+        std::fs::write(dir.join("build.sh"), b"#!/bin/sh\n").unwrap();
+        app.state.navigate(dir.to_str().unwrap());
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+
+        for theme in [arca_engine::ThemeMode::Light, arca_engine::ThemeMode::Dark] {
+            app.state.set_theme(theme);
+            for view_mode in [
+                arca_engine::ViewMode::Grid,
+                arca_engine::ViewMode::List,
+                arca_engine::ViewMode::Miller,
+            ] {
+                app.state.set_view_mode(view_mode);
+                frame(&mut app, &mut ui, &input);
+            }
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -1043,6 +1117,36 @@ mod tests {
         let (dir, mut app) = fixture();
         app.shutdown();
         assert!(crate::device::device().is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn visual_hierarchy_metrics_and_borderless_chrome() {
+        assert_eq!(crate::content::GRID_CARD_WIDTH, 82.0);
+        assert_eq!(crate::content::GRID_CARD_HEIGHT, 78.0);
+        assert_eq!(crate::content::GRID_GAP, 4.0);
+        assert_eq!(crate::content::GRID_ROW_PITCH, 82.0);
+
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        // Sidebar rows should have compact 30px height
+        let places = app
+            .drop_targets
+            .iter()
+            .filter(|t| !t.is_bookmark_zone && t.rect.x < app.sidebar_width)
+            .collect::<Vec<_>>();
+        assert!(!places.is_empty());
+        for target in places {
+            assert_eq!(
+                target.rect.h, 30.0,
+                "sidebar place/bookmark row height should be 30px"
+            );
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

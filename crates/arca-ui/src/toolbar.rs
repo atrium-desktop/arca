@@ -43,11 +43,23 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                     app.location.set(&cwd);
                 }
             }
+
+            let prev_theme = frame.theme();
+            let input_theme = prev_theme
+                .with_bg(tones.input_bg)
+                .with_surface_sunken(tones.input_bg)
+                .with_border(iris::Color::TRANSPARENT)
+                .with_border_width(1.0)
+                .with_corner_radius(8.0)
+                .with_padding(10.0);
+
             icons::icon(frame, ids::Folder, 16.0);
             frame.flex(1.0);
             frame.size_next(0.0, 32.0);
+            frame.set_theme(input_theme);
             let loc_changed = frame.textfield("##location", &mut app.location);
             capture(frame, &mut app.location_id, &mut app.location_focused_now);
+            frame.set_theme(prev_theme);
             if loc_changed {
                 app.location_completion = None;
             }
@@ -57,9 +69,11 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
 
             icons::icon(frame, ids::Search, 16.0);
             frame.size_next(180.0, 32.0);
+            frame.set_theme(input_theme);
             let changed =
                 frame.textfield_placeholder("##filter", &mut app.filter, "Search / Filter...");
             capture(frame, &mut app.filter_id, &mut app.filter_focused_now);
+            frame.set_theme(prev_theme);
             if changed {
                 app.state.set_filter(app.filter.as_str().into_owned());
             } else if !app.filter_focused_now && app.filter.as_str() != app.state.filter() {
@@ -87,6 +101,8 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 .min_item_width(32.0)
                 .compact(true);
 
+            let seg_theme = prev_theme.with_border_width(0.0);
+            frame.set_theme(seg_theme);
             if control.show(frame, &items, &mut current_idx) {
                 let new_mode = match current_idx {
                     0 => ViewMode::Grid,
@@ -95,6 +111,7 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 };
                 app.state.set_view_mode(new_mode);
             }
+            frame.set_theme(prev_theme);
 
             frame.size_next(6.0, 0.0);
             frame.spacer(6.0);
