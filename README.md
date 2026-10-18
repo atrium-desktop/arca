@@ -4,147 +4,137 @@
 
 # Arca
 
-A fast file manager for Wayland. Arca is a companion application for the
-[tessera](../tessera-dev) desktop — its visual language follows the
-[tessera design system](../tessera-dev/docs/dev/design) — but it runs standalone
-on any Wayland compositor. It is built on the
-[optics](../optics) graphics/UI stack (**flux** Vulkan renderer · **lens**
-immediate-mode UI · **iris** application toolkit).
+[English](README.md) | [简体中文](README-zh.md)
+
+> The project name **Arca** derives from the Latin *arca* — historically a chest, coffer, box, or ark for safekeeping precious documents and treasures. In modern computing, Arca serves as a fast, secure, and keyboard-first vessel for navigating and managing files across the Wayland desktop.
+
+Arca is a fast file manager for Wayland and a companion application for the Tessera desktop ecosystem. While its visual language aligns with the Tessera design system, it operates standalone on any standard Wayland compositor. It is built on the Optics graphics and UI stack (**flux** Vulkan renderer · **lens** immediate-mode UI · **iris** application runtime · **transit** motion dynamics).
 
 ![Rust](https://img.shields.io/badge/rust-1.85%2B-informational)
 
+---
+
 ## Features
 
-- **Navigation** — back/forward/up history, editable location bar (`Ctrl+L`),
-  one-click bookmarks (Home, XDG user dirs, your own pins)
-- **Three views** — an icon grid, a detailed sortable list, and responsive
-  Miller columns that keep the active path in view; large folders stay
-  fluid thanks to virtualized rows
-- **Thumbnails** — album covers (FLAC/MP3) and images appear in the grid and
-  in Quick Look, decoded off-thread and cached on disk; toggle in settings
-- **Tabs** — independent location, history, selection, and filter state in
-  every tab (`Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`)
-- **Quick Look** — press `Space` for an animated preview with bounded text,
-  directory, file, and image-metadata inspection
-- **Listing tools** — sort by name / size / modified, live filter
-  (`Ctrl+F`), hidden-file toggle (`Ctrl+H`); icons come from Arca's own
-  SVG set (`assets/icons/`), registered with lens at runtime
-- **File operations** — open with default app (double-click / `Enter`),
-  new folder (`Ctrl+Shift+N`), rename (`Ctrl+E`), move to trash (`Del`,
-  freedesktop-compliant, restorable), copy / cut / paste (`Ctrl+C/X/V`),
-  right-click context menu
-- **Portal Chooser / File Picker** — native XDG desktop portal file chooser
-  provider (`arca --chooser-prompt`) supporting `OpenFile`, `SaveFile`,
-  `OpenDirectory`, typed glob/MIME filters, custom portal choices, and
-  overwrite protection; also usable as a standalone CLI picker (`--choose-file`,
-  `--choose-files`, `--choose-dir`, `--save-file`)
-- **Theme** — follows the system light/dark preference live; the toolbar
-  settings button opens a System / Light / Dark picker
-- **Persistent** — view mode, hidden-files flag, sort order, theme and bookmarks
-  are remembered in `~/.config/arca/arca.conf`
+- **Keyboard-First Navigation** — Full history (back/forward/up), editable location bar (`Ctrl+L`) with tab completion, one-click bookmarks (Home, XDG user dirs, custom user pins).
+- **Three View Modalities** — Responsive icon grid, detailed sortable list, and cascading Miller columns; large folders stay fluid and memory-bounded thanks to strictly virtualized row allocation.
+- **Off-Thread Thumbnails** — High-performance image and album art (FLAC/MP3) thumbnail extraction cached according to the FreeDesktop thumbnail standard; rendered via GPU textures.
+- **Multi-Tab Workspace** — Independent location, history, selection, and filter states across tabs with drag-and-drop reordering (`Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, `Ctrl+1..9`).
+- **Quick Look Inspection** — Press `Space` for an animated preview modal with text inspection, image previews, and audio metadata powered by Optics `transit` cubic easing.
+- **Safe File Operations** — Open with default application, new folder creation (`Ctrl+Shift+N`) with automatic collision resolution, safe inline rename (`Ctrl+E`), FreeDesktop compliant trash and restore (`Del`), copy/cut/paste (`Ctrl+C/X/V`), and context menus.
+- **XDG Desktop Portal File Chooser** — Native portal file chooser prompter (`arca --chooser-prompt`) supporting `OpenFile`, `SaveFile`, `OpenDirectory`, glob/MIME filters, custom options, and overwrite warnings; also usable as a standalone CLI picker (`--choose-file`, `--choose-files`, `--choose-dir`, `--save-file`).
+- **Adaptive Theming** — Follows system light/dark preference live, with toolbar appearance settings supporting System / Light / Dark modes.
+- **Persistent Settings** — View mode, hidden files flag, sort order, theme, and bookmarks remembered in `~/.config/arca/arca.conf`.
 
-## Keyboard shortcuts
+---
+
+## Quick Start
+
+### 1. Build
+
+Arca links against the Optics C libraries (`iris` / `lens` / `flux`) via their official Rust bindings. Ensure the matching Optics release is installed so `pkg-config` can locate them:
+
+```bash
+cargo build --release
+```
+
+### 2. Launch Interactive File Manager
+
+```bash
+# Launch Arca in current working directory
+./target/release/arca
+
+# Or open a specific path in Miller columns view
+./target/release/arca --miller ~/Documents
+```
+
+### 3. Run as Standalone CLI File Picker
+
+```bash
+# Pick a single file (prints chosen path to stdout)
+./target/release/arca --choose-file ~/Downloads
+
+# Pick a directory
+./target/release/arca --choose-dir ~/Projects
+
+# Save a file with a proposed default filename
+./target/release/arca --save-file ~/Documents/report.pdf
+```
+
+### 4. Run as XDG Desktop Portal Prompter
+
+```bash
+# Reads JSON request from stdin and emits JSON response to stdout
+echo '{"title":"Select File","multiple":false,"directory":false}' | ./target/release/arca --chooser-prompt
+```
+
+---
+
+## CLI Cheatsheet
+
+| Command | Description |
+| :--- | :--- |
+| `arca [path]` | Open interactive file manager at `[path]` (or current working directory) |
+| `arca --grid [path]` | Open interactive file manager in **Grid** view |
+| `arca --list [path]` | Open interactive file manager in **List** view |
+| `arca --miller [path]` | Open interactive file manager in **Miller columns** view |
+| `arca --choose-file [path]` | Standalone CLI single-file picker (prints path to stdout) |
+| `arca --choose-files [path]` | Standalone CLI multi-file picker (prints paths to stdout) |
+| `arca --choose-dir [path]` | Standalone CLI directory picker (prints path to stdout) |
+| `arca --save-file <path>` | Standalone CLI save-file picker (returns target path to stdout) |
+| `arca --chooser-prompt` | Run as XDG Desktop Portal FileChooser prompter (JSON over stdio) |
+| `arca --help` | Display command-line options and usage |
+| `arca --version` | Display Arca version |
+
+---
+
+## Keyboard Shortcuts
 
 | Keys | Action |
-|------|--------|
-| `↑` / `↓` | Move selection |
-| `←` / `→` | Move across a grid / navigate Miller columns |
-| `Enter` | Open directory / file |
-| `Space` | Open / close Quick Look |
-| `Backspace` / `Alt+↑` | Go up |
-| `Alt+←` / `Alt+→` | Back / forward |
-| `Ctrl+L` | Focus location bar (type a path, `Enter` to go) |
-| `Ctrl+F` | Focus filter field |
-| `Ctrl+R` | Refresh |
-| `Ctrl+H` | Show / hide hidden files |
-| `Ctrl+Shift+N` | New folder (renames inline) |
-| `Ctrl+E` | Rename selection |
-| `Del` | Move selection to trash |
-| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste |
-| `Ctrl+T` / `Ctrl+W` | Open / close tab |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
-| `Ctrl+1` … `Ctrl+9` | Switch to tab |
-| `Esc` | Quit |
+| :--- | :--- |
+| `↑` / `↓` | Move selection up / down |
+| `←` / `→` | Traverse across grid / navigate Miller columns |
+| `Enter` | Open selected directory or execute file |
+| `Space` | Toggle animated Quick Look preview |
+| `Backspace` / `Alt+↑` | Navigate to parent directory |
+| `Alt+←` / `Alt+→` | Step back / forward in browsing history |
+| `Ctrl+L` | Focus editable location bar |
+| `Ctrl+F` | Focus live filter input field |
+| `Ctrl+R` | Refresh directory listing |
+| `Ctrl+H` | Toggle visibility of hidden dotfiles |
+| `Ctrl+Shift+N` | Create new folder with inline rename |
+| `Ctrl+E` | Rename selected file/folder inline |
+| `Del` | Move selected items to FreeDesktop Trash |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste selected files |
+| `Ctrl+T` / `Ctrl+W` | Open / close browser tab |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Switch to next / previous tab |
+| `Ctrl+1` … `Ctrl+9` | Direct switch to tab by index |
+| `Esc` | Close popup, cancel inline rename, or exit |
 
-## Building
-
-Arca links against the optics C libraries (iris / lens / flux) via their
-official Rust bindings, resolved from the tagged optics monorepo. Install
-the matching optics release once so `pkg-config` can find it:
-
-```bash
-cd ../optics
-meson setup build
-meson compile -C build
-sudo meson install -C build
-```
-
-Then build Arca:
-
-```bash
-cargo build            # debug
-cargo build --release  # optimized
-cargo test             # unit + headless-UI tests
-```
-
-To develop against a live sibling `../optics` checkout instead (no install,
-local `[patch]` resolution), use the linked development worktree described
-in [docs/dev/setup.md](docs/dev/setup.md) and
-[docs/dev/optics-dev-worktree.md](docs/dev/optics-dev-worktree.md).
-
-## Running
-
-```bash
-cargo run
-# open a directory in a chosen view
-cargo run -- --miller ~/projects
-# run as XDG desktop portal file chooser prompter (JSON over stdio)
-cargo run -- --chooser-prompt
-# run as standalone CLI file picker
-cargo run -- --choose-file ~/Documents
-# or
-./target/release/arca
-```
-
-Requires a Wayland session and a Vulkan-capable GPU.
-
-## Configuration
-
-`$XDG_CONFIG_HOME/arca/arca.conf` (usually
-`~/.config/arca/arca.conf`) — a small `key = value` file:
-
-```ini
-show_hidden = false
-sort = name
-sort_ascending = true
-theme = system          # system | light | dark
-view = list             # grid | list | miller
-show_thumbnails = true
-bookmark = /home/you/projects
-```
+---
 
 ## Architecture
 
-Arca is a Cargo workspace with four crates:
+Arca is organized as a concentric Cargo workspace across four distinct layers:
 
-| Crate | Role |
-|-------|------|
-| `crates/arca-xdg` | Pure-std, zero-dependency Freedesktop.org (XDG) specifications — Base Dirs, User Dirs, RFC 8089 File URIs, Shared MIME-info, Desktop Entries, `mimeapps.list`, Trash v1.0, and standard clipboard protocols. |
-| `crates/arca-engine` | Application domain engine & session state — directory models, previews, history, bookmarks, sorting/filtering, file operations, config, and FreeDesktop thumbnail service. No GUI deps; fully unit-tested. |
-| `crates/arca-ui` | View/interaction layer on `lens`/`iris` — responsive grid/list/Miller rendering, animated Quick Look, tabs and chrome. Headless tests drive real frames. |
-| `crates/arca` | Thin binary: builds `AppState`, handles CLI / Portal prompt dispatch, opens the `iris` window, runs the loop. |
+| Crate | Layer | Role & Subsystem Boundaries |
+| :--- | :--- | :--- |
+| **`crates/arca`** | Entrypoint | Thin host binary: CLI argument parsing, standalone picker dispatch, Wayland event loop, portal prompter lifecycle. |
+| **`crates/arca-ui`** | Presentation | View/presentation layer on Optics (`lens`/`iris`/`flux`/`transit`): virtualized listing views, tabs, animated Quick Look, 1 MiB frame arena budget. |
+| **`crates/arca-engine`** | Domain Engine | Domain business logic: directory model, navigation history, bookmarks, safe file ops, configuration, thumbnail cache. Headless & zero GUI dependencies. |
+| **`crates/arca-xdg`** | Specifications | Pure standard library (`std` only): Base Dirs, User Dirs, RFC 8089 URIs, Shared MIME-info, Desktop Entries, `mimeapps.list`, Trash v1.0, RFC 1321 MD5. |
 
-See [docs/dev/optics-migration.md](docs/dev/optics-migration.md) for the
-migration record from the legacy flux/flux-ui stack.
+---
 
 ## Documentation
 
-Full project documentation is organized under `docs/`:
-
-- [Documentation Entry Point](docs/index.md)
-- [Getting Started Tutorial](docs/tutorials/01-getting-started.md)
-- [How-To Guides](docs/how-to/index.md)
-- [Configuration Reference](docs/reference/configuration.md)
-- [CLI Reference](docs/reference/cli.md)
-- [Packaging Guide](docs/dev/packaging.md)
-- [Repository Governance](docs/governance/index.md)
+- **[Getting Started](docs/tutorials/01-getting-started.md)**: Guided walkthrough for launching Arca, navigating folders, and using tabs.
+- **[How-To Guides](docs/how-to/index.md)**: Task recipes for file operations, customizing appearance, using Quick Look, and portal picker integration.
+- **[CLI Reference](docs/reference/cli.md)**: Command-line options, flags, and picker modes.
+- **[Configuration Reference](docs/reference/configuration.md)**: Syntax, default values, and keys in `~/.config/arca/arca.conf`.
+- **[Keyboard Shortcuts Reference](docs/reference/keyboard-shortcuts.md)**: Complete list of keyboard controls and accelerators.
+- **[Portal Prompter Protocol Reference](docs/reference/portal-protocol.md)**: Prompter process contract, JSON request/response schema.
+- **[Architecture & Virtualized Rendering](docs/explanation/architecture-and-rendering.md)**: Immediate-mode UI, 1 MiB arena budget, and viewport virtualization.
+- **[Subsystem Architecture Blueprint](docs/dev/subsystems.md)**: Living blueprint of workspace topology, crate boundaries, and invariant matrix.
+- **[Engineering Standards](docs/dev/standards/README.md)**: Authoritative standards suite for architecture, invariants, ADRs, and workflows.
+- **[Architectural Decision Records (ADR)](docs/adr/index.md)**: Immutable technical decisions, trade-offs, and negative knowledge.

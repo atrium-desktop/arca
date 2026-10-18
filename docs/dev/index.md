@@ -1,33 +1,36 @@
 # Contributor Documentation
 
-This directory contains internal engineering documentation for contributors working
-on Arca: build workflows, automated testing, delivery acceptance procedures, packaging,
-and architecture notes.
+This directory contains internal engineering documentation for contributors working on Arca: build workflows, automated testing, manual acceptance runbooks, packaging, architecture blueprints, and engineering standards.
 
-For the project overview, see the root [README](../../README.md). For crate layout,
-conventions, and AI assistant rules, see [AGENTS.md](../../AGENTS.md). For governance
-charters, see [Repository Governance](../governance/index.md).
+For the user-facing project overview, see the root [README](../../README.md). For agent directives and subsystem red-lines, see [AGENTS.md](../../AGENTS.md).
 
 ---
 
-## Developer Guides
+## Developer Guides & Runbooks
 
 | Page | Topic |
-|------|-------|
-| [Setup](setup.md) | Prerequisites, canonical vs local workflows, building native dependencies, running, testing, and troubleshooting |
-| [Cross-Repository Development](cross-repository-development.md) | Developing against a live sibling `optics` checkout via Cargo `[patch]` and linked worktrees |
-| [Testing](testing.md) | Running, interpreting, and writing automated unit, integration, and headless UI frame tests |
-| [Acceptance](acceptance.md) | Outside-in deliverable acceptance criteria, end-to-end user journeys, and scenario matrices |
-| [Packaging](packaging.md) | Distribution packaging instructions, dependencies, reproducible builds, and system manifests |
-| [Optics Migration](optics-migration.md) | History and mechanics of porting to the Optics monorepo (`flux` / `lens` / `iris`) |
+| :--- | :--- |
+| **[Setup](setup.md)** | Prerequisites, canonical vs local workflows, building native dependencies, running, and troubleshooting |
+| **[Optics Development Worktree](optics-dev-worktree.md)** | Developing against a live sibling `optics` checkout via Cargo `[patch]` and linked worktrees |
+| **[Automated Testing](testing.md)** | Four-tier test pyramid, running unit and headless lens frame tests, and invariant validation |
+| **[Manual Testing Runbook](manual-testing.md)** | Cold-start sandbox isolation, interactive desktop tests, and portal prompter verification |
+| **[Acceptance Scenarios](acceptance.md)** | Outside-in deliverable acceptance criteria, end-to-end user journeys, and scenario matrices |
+| **[Release & Versioning](release-and-versioning.md)** | Lockstep workspace SemVer model, pre-release checklists, and Git tagging playbooks |
+| **[Distribution Packaging](packaging.md)** | Packaging guidelines, dependencies, reproducible builds, and system desktop manifests |
+| **[Optics Migration History](optics-migration.md)** | History and mechanics of porting to the Optics monorepo (`flux` / `lens` / `iris`) |
 
 ---
 
-## Governance and Architecture
+## Architecture and Engineering Standards
 
-- [Repository Governance](../governance/index.md) — Architectural invariants, review
-  gates, and PR checklist.
-- [Architecture Decision Records](../adr/index.md) — Durable technical decisions
-  (ADRs).
-- [Documentation Governance Standard](../governance/documentation/core/index.md) —
-  Mirrored documentation governance standard (Protocol v3.1.0).
+- **[Subsystem Architecture Blueprint](subsystems.md)** — Living blueprint of workspace topology, crate boundaries, rendering subsystem, and invariant matrix.
+- **[Engineering Standards](standards/README.md)** — Authoritative standards suite:
+  - [Workspace Topology & Architecture](standards/architecture.md)
+  - [Invariant Governance](standards/invariants.md)
+  - [ADR Standards](standards/adr.md)
+  - [RFC Standards](standards/rfc.md)
+  - [Documentation Taxonomy](standards/taxonomy.md)
+  - [Documentation Style & Hyperlinks](standards/style.md)
+  - [Engineering Workflow & PR Gates](standards/workflow.md)
+  - [Incident Postmortems](standards/postmortems.md)
+- **[Architecture Decision Records (ADRs)](../adr/index.md)** — Durable, in-place architectural decisions and negative knowledge registry.

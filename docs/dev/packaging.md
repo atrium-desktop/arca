@@ -4,7 +4,7 @@ This guide covers building distribution packages (Arch Linux, Debian/Ubuntu,
 Fedora, and Flatpak) for Arca from source releases.
 
 Daily source-tree development does not require packaging or installing Arca to the
-system; see [Cross-Repository Development](cross-repository-development.md) instead.
+system; see [Optics Development Worktree](optics-dev-worktree.md) instead.
 
 ---
 
@@ -86,7 +86,7 @@ cargo build --locked --release --package arca
 Run headless tests during packaging to verify frame invariants:
 
 ```bash
-cargo test --frozen --offline --package arca-core --package arca-ui
+cargo test --frozen --offline --workspace
 ```
 
 ---
@@ -190,7 +190,7 @@ build() {
 
 check() {
     cd "$pkgname-$pkgver"
-    cargo test --frozen --package arca-core --package arca-ui
+    cargo test --frozen --workspace
 }
 
 package() {
@@ -216,7 +216,7 @@ override_dh_auto_build:
 	cargo build --release --locked --package arca
 
 override_dh_auto_test:
-	cargo test --release --locked --package arca-core --package arca-ui
+	cargo test --release --locked --workspace
 
 override_dh_auto_install:
 	install -Dm755 target/release/arca debian/arca/usr/bin/arca
@@ -256,7 +256,7 @@ compositor.
 cargo build --release --locked --package arca
 
 %check
-cargo test --release --locked --package arca-core --package arca-ui
+cargo test --release --locked --workspace
 
 %install
 install -Dm755 target/release/arca %{buildroot}%{_bindir}/arca

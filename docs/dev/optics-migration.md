@@ -60,11 +60,9 @@ focus loss cancels. `Esc` is reserved by iris for quitting.
   filter application).
 - Manual: `cargo run` inside a Wayland session.
 
-## Known limitations
+## Evolution After v0.2.0
 
-- F-keys are not mapped by lens input, so rename lives on `Ctrl+E`.
-- `DeletionDate` in `.trashinfo` is written in UTC (no timezone database
-  in a zero-dependency build).
-- The file list is not virtualized; extremely large directories render
-  every row (fine for daily use; revisit with `lens_table` if needed,
-  trading away per-row icons).
+Following the initial 0.2.0 release:
+1. **Workspace Modularization (v0.2.2)**: `arca-core` was formally split into `crates/arca-xdg` (pure-std Freedesktop specifications: Base Dirs, User Dirs, RFC 8089 URIs, MIME sniffing, `.desktop`, and FreeDesktop Trash v1.0) and `crates/arca-engine` (application state machine, navigation, file operations, configuration, thumbnail caching).
+2. **Viewport Virtualization**: All directory listing views (**Grid**, **List**, and **Miller columns**) were virtualized to guarantee execution within Lens's 1 MiB immediate-mode frame arena budget (`tests::large_directory_does_not_overflow_frame_arena`).
+3. **Motion Dynamics & Optics v0.0.60 Alignment (ADR-0004)**: Adopted Optics `transit` for centralized cubic easing and spring dynamics in Quick Look modal transitions, and hardware-accelerated premultiplied thumbnail uploads via `flux_image_update_region_premultiply`.

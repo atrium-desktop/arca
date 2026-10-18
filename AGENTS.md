@@ -1,124 +1,32 @@
-# AGENTS.md
+# Agent Directives
 
-Guidance for AI agents and contributors working in this repository.
+## 1. Operational Guardrails (Hard Constraints)
+- **Prohibited Git Commands**: NEVER execute `git stash`, `git branch`, or `git reset`.
+- **Command Termination**: All commands MUST be finite and self-terminating. Never launch unbounded interactive sessions or blocking loops without a strict timeout.
+- **Headless Execution**: Verification commands must NOT assume an active Wayland compositor is connected. Drive UI tests headlessly via `lens::Ui::headless()` and `cargo test --workspace`.
 
-## What this is
+## 2. Core Mental Model & Subsystem Boundaries
+- **Concentric Architecture**: Arca is organized into four concentric layers with a single public executable binary (`arca`).
+- **XDG Specification Purity**: `crates/arca-xdg` is strictly zero-dependency (`std` only). It must never depend on any workspace member or external crates.io package.
+- **Engine Headless Purity**: `crates/arca-engine` owns all business logic, session state machines, directory models, sorting/filtering, and file operations. It must never link `lens`, `iris`, `flux`, or any graphical/Wayland windowing runtime.
+- **Lens Frame Arena Budget & Virtualization**: `crates/arca-ui` enforces the 1 MiB immediate-mode widget arena budget. All listing views (**Grid**, **List**, **Miller columns**) must remain strictly virtualized. Unbounded widget allocation loops over directory collections are strictly prohibited.
+- **Non-Destructive File Operations**: File deletions must default to compliant FreeDesktop trash with companion `.trashinfo` metadata. Inline renaming and folder creation must never silently clobber existing destinations.
 
-Arca is a file manager for Wayland, and a companion application for the
-**tessera** desktop: its visual language follows the tessera design system
-(`../tessera-dev/docs/dev/design`, application tokens in
-`../tessera-dev/crates/tessera-design`) while remaining a standalone Wayland
-client. It is a Cargo workspace built on the
-**optics** stack (flux / lens / iris C libraries plus their official Rust
-bindings). The canonical build resolves the bindings from the tagged optics
-monorepo and links the system-installed C libraries; the linked
-`../arca-dev` worktree patches the bindings to the sibling `../optics`
-checkout for cross-repository development.
+## 3. Engineering Discipline
+- **Mechanisms Over Exhortations**: Rely on Rust compiler typestates, private visibility, Cargo dependency firewalls, and automated tests to guarantee invariants. Never rely on natural-language comments alone.
+- **Anti-Inflation**: Do not mint pseudo-invariant tags (e.g. `INV-UI-PADDING`, `INV-COLOR-*`). Model state via typed enums and visual layout metrics via design constants.
+- **Atomic Verification**: Always verify code changes with `cargo check --workspace` and relevant crate test suites (`cargo test --workspace`) before declaring tasks complete.
+- **Clean Epistemic Lineage**: References must resolve to canonical in-repo ADRs (`docs/adr/0001`+). Never reference non-existent external legacy numbers.
 
-## Layout
-
-- `crates/arca-xdg` — pure-Rust, zero-dependency Freedesktop.org (XDG)
-  specifications: Base Directories, User Directories, RFC 8089 File URIs,
-  Shared MIME-info with content sniffing, Desktop Entry & mimeapps.list,
-  FreeDesktop Trash v1.0, and standard clipboard protocols.
-- `crates/arca-engine` — file manager engine and session state. **No GUI dependencies.**
-  Directory model, history, bookmarks, sort/filter, file ops, config,
-  thumbnail service conforming to FreeDesktop standard.
-- `crates/arca-ui` — the only crate that talks to `iris` / `lens` /
-  `lens-sys`. Renders `AppState` per frame; owns text buffers, focus, popup
-  state, the GPU thumbnail store (`src/thumbs.rs`) and the icon runtime
-  (`src/icons.rs`).
-- `assets/icons/` — Arca's own icon set: plain SVGs, registered with
-  lens at runtime and drawn through its native icon widgets. Single source
-  of truth, no generation step.
-- `crates/arca` — thin binary (`main.rs` only) plus the rpath-relay
-  `build.rs`.
-- `docs/` — user, dev, and governance documentation;
-  `docs/governance/documentation/` is a governance standard directory managed
-  via `docs-governance` protocol v3.1.0: do not modify standard files
-  directly; follow the sync/verify toolchain.
-
-## Build & test
-
-```bash
-cargo build        # canonical mode: needs the matching optics release installed (pkg-config finds iris/lens/flux)
-cargo test         # core unit tests + headless lens frame tests; no GPU needed
-cargo run          # needs a Wayland session
-```
-
-Cross-repository work happens in the `../arca-dev` worktree (local `dev`
-branch), where `.cargo/config.toml` patches the bindings to `../optics`;
-build the sibling meson tree first (`meson compile -C ../optics/build`). The
-full workflow is in `docs/dev/optics-dev-worktree.md`. Local patch
-state (`Cargo.lock`, `.cargo/config.toml`) never enters commits — the
-pre-commit hook (`git config core.hooksPath .githooks`) unstages it.
-
-Arca relies on modern optics APIs (v0.0.51+) —
-`iris::Application::run_with_lifecycle` (lifecycle hooks for texture upload
-handover and clean teardown), `iris::window_create_activation_token` (focus
-activation), `lens_icon_register_svg` (runtime icons), extended function keys,
-MIME clipboard interop, and ADR-0105 semantic surface tokens — so a canonical build
-needs an optics tag containing them (v0.0.51+).
-
-Never add `LD_LIBRARY_PATH` workarounds: runtime library lookup is handled
-by rpath-relay `build.rs` files reading `DEP_IRIS_RS_RPATHS` (mirrors the
-pattern used by the optics bindings themselves).
-
-## Conventions
-
-- The `arca-*` crates stay std-only except for one approved crates.io
-  dependency: the `image` crate (features `png`, `jpeg` only) in
-  `arca-engine`, which decodes thumbnails — the optics stack has no image
-  decoder. Discuss before adding any other dependency or enabling more
-  `image` formats.
-- Logic goes down into `arca-engine` (unit-test it there); `arca-ui`
-  stays a thin rendering/event layer.
-- The safe `lens` API is preferred. When a needed symbol is not wrapped
-  (focus-by-id, clipboard, image upload/draw), call `lens_sys` through
-  `frame.as_raw()` inside small helpers in `arca-ui` (see
-  `src/icons.rs`, `src/thumbs.rs`, `src/device.rs`), never ad-hoc at call
-  sites.
-- Icons come from Arca's own asset set (`assets/icons/*.svg`),
-  registered at runtime via `lens_icon_register_svg` and drawn with the
-  native lens icon widgets. Keep glyphs 24×24, single-colour, stroke or
-  fill (nonzero) — runtime icons share the built-ins' conventions.
-- Large listings are virtualized: grid/list/Miller only build the visible
-  row window (lens's 1 MiB per-frame arena drops draw calls silently past
-  the limit — blank icons). Keep per-frame widget counts bounded; the
-  `large_directory_does_not_overflow_frame_arena` test guards this.
-- File-manager strings are English; code comments explain *why*, not *what*.
-- `Esc` quitting the app is iris-level behaviour — do not reimplement it.
-
-<!-- BEGIN DOCGOV DIRECTIVES -->
-## Documentation Governance Directives
-
-You are bound by repository invariants. Violations will fail CI (`docgov check`).
-
-### 1. Machine Invariants (Pre-Submit Checklist)
-- `[INV-LINT-01] Location Sanitization`: Never create arbitrary Markdown files at the repository root.
-- `[INV-LINT-02] Contributor Firewall`: Public docs (`docs/{tutorials,how-to,reference,explanation}/`) must NEVER link into internal docs (`docs/dev/`).
-- `[INV-LINT-03] Frontmatter Schema`: ADRs must contain valid Frontmatter with standardized status enum.
-- `[INV-LINT-04] Code-Doc Sync`: Modifying monitored paths in `src/` requires updating `docs/` in the same change.
-- `[INV-LINT-05] Agent Directives Binding`: Ensure this docgov directives block is retained in agent configuration.
-
-### 2. Cognitive & Architecture Protocols (Thinking Framework)
-- `[INV-AGENT-01] Negative Knowledge`: Every new ADR MUST contain a 'Rejected Alternatives' section explaining why discarded options were not chosen.
-- `[INV-AGENT-02] Context Routing & Chesterton's Fence`:
-  - In feature generation: NEVER use docs marked `status: superseded` or `status: rejected` as active designs (prevents resurrecting dead patterns).
-  - In refactoring/investigation: MUST retrieve `superseded` docs as negative constraints (learn from historical failure modes).
-- `[INV-AGENT-03] Blameless Postmortem`: Postmortems MUST analyze system defense failures and detection gaps. Attribution of personal human blame is strictly prohibited.
-
-### 3. Canonical Governance Knowledge & Context
-Before drafting or restructuring documentation, inspect the local governance specifications:
-- 4D Coordinate Tensor: `docs/governance/documentation/core/taxonomy.md`
-- System Invariants Constitution: `docs/governance/documentation/core/invariants.md`
-- Technical Voice & Link Contracts: `docs/governance/documentation/core/style.md`
-- ADR & Architecture RFC Standard: `docs/governance/documentation/profiles/architecture/adr.md`
-- Quality & Verification Guides: `docs/governance/documentation/profiles/validation/testing.md`
-
-### 4. Fast Verification
-Before completing any task, run:
-```bash
-docgov check
-```
-<!-- END DOCGOV DIRECTIVES -->
+## 4. On-Demand Standards Routing
+Do not guess repository rules or rely on stale assumptions. Consult authoritative specifications in `docs/dev/standards/` as needed:
+- Workspace Topology & System Red-Lines: `docs/dev/standards/architecture.md`
+- Invariant & Constraint Policy: `docs/dev/standards/invariants.md`
+- ADR Authoring & Lifecycle: `docs/dev/standards/adr.md`
+- RFC Standards: `docs/dev/standards/rfc.md`
+- Documentation Taxonomy & Firewalls: `docs/dev/standards/taxonomy.md`
+- Markdown & Hyperlink Style: `docs/dev/standards/style.md`
+- PR Gates & Code-Doc Sync: `docs/dev/standards/workflow.md`
+- Blameless Postmortems: `docs/dev/standards/postmortems.md`
+- Testing Strategy & Execution: `docs/dev/testing.md`
+- Subsystem Architecture Blueprint: `docs/dev/subsystems.md`

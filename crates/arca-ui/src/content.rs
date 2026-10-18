@@ -10,13 +10,44 @@ use crate::app::UiApp;
 use crate::icons::{self, ids};
 use crate::theme::{self, Tones};
 
-pub(crate) const GRID_CARD_WIDTH: f32 = 82.0;
-pub(crate) const GRID_CARD_HEIGHT: f32 = 78.0;
-pub(crate) const GRID_GAP: f32 = 4.0;
+pub(crate) const GRID_MIN_CARD_WIDTH: f32 = 104.0;
+pub(crate) const GRID_MAX_CARD_WIDTH: f32 = 144.0;
+pub(crate) const GRID_GAP: f32 = 6.0;
+pub(crate) const GRID_ICON_SIZE: f32 = 50.0;
+pub(crate) const GRID_FONT_SIZE: f32 = 12.5;
+pub(crate) const GRID_CARD_PAD: f32 = 4.0;
+pub(crate) const GRID_ART_LABEL_GAP: f32 = 4.0;
+pub(crate) const GRID_LABEL_LINE_GAP: f32 = 2.0;
+pub(crate) const GRID_MAX_LABEL_LINES: usize = 2;
+
+/// Canonical default resting card height for headless initial state and test assertions.
+pub(crate) const GRID_DEFAULT_CARD_HEIGHT: f32 = 102.0;
+#[allow(dead_code)]
+pub(crate) const GRID_DEFAULT_ROW_PITCH: f32 = GRID_DEFAULT_CARD_HEIGHT + GRID_GAP;
+
+/// Dynamically derive the card height required to fit `GRID_ICON_SIZE` art plus
+/// `GRID_MAX_LABEL_LINES` of text based on the active theme font's line box metrics.
+/// Measures both Latin ("Ag") and CJK ("永") glyph bounds to ensure universal multi-script clearance.
+pub(crate) fn derive_grid_card_height(frame: &Frame) -> f32 {
+    let m_latin = frame.measure_text("Ag", GRID_FONT_SIZE);
+    let m_cjk = frame.measure_text("永", GRID_FONT_SIZE);
+    let line_height = m_latin
+        .height
+        .max(m_cjk.height)
+        .ceil()
+        .max(GRID_FONT_SIZE * 1.4);
+    let text_height = (line_height * GRID_MAX_LABEL_LINES as f32)
+        + (GRID_LABEL_LINE_GAP * (GRID_MAX_LABEL_LINES - 1) as f32);
+    (GRID_CARD_PAD * 2.0 + GRID_ICON_SIZE + GRID_ART_LABEL_GAP + text_height).ceil()
+}
+
+/// Dynamically derive the row pitch (card height + row gap) for the active frame.
+pub(crate) fn derive_grid_row_pitch(frame: &Frame) -> f32 {
+    derive_grid_card_height(frame) + GRID_GAP
+}
 
 /// Row pitches (row height + the parent column's gap) for the virtualized
 /// listings.
-pub(crate) const GRID_ROW_PITCH: f32 = GRID_CARD_HEIGHT + GRID_GAP;
 const LIST_ROW_PITCH: f32 = 42.0 + 2.0;
 const MILLER_ROW_PITCH: f32 = 36.0 + 2.0;
 /// Extra rows built past each viewport edge so one-frame-stale geometry
@@ -168,9 +199,26 @@ pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
 }
 
 fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usize]) {
-    let columns = app.grid_columns();
+    let available_w = (app.viewport.0 - app.sidebar_width - 20.0).max(120.0);
+    let card_height = derive_grid_card_height(frame);
+    let row_pitch = derive_grid_row_pitch(frame);
+    let plan = lens::patterns::virtual_grid_calc(
+        available_w,
+        app.viewport.1,
+        0.0,
+        visible.len(),
+        GRID_MIN_CARD_WIDTH,
+        GRID_MAX_CARD_WIDTH,
+        card_height,
+        GRID_GAP,
+        OVERSCAN_ROWS,
+    );
+    let columns = (plan.columns as usize).max(1);
+    app.current_grid_columns = columns;
+
+    let card_width = plan.column_width.clamp(GRID_MIN_CARD_WIDTH, GRID_MAX_CARD_WIDTH);
     let row_count = visible.len().div_ceil(columns);
-    let fallback = (app.viewport.1 / GRID_ROW_PITCH).ceil() as usize + OVERSCAN_ROWS + 2;
+    let fallback = (app.viewport.1 / row_pitch).ceil() as usize + OVERSCAN_ROWS + 2;
     let geometry = scroll_geometry(frame, "grid-files");
     frame.flex(1.0);
     frame.scroll("grid-files", |frame| {
@@ -182,11 +230,11 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                 ..Default::default()
             },
             |frame| {
-                let (first, last) = visible_rows(geometry, row_count, GRID_ROW_PITCH, fallback);
+                let (first, last) = visible_rows(geometry, row_count, row_pitch, fallback);
                 row_spacer(
                     frame,
                     "##grid-vtop",
-                    spacer_height(first, GRID_ROW_PITCH, GRID_GAP),
+                    spacer_height(first, row_pitch, GRID_GAP),
                 );
                 for row in first..last {
                     let start = row * columns;
@@ -195,13 +243,21 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                     frame.row_ex(
                         &LayoutOpts {
                             gap: GRID_GAP,
-                            cross: Align::Center,
+                            cross: Align::Start,
                             ..Default::default()
                         },
                         |frame| {
                             for (column, &entry_index) in chunk.iter().enumerate() {
                                 let visible_index = row * columns + column;
-                                build_grid_card(app, frame, tones, entry_index, visible_index);
+                                build_grid_card(
+                                    app,
+                                    frame,
+                                    tones,
+                                    entry_index,
+                                    visible_index,
+                                    card_width,
+                                    card_height,
+                                );
                             }
                         },
                     );
@@ -210,7 +266,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                 row_spacer(
                     frame,
                     "##grid-vbot",
-                    spacer_height(row_count - last, GRID_ROW_PITCH, GRID_GAP),
+                    spacer_height(row_count - last, row_pitch, GRID_GAP),
                 );
             },
         );
@@ -223,6 +279,8 @@ fn build_grid_card(
     _tones: &Tones,
     entry_index: usize,
     visible_index: usize,
+    card_width: f32,
+    card_height: f32,
 ) {
     // A row handler earlier in this frame's build may have navigated and
     // re-read the directory; the cloned `visible` list then holds stale
@@ -263,12 +321,13 @@ fn build_grid_card(
         iris::Color::rgba(215, 222, 235, 255)
     };
 
+    let text_width = card_width - (GRID_CARD_PAD * 2.0);
     let options = LayoutOpts {
-        width: GRID_CARD_WIDTH,
-        height: GRID_CARD_HEIGHT,
+        width: card_width,
+        height: card_height,
         gap: 0.0,
-        pad: 2.0,
-        cross: Align::Center,
+        pad: GRID_CARD_PAD,
+        cross: Align::Start,
         bg: Color::TRANSPARENT,
         radius: 6.0,
         ..Default::default()
@@ -281,14 +340,20 @@ fn build_grid_card(
 
     if app.renaming.as_deref() == Some(entry.name.as_str()) {
         frame.push_id(&entry.name);
-        frame.column_ex(&options, |frame| {
-            icons::icon(frame, icons::entry_icon(&entry), 50.0);
-            frame.size_next(0.0, 2.0);
-            frame.spacer(2.0);
-            frame.size_next(GRID_CARD_WIDTH - 4.0, 0.0);
-            frame.textfield("##grid-rename", &mut app.rename);
-            capture_rename(app, frame);
-        });
+        frame.column_ex(
+            &LayoutOpts {
+                cross: Align::Center,
+                ..options
+            },
+            |frame| {
+                icons::icon(frame, icons::entry_icon(&entry), GRID_ICON_SIZE);
+                frame.size_next(0.0, 2.0);
+                frame.spacer(2.0);
+                frame.size_next(text_width, 0.0);
+                frame.textfield("##grid-rename", &mut app.rename);
+                capture_rename(app, frame);
+            },
+        );
         frame.pop_id();
         if is_dragged {
             frame.set_opacity(prev_opacity);
@@ -303,19 +368,29 @@ fn build_grid_card(
         .show(|frame| {
             frame.column_ex(
                 &LayoutOpts {
-                    width: GRID_CARD_WIDTH - 4.0,
-                    gap: 2.0,
+                    width: text_width,
+                    gap: GRID_ART_LABEL_GAP,
                     cross: Align::Center,
                     ..Default::default()
                 },
                 |frame| {
-                    card_art(app, frame, &entry, 50.0);
+                    frame.column_ex(
+                        &LayoutOpts {
+                            width: text_width,
+                            height: GRID_ICON_SIZE,
+                            cross: Align::Center,
+                            ..Default::default()
+                        },
+                        |frame| {
+                            card_art(app, frame, &entry, GRID_ICON_SIZE);
+                        },
+                    );
                     theme::label_centered_styled(
                         frame,
                         &entry.name,
-                        12.5,
-                        GRID_CARD_WIDTH - 4.0,
-                        2,
+                        GRID_FONT_SIZE,
+                        text_width,
+                        GRID_MAX_LABEL_LINES,
                         text_color,
                         Color::TRANSPARENT,
                     );

@@ -7,7 +7,7 @@ date: 2026-09-10
 
 # 0003. Borderless Surfaces, Subtle Controls, and Visual Density Hierarchy
 
-- Status: Accepted
+- Status: Accepted (Section 5 amended by [ADR-0005](0005-fluid-adaptive-grid-and-typographic-metrics.md))
 - Date: 2026-09-10
 - Deciders: Ming Li, Arca UI Architecture Team
 - Consulted: Tessera Design System Team, Optics/Lens Maintainers
@@ -64,8 +64,9 @@ Chosen option: **Option 3**, because it leverages existing Optics/Lens capabilit
    - This reclaims 40px of vertical workspace and removes triplicated information.
 
 5. **Borderless Content Grid & Pure Color State Feedback**:
-   - Card dimensions adjusted to 82×78px, with 50px enlarged icons and 12.5px text.
-   - Gap between cards set to 4px with an 82px row pitch.
+   *(Note: The static card dimensions below have been amended by [ADR-0005](0005-fluid-adaptive-grid-and-typographic-metrics.md), which establishes dynamically derived typographic cell heights and fluid column width allocation.)*
+   - Card dimensions adjusted to 82×98px, with 50px enlarged icons and 12.5px text, providing sufficient vertical clearance to accommodate two-line wrapped labels without overlapping adjacent rows.
+   - Gap between cards set to 4px with a 102px row pitch (conforming to the 96–112px target range).
    - Full-card background boxes on hover and click are eliminated completely (`bg: Color::TRANSPARENT`).
    - Interaction states transition via color rather than geometric bounding boxes:
      - Resting state: soft off-white text (`rgba(215, 222, 235, 255)`).
@@ -88,5 +89,4 @@ Chosen option: **Option 3**, because it leverages existing Optics/Lens capabilit
 ## Links
 
 - [ADR 0001: Optics Stack Migration](0001-optics-stack-migration.md)
-- [Tessera Design Foundations: Shape and Border](../../tessera-dev/docs/dev/design/foundations/shape-and-border.md)
-- [Tessera Design Foundations: Space and Layout](../../tessera-dev/docs/dev/design/foundations/spacing-and-layout.md)
+- Tessera Design System: Foundations (Shape, Border, Spacing and Layout)

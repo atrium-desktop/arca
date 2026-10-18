@@ -133,26 +133,40 @@ impl Drop for ThumbStore {
     }
 }
 
-/// Premultiply and upload one decode.
+/// Upload one decode using optics flux premultiplied region upload.
 fn upload(thumb: &Thumb) -> Option<*mut flux_sys::flux_image> {
     let device = device::device()?;
-    let mut pixels = thumb.rgba.clone();
-    for px in pixels.chunks_exact_mut(4) {
-        let a = u32::from(px[3]);
-        px[0] = ((u32::from(px[0]) * a + 127) / 255) as u8;
-        px[1] = ((u32::from(px[1]) * a + 127) / 255) as u8;
-        px[2] = ((u32::from(px[2]) * a + 127) / 255) as u8;
-    }
     let desc = flux_sys::flux_image_desc {
         type_: flux_sys::flux_struct_type::FLUX_TYPE_IMAGE_DESC,
         next: std::ptr::null(),
         width: thumb.width,
         height: thumb.height,
         format: flux_sys::flux_format::FLUX_FORMAT_RGBA8_UNORM,
-        initial_data: pixels.as_ptr().cast(),
+        initial_data: std::ptr::null(),
     };
     let mut out = std::ptr::null_mut();
-    // SAFETY: device is iris's live device; desc points at valid texels.
+    // SAFETY: device is iris's live device.
     let rc = unsafe { flux_sys::flux_image_create(device, &desc, &mut out) };
-    (rc == flux_sys::flux_result::FLUX_OK && !out.is_null()).then_some(out)
+    if rc != flux_sys::flux_result::FLUX_OK || out.is_null() {
+        return None;
+    }
+    // SAFETY: out is valid and newly allocated; thumb.rgba holds straight RGBA8 pixels.
+    let rc = unsafe {
+        flux_sys::flux_image_update_region_premultiply(
+            out,
+            0,
+            0,
+            thumb.width,
+            thumb.height,
+            thumb.rgba.as_ptr().cast(),
+            0,
+            thumb.rgba.len(),
+        )
+    };
+    if rc != flux_sys::flux_result::FLUX_OK {
+        // SAFETY: device is alive during the run.
+        unsafe { flux_sys::flux_image_release(out) };
+        return None;
+    }
+    Some(out)
 }

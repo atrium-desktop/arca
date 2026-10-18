@@ -40,8 +40,16 @@ impl Tones {
                 toolbar: Color::rgba(32, 36, 51, 255),
                 sidebar: Color::rgba(28, 32, 46, 255),
                 content: Color::rgba(25, 28, 40, 255),
-                card: if surface.a() > 0 { surface } else { Color::rgba(35, 40, 56, 255) },
-                elevated: if surface_elevated.a() > 0 { surface_elevated } else { Color::rgba(41, 47, 65, 255) },
+                card: if surface.a() > 0 {
+                    surface
+                } else {
+                    Color::rgba(35, 40, 56, 255)
+                },
+                elevated: if surface_elevated.a() > 0 {
+                    surface_elevated
+                } else {
+                    Color::rgba(41, 47, 65, 255)
+                },
                 status_bar: Color::rgba(28, 32, 46, 255),
                 // Selection is the shared low-alpha accent wash, not a rail
                 // or an outline.
@@ -53,7 +61,11 @@ impl Tones {
                 popover: Color::rgba(24, 28, 40, 235),
                 popover_border: Color::rgba(255, 255, 255, 42),
                 scrim: Color::rgba(8, 10, 18, 118),
-                input_bg: if surface_sunken.a() > 0 { surface_sunken } else { Color::rgba(21, 24, 35, 255) },
+                input_bg: if surface_sunken.a() > 0 {
+                    surface_sunken
+                } else {
+                    Color::rgba(21, 24, 35, 255)
+                },
             }
         } else {
             Tones {
@@ -62,8 +74,16 @@ impl Tones {
                 toolbar: Color::rgba(249, 251, 255, 255),
                 sidebar: Color::rgba(237, 240, 246, 255),
                 content: Color::rgba(249, 251, 255, 255),
-                card: if surface.a() > 0 { surface } else { Color::rgba(255, 255, 255, 255) },
-                elevated: if surface_elevated.a() > 0 { surface_elevated } else { Color::rgba(255, 255, 255, 255) },
+                card: if surface.a() > 0 {
+                    surface
+                } else {
+                    Color::rgba(255, 255, 255, 255)
+                },
+                elevated: if surface_elevated.a() > 0 {
+                    surface_elevated
+                } else {
+                    Color::rgba(255, 255, 255, 255)
+                },
                 status_bar: Color::rgba(237, 240, 246, 255),
                 selected: Color::rgba(43, 101, 232, 44),
                 muted: Color::rgba(99, 105, 123, 255),
@@ -71,7 +91,11 @@ impl Tones {
                 popover: Color::rgba(250, 251, 253, 216),
                 popover_border: Color::rgba(28, 32, 44, 30),
                 scrim: Color::rgba(28, 32, 44, 104),
-                input_bg: if surface_sunken.a() > 0 { surface_sunken } else { Color::rgba(233, 236, 244, 255) },
+                input_bg: if surface_sunken.a() > 0 {
+                    surface_sunken
+                } else {
+                    Color::rgba(233, 236, 244, 255)
+                },
             }
         }
     }
@@ -170,7 +194,15 @@ pub(crate) fn label_centered(
     max_lines: usize,
 ) {
     let fg = frame.theme().fg();
-    label_centered_styled(frame, text, size, max_width, max_lines, fg, Color::TRANSPARENT);
+    label_centered_styled(
+        frame,
+        text,
+        size,
+        max_width,
+        max_lines,
+        fg,
+        Color::TRANSPARENT,
+    );
 }
 
 /// Wrapped label with custom text color and optional pill background.

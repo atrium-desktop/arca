@@ -438,10 +438,39 @@ mod tests {
         let mut space = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
         space.push_key(' ' as i32, true, false);
         frame(&mut app, &mut ui, &space);
+        assert!(app.preview.target_open);
+
         let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..8 {
             frame(&mut app, &mut ui, &settle);
         }
+        assert!(app.preview.progress > 0.5);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn preview_transit_reduced_motion_snaps_instantly() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        ui.set_reduced_motion(true);
+
+        app.state.move_selection(1);
+        let mut space = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        space.push_key(' ' as i32, true, false);
+        frame(&mut app, &mut ui, &space);
+
+        // Under reduced motion, transit resolves to 1.0 in a single step.
+        assert_eq!(app.preview.progress, 1.0);
+
+        // Close preview
+        let mut close_space = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        close_space.push_key(' ' as i32, true, false);
+        frame(&mut app, &mut ui, &close_space);
+
+        // Under reduced motion, closing resolves to 0.0 in a single step.
+        assert_eq!(app.preview.progress, 0.0);
+        assert!(app.preview.data.is_none());
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1122,10 +1151,11 @@ mod tests {
 
     #[test]
     fn visual_hierarchy_metrics_and_borderless_chrome() {
-        assert_eq!(crate::content::GRID_CARD_WIDTH, 82.0);
-        assert_eq!(crate::content::GRID_CARD_HEIGHT, 78.0);
-        assert_eq!(crate::content::GRID_GAP, 4.0);
-        assert_eq!(crate::content::GRID_ROW_PITCH, 82.0);
+        assert_eq!(crate::content::GRID_MIN_CARD_WIDTH, 104.0);
+        assert_eq!(crate::content::GRID_MAX_CARD_WIDTH, 144.0);
+        assert_eq!(crate::content::GRID_GAP, 6.0);
+        assert_eq!(crate::content::GRID_DEFAULT_CARD_HEIGHT, 102.0);
+        assert_eq!(crate::content::GRID_DEFAULT_ROW_PITCH, 108.0);
 
         let (dir, mut app) = fixture();
         let mut ui = lens::Ui::headless().expect("headless ui");
@@ -1147,6 +1177,177 @@ mod tests {
                 "sidebar place/bookmark row height should be 30px"
             );
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn grid_cards_with_two_line_names_do_not_overlap_rows() {
+        let (dir, mut app) = fixture();
+        let names = [
+            "浅影阿 - 牡丹亭.flac",
+            "21 Savage,J. Cole - a lot.flac",
+            "R. Kelly - The World's Greatest.mp3",
+            "Janet Jackson - Together Again.flac",
+            "Kanye West - Late Registration.mp3",
+            "Kanye West - Graduation.mp3",
+        ];
+        for name in &names {
+            std::fs::write(dir.join(name), b"audio data").unwrap();
+        }
+        app.state.navigate(dir.to_str().unwrap());
+        app.state.set_view_mode(arca_engine::ViewMode::Grid);
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+
+        ui.frame(&input, |f| {
+            app.build(f, &input);
+
+            // Test derived typographic metrics on live Frame
+            let derived_card_h = crate::content::derive_grid_card_height(f);
+            let derived_pitch = crate::content::derive_grid_row_pitch(f);
+            assert!(
+                derived_card_h >= crate::content::GRID_DEFAULT_CARD_HEIGHT,
+                "derived height ({derived_card_h}) must cover default height"
+            );
+            assert_eq!(derived_pitch, derived_card_h + crate::content::GRID_GAP);
+
+            // Verify fluid column allocation
+            assert!(
+                app.current_grid_columns >= 4,
+                "expected at least 4 fluid columns in 800px width, got {}",
+                app.current_grid_columns
+            );
+
+            // Verify that CJK and Latin names wrap into two lines inside fluid width.
+            let text_width = crate::content::GRID_MIN_CARD_WIDTH
+                - (crate::content::GRID_CARD_PAD * 2.0);
+            let cjk_lines = theme::break_lines(
+                f,
+                names[0],
+                crate::content::GRID_FONT_SIZE,
+                text_width,
+                crate::content::GRID_MAX_LABEL_LINES,
+            );
+            assert_eq!(cjk_lines.len(), 2, "CJK name wraps into 2 lines");
+            let cjk_h1 = f.measure_text(&cjk_lines[0], crate::content::GRID_FONT_SIZE).height;
+            let cjk_h2 = f.measure_text(&cjk_lines[1], crate::content::GRID_FONT_SIZE).height;
+            let total_text_h = cjk_h1 + crate::content::GRID_LABEL_LINE_GAP + cjk_h2;
+
+            // Total card content: pad(4) + art(50) + gap(4) + text + pad(4)
+            let total_card_content = (crate::content::GRID_CARD_PAD * 2.0)
+                + crate::content::GRID_ICON_SIZE
+                + crate::content::GRID_ART_LABEL_GAP
+                + total_text_h;
+            assert!(
+                total_card_content <= derived_card_h,
+                "card content ({total_card_content}px) must fit inside derived card height ({derived_card_h}px)"
+            );
+
+            // Clearance between row 0 text bottom and row 1 art top
+            let row_0_text_bottom = crate::content::GRID_CARD_PAD
+                + crate::content::GRID_ICON_SIZE
+                + crate::content::GRID_ART_LABEL_GAP
+                + total_text_h;
+            let row_1_art_top = derived_pitch + crate::content::GRID_CARD_PAD;
+            assert!(
+                row_1_art_top > row_0_text_bottom,
+                "row 1 preview ({row_1_art_top}px) must be below row 0 text ({row_0_text_bottom}px)"
+            );
+            let clearance = row_1_art_top - row_0_text_bottom;
+            assert!(
+                clearance >= 8.0,
+                "clearance between row 0 text and row 1 preview should be comfortable, got {clearance}px"
+            );
+        });
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn grid_layout_edge_cases_and_interaction_integrity() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        app.state.set_view_mode(arca_engine::ViewMode::Grid);
+
+        // 1. Edge Case: Empty Directory
+        let empty_dir = dir.join("empty_folder");
+        std::fs::create_dir(&empty_dir).unwrap();
+        app.state.navigate(empty_dir.to_str().unwrap());
+        let input_std = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input_std);
+        assert!(!ui.overflowed(), "empty directory in grid view should render clean placeholder without arena overflow");
+
+        // 2. Edge Case: Single Item Directory (items < columns)
+        let single_dir = dir.join("single_folder");
+        std::fs::create_dir(&single_dir).unwrap();
+        std::fs::write(single_dir.join("sole_file.txt"), b"only one").unwrap();
+        app.state.navigate(single_dir.to_str().unwrap());
+        frame(&mut app, &mut ui, &input_std);
+        assert!(!ui.overflowed(), "single item directory in grid view should render properly");
+
+        // 3. Edge Case: Extreme Viewport Resizing (Very Narrow vs Very Wide)
+        let input_narrow = lens::Input::new((300.0, 400.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input_narrow);
+        assert_eq!(app.current_grid_columns, 1, "narrow viewport should clamp to 1 column");
+
+        let input_wide = lens::Input::new((2560.0, 1440.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input_wide);
+        assert!(app.current_grid_columns >= 15, "ultrawide viewport should allocate 15+ fluid columns");
+
+        // 4. Edge Case: Keyboard Navigation (2D Grid Step Movement)
+        let nav_dir = dir.join("nav_folder");
+        std::fs::create_dir(&nav_dir).unwrap();
+        for i in 0..12 {
+            std::fs::write(nav_dir.join(format!("track_{i:02}.flac")), b"audio").unwrap();
+        }
+        app.state.navigate(nav_dir.to_str().unwrap());
+        let input_nav = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input_nav);
+        let cols = app.current_grid_columns;
+        assert!(cols >= 4);
+
+        // Move Down from None selects index 0
+        let mut down = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        down.push_key(lens::key::DOWN, true, false);
+        frame(&mut app, &mut ui, &down);
+        assert_eq!(app.state.selected(), Some(0));
+
+        // Move Down from 0 jumps by `cols`
+        frame(&mut app, &mut ui, &down);
+        assert_eq!(app.state.selected(), Some(cols));
+
+        // Move Right moves by +1
+        let mut right = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        right.push_key(lens::key::RIGHT, true, false);
+        frame(&mut app, &mut ui, &right);
+        assert_eq!(app.state.selected(), Some(cols + 1));
+
+        // Move Left moves by -1
+        let mut left = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        left.push_key(lens::key::LEFT, true, false);
+        frame(&mut app, &mut ui, &left);
+        assert_eq!(app.state.selected(), Some(cols));
+
+        // Move Up jumps back by `cols` to 0
+        let mut up = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        up.push_key(lens::key::UP, true, false);
+        frame(&mut app, &mut ui, &up);
+        assert_eq!(app.state.selected(), Some(0));
+
+        // 5. Edge Case: Inline Renaming Workflow in Grid View
+        app.begin_rename("track_00.flac".to_string());
+        assert_eq!(app.renaming.as_deref(), Some("track_00.flac"));
+        // Render frame with rename textfield active
+        frame(&mut app, &mut ui, &input_nav);
+        assert!(!ui.overflowed(), "rename textfield renders cleanly inside card");
+
+        // Cancel rename with Escape
+        let mut esc = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        esc.push_key(lens::key::ESCAPE, true, false);
+        frame(&mut app, &mut ui, &esc);
+        assert!(app.renaming.is_none());
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

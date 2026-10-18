@@ -25,3 +25,5 @@ lens = { path = "../optics/bindings/lens-rs/crates/lens" }
 lens-sys = { path = "../optics/bindings/lens-rs/crates/lens-sys" }
 iris = { path = "../optics/bindings/iris-rs/crates/iris" }
 iris-sys = { path = "../optics/bindings/iris-rs/crates/iris-sys" }
+transit = { path = "../optics/bindings/transit-rs/crates/transit" }
+transit-sys = { path = "../optics/bindings/transit-rs/crates/transit-sys" }

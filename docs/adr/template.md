@@ -1,6 +1,6 @@
 # NNNN. Title
 
-- Status: Proposed | Accepted | Rejected | Deprecated | Superseded by [NNNN](NNNN-slug.md)
+- Status: Proposed | Accepted | Rejected | Deprecated | Superseded by ADR-NNNN
 - Date: YYYY-MM-DD
 - Deciders: List everyone involved in the decision
 - Consulted: List everyone whose input was considered

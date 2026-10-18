@@ -2,14 +2,18 @@
 
 use arca_engine::{AppState, Preview, PreviewKind};
 use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
+use transit::{Spring, SpringParams};
 
 use crate::icons::{self, ids};
 use crate::theme::{self, Tones};
 
+const PREVIEW_SPRING: SpringParams = SpringParams::new(320.0, 1.0);
+
 pub(crate) struct PreviewOverlay {
-    data: Option<Preview>,
-    target_open: bool,
-    progress: f32,
+    pub(crate) data: Option<Preview>,
+    pub(crate) target_open: bool,
+    pub(crate) spring: Spring,
+    pub(crate) progress: f32,
 }
 
 impl PreviewOverlay {
@@ -17,6 +21,7 @@ impl PreviewOverlay {
         PreviewOverlay {
             data: None,
             target_open: false,
+            spring: Spring::new(0.0),
             progress: 0.0,
         }
     }
@@ -41,6 +46,7 @@ impl PreviewOverlay {
     pub fn reset(&mut self) {
         self.data = None;
         self.target_open = false;
+        self.spring = Spring::new(0.0);
         self.progress = 0.0;
     }
 
@@ -59,19 +65,16 @@ impl PreviewOverlay {
 
     fn advance(&mut self, input: &Input, reduced_motion: bool) {
         let target = if self.target_open { 1.0 } else { 0.0 };
-        if reduced_motion {
-            self.progress = target;
-        } else {
-            let dt = input.as_raw().dt_seconds.clamp(0.0, 1.0 / 20.0);
-            let speed = if self.target_open { 7.5 } else { 9.5 };
-            self.progress += (target - self.progress) * (dt * speed).min(1.0);
-            if (self.progress - target).abs() < 0.004 {
-                self.progress = target;
-            }
+        let dt = input.as_raw().dt_seconds;
+        self.spring
+            .advance_substep(target, PREVIEW_SPRING, dt, 1.0 / 120.0, reduced_motion);
+        if self.spring.settled(target, 0.002, 0.02) {
+            self.spring.snap_to(target);
         }
-        if (self.progress - target).abs() > f32::EPSILON {
+        self.progress = self.spring.value.clamp(0.0, 1.0);
+        if !self.spring.settled(target, 0.001, 0.001) {
             iris::request_animation_frame();
-        } else if self.progress == 0.0 && !self.target_open {
+        } else if self.spring.value <= 0.0 && !self.target_open {
             self.data = None;
         }
     }
@@ -99,7 +102,7 @@ pub(crate) fn build_preview(
     };
 
     let display = input.as_raw().display_size;
-    let ease = 1.0 - (1.0 - preview.progress).powi(3);
+    let ease = preview.progress;
     let final_width = (display.x * 0.64).clamp(520.0, 780.0);
     let final_height = (display.y * 0.76).clamp(400.0, 640.0);
     let scale = 0.94 + 0.06 * ease;
@@ -158,6 +161,8 @@ pub(crate) fn build_preview(
             ..Default::default()
         },
         |frame| {
+            let prev_opacity = frame.opacity();
+            frame.set_opacity(ease);
             frame.size_next(width, height);
             frame.column_ex(
                 &LayoutOpts {
@@ -173,6 +178,7 @@ pub(crate) fn build_preview(
                     build_footer(frame, tones, &data);
                 },
             );
+            frame.set_opacity(prev_opacity);
         },
     );
 }

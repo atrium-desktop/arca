@@ -7,38 +7,44 @@ bounded memory consumption and consistent 60+ FPS rendering on Wayland.
 
 ## Workspace Decoupling
 
-Arca separates domain business logic from immediate-mode UI rendering across three
-distinct tiers:
+Arca organizes domain business logic, UI rendering, and specification conformance across four concentric layers:
 
 ```text
-+--------------------------------------------------------------+
-|                         arca (CLI)                           |
-|  Entrypoint, argument parsing, portal prompter dispatch     |
-+--------------------------------------------------------------+
-                               |
-            +------------------+------------------+
-            |                                     |
-            v                                     v
-+-----------------------+             +------------------------+
-|      arca-core        |             |        arca-ui         |
-|  Filesystem traversal |             | Immediate-mode UI loop |
-|  Trash specification  |<------------| Layout & virtual rows  |
-|  LRU thumbnail cache  |  AppState   | Lens / Iris Wayland    |
-|  Config persistence   |             | GPU texture management |
-+-----------------------+             +------------------------+
+┌──────────────────────────────────────────────────────────────┐
+│                         arca (CLI)                           │
+│  Entrypoint, argument parsing, portal prompter dispatch     │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+            ┌──────────────────┴──────────────────┐
+            │                                     │
+            ▼                                     ▼
+┌───────────────────────┐             ┌────────────────────────┐
+│      arca-ui          │             │      arca-engine       │
+│ Immediate-mode UI loop│             │ Filesystem traversal   │
+│ Layout & virtual rows │◄────────────┤ Session state machine  │
+│ Lens / Iris Wayland   │  AppState   │ LRU thumbnail cache    │
+│ GPU texture management│             │ Config persistence     │
+└───────────────────────┘             └───────────┬────────────┘
+                                                  │
+                                                  ▼
+                                      ┌────────────────────────┐
+                                      │       arca-xdg         │
+                                      │ Pure-std XDG base/user │
+                                      │ MIME, trash v1.0, URIs │
+                                      └────────────────────────┘
 ```
 
-1. **Zero-GUI Core**:
-   The core crate contains pure business logic. It has no dependencies on Wayland,
-   Vulkan, or graphical widget frameworks. This allows all filesystem algorithms,
-   sorting rules, trash metadata parsing, and path canonicalization to be verified
-   rapidly in headless unit tests.
+1. **Zero-Dependency Specifications (`arca-xdg`)**:
+   Pure-standard-library implementation of Freedesktop.org specifications: Base Directories, User Directories, RFC 8089 File URIs, Shared MIME-info with content sniffing, Desktop Entry & `mimeapps.list`, and FreeDesktop Trash v1.0. Strictly zero external dependencies.
 
-2. **Immediate-Mode UI**:
-   The user interface crate renders an immutable view of the application state
-   on every frame. Rather than mutating a persistent tree of stateful UI widgets,
-   the view function constructs layout primitives afresh per frame based on
-   user input and filesystem events.
+2. **Zero-GUI Engine (`arca-engine`)**:
+   The engine crate contains pure business logic and session state machines. It has no dependencies on Wayland, Vulkan, or graphical widget frameworks. This allows all filesystem algorithms, sorting rules, trash metadata parsing, and path canonicalization to be verified rapidly in headless unit tests.
+
+3. **Immediate-Mode UI (`arca-ui`)**:
+   The user interface crate renders an immutable view of the application state on every frame. Rather than mutating a persistent tree of stateful UI widgets, the view function constructs layout primitives afresh per frame based on user input and filesystem events.
+
+4. **Unified Binary (`arca`)**:
+   A thin orchestrator binary that routes CLI flags, standalone picker commands, and XDG desktop portal prompter loops.
 
 ---
 

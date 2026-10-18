@@ -257,17 +257,8 @@ pub fn selectable_icon_sized(
     selected: bool,
     height: f32,
 ) -> bool {
-    let c = std::ffi::CString::new(label).unwrap();
-    let opts = lens_sys::lens_selectable_opts {
-        box_: lens_sys::lens_box {
-            height,
-            ..Default::default()
-        },
-        label: c.as_ptr(),
-        icon: lens_id(id),
-        selected,
-    };
-    unsafe { lens_sys::lens_selectable(frame.as_raw(), &opts).clicked }
+    frame.size_next(0.0, height);
+    frame.selectable_icon(label, lens_id(id), selected)
 }
 
 /// Icon for a directory entry (type glyph + MIME / extension mapping).

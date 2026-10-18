@@ -20,8 +20,9 @@ For project introduction, feature summary, and quick build steps, see the root
 | [Reference](reference/index.md) | Complete CLI flags, configuration keys, shortcuts, and protocols |
 | [Explanation](explanation/index.md) | Architectural background, viewport virtualization, and pipeline design |
 | [Architecture Decision Records](adr/index.md) | Historical, immutable technical decisions |
-| [Repository Governance](governance/index.md) | Architectural invariants, code review gates, and documentation standard |
-| [Contributor Docs](dev/index.md) | Internal developer setup, automated testing, acceptance, and packaging |
+| [Engineering Standards](dev/standards/README.md) | Authoritative engineering standards, architectural boundaries, and PR review gates |
+| [Contributor Docs](dev/index.md) | Internal developer setup, testing pyramid, manual runbooks, and packaging |
+| [Subsystem Blueprint](dev/subsystems.md) | Living architectural blueprint, crate boundaries, and invariant matrix |
 
 ---
 

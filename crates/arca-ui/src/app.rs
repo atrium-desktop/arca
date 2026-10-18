@@ -102,8 +102,8 @@ pub struct UiApp {
     pub(crate) viewport: (f32, f32),
     pub(crate) miller_seeded_for: Option<String>,
     pub(crate) thumbs: ThumbStore,
-    observed_tab_id: u64,
-    preview: PreviewOverlay,
+    pub(crate) observed_tab_id: u64,
+    pub(crate) preview: PreviewOverlay,
     pub chooser: Option<ChooserState>,
     pub(crate) location_completion: Option<LocationCompletionState>,
     pub(crate) active_drag: Option<ActiveDrag>,
@@ -116,6 +116,7 @@ pub struct UiApp {
     pub(crate) fullscreen: bool,
     pub(crate) hovered_grid_index: Option<usize>,
     pub(crate) next_hovered_grid_index: Option<usize>,
+    pub(crate) current_grid_columns: usize,
 }
 
 pub(crate) fn set_focus(frame: &mut Frame, id: u64) {
@@ -148,6 +149,7 @@ impl UiApp {
             fullscreen: false,
             hovered_grid_index: None,
             next_hovered_grid_index: None,
+            current_grid_columns: 0,
             filter,
             filter_id: 0,
             filter_focused: false,
@@ -459,15 +461,18 @@ impl UiApp {
     }
 
     pub(crate) fn grid_columns(&self) -> usize {
+        if self.current_grid_columns > 0 {
+            return self.current_grid_columns;
+        }
         let available = (self.viewport.0 - self.sidebar_width - 20.0).max(120.0);
         let plan = lens::patterns::virtual_grid_calc(
             available,
             self.viewport.1,
             0.0,
             100,
-            content::GRID_CARD_WIDTH,
-            content::GRID_CARD_WIDTH * 1.35,
-            content::GRID_CARD_HEIGHT,
+            content::GRID_MIN_CARD_WIDTH,
+            content::GRID_MAX_CARD_WIDTH,
+            content::GRID_DEFAULT_CARD_HEIGHT,
             content::GRID_GAP,
             2,
         );

@@ -128,7 +128,7 @@ build scripts reading `DEP_IRIS_RS_RPATHS`. Never set `LD_LIBRARY_PATH`
 manually.
 
 For full instructions on committing, synchronizing, and promoting Optics
-releases, see [Cross-Repository Development](cross-repository-development.md).
+releases, see [Optics Development Worktree](optics-dev-worktree.md).
 
 ---
 
@@ -164,7 +164,7 @@ cargo test -p arca-ui
 
 ## See Also
 
-- [Cross-Repository Development](cross-repository-development.md) — Detailed
+- [Optics Development Worktree](optics-dev-worktree.md) — Detailed
   worktree lifecycle, commit protection, and release promotion.
 - [Optics Migration](optics-migration.md) — Architecture history and workspace
   structure.
