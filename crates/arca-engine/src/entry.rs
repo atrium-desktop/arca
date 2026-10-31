@@ -54,11 +54,17 @@ impl SortKey {
         }
     }
 
+    /// Parse a configuration value.
+    ///
+    /// `modified` is accepted as an alias for `mtime` because the
+    /// configuration reference documents it and users hand-edit this file;
+    /// rejecting it silently fell back to `Name`. `to_str` only ever writes
+    /// the canonical `mtime`.
     pub fn parse(s: &str) -> Option<SortKey> {
         match s {
             "name" => Some(SortKey::Name),
             "size" => Some(SortKey::Size),
-            "mtime" => Some(SortKey::Mtime),
+            "mtime" | "modified" => Some(SortKey::Mtime),
             _ => None,
         }
     }
@@ -156,18 +162,6 @@ pub fn sort_entries(entries: &mut [Entry], key: SortKey, ascending: bool) {
     });
 }
 
-/// Indices of entries whose name contains `query` (case-insensitive).
-/// An empty query matches everything.
-pub fn filtered_indices(entries: &[Entry], query: &str) -> Vec<usize> {
-    let q = query.trim().to_lowercase();
-    entries
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| q.is_empty() || e.name.to_lowercase().contains(&q))
-        .map(|(i, _)| i)
-        .collect()
-}
-
 /// Join a child `name` onto directory `path` (delegates to [`path::join`]).
 pub fn child_path(dir: &str, name: &str) -> String {
     path::join(dir, name)
@@ -233,16 +227,17 @@ mod tests {
         assert_eq!(v[0].name, "old");
     }
 
+    /// The configuration reference documents `sort = modified`; it used to
+    /// parse to `None` and silently fall back to name order.
     #[test]
-    fn filter_is_case_insensitive_substring() {
-        let v = vec![
-            entry("Notes.md", FileType::Regular, 0, 0),
-            entry("TODO", FileType::Regular, 0, 0),
-            entry("src", FileType::Directory, 0, 0),
-        ];
-        assert_eq!(filtered_indices(&v, "to"), vec![1]);
-        assert_eq!(filtered_indices(&v, ""), vec![0, 1, 2]);
-        assert_eq!(filtered_indices(&v, "zzz"), Vec::<usize>::new());
+    fn sort_key_accepts_the_documented_modified_alias() {
+        assert_eq!(SortKey::parse("mtime"), Some(SortKey::Mtime));
+        assert_eq!(SortKey::parse("modified"), Some(SortKey::Mtime));
+        assert_eq!(SortKey::parse("size"), Some(SortKey::Size));
+        assert_eq!(SortKey::parse("name"), Some(SortKey::Name));
+        assert_eq!(SortKey::parse("nonsense"), None);
+        // Writing always uses the canonical form.
+        assert_eq!(SortKey::Mtime.as_str(), "mtime");
     }
 
     #[test]
@@ -291,7 +286,7 @@ mod tests {
     /// Unique temp dir per test (no external crates).
     fn temp_fixture() -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "arca-core-test-{}-{}",
+            "arca-engine-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

@@ -7,6 +7,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.12] - 2026-10-31
+
+### Added
+- Synchronized workspace dependencies with Optics `v0.0.66` and landed ADR-0007.
+- Adopted `iris::patterns::popup_menu` and `MenuItem` for context menus (`build_ctx_menu`, `build_sidebar_menu`) featuring full vector iconography, right-aligned shortcuts, and keyboard navigation (Up/Down arrow, Return, Escape).
+- Adopted `Response::submitted` from `Frame::textfield_ex` for declarative Return key submission in inline file renaming and file chooser save-name fields.
+- Native multi-level undo/redo history (`Ctrl+Z`, `Ctrl+Shift+Z`, `Ctrl+Y`) and action coalescing across all text inputs from Optics textedit enhancements.
+- Adopted Optics compound patterns (`DataGrid`, `TreeView`, `menubar`, `popup_menu`) via direct root exports in `iris::patterns`.
+- Synchronized workspace dependencies with Optics `v0.0.64` and landed ADR-0006.
+- Adopted orthogonal icon sizing (`Theme::with_icon_size(18.0)`) and `Frame::selectable_icon_sized` from Optics ADR-0111, eliminating subpixel icon smearing and preserving distinct visual weights between typography and iconography.
+- Direct root re-export of `SegmentedControl` and `SegmentedItem` via `iris`.
+- Automated subtle button corner radius refinement conforming to Tessera standards.
+- Hardware display-paced presentation loop and subsurface compositing alignment via Optics ADR-0122 – ADR-0124.
+
+### Changed
+- Standard desktop arrow cursors (`LENS_CURSOR_DEFAULT`) natively enforced on selectable items without manual post-widget cursor resets.
+- Removed deprecated `icon_button_active_rounded` helper in `arca-ui::icons`.
+- Hardened kernel inotify instance budget exhaustion handling in filesystem watcher test suites.
+- **File transfer contract unified.** Clipboard export/import and drag-and-drop now share
+  `arca_xdg::FileClipboard`, so the two paths cannot drift. The engine's duplicate
+  `Clipboard` type was deleted; `TransferAction` replaces the `cut: bool` flag that made
+  a destructive inversion a one-character mistake.
+- **Selection is modelled by entry name, not visible index.** `TabState` keeps
+  authoritative `selected_names` / `cursor_name` / `anchor_name` and derives the index
+  caches, so re-reads, re-sorts, hidden-file toggles and filter edits can no longer move
+  the highlight onto a different file.
+- The listing filter uses each entry's already-resolved MIME type instead of
+  re-sniffing from disk: `visible()` under a MIME filter drops from ~12.9 ms to ~0.5 µs
+  for 2400 entries.
+- Miller column models are built only in Miller view; navigating in List/Grid no longer
+  re-reads four ancestor directories (~10 ms) for a model nothing renders.
+- Transfers ≥ 8 MiB run on the existing background IO worker, which is now actually
+  driven: progress appears in the status bar and completion commits one undo
+  transaction. Small transfers keep the synchronous path.
+- `AppState::toggle_hidden` refreshes each tab in place instead of temporarily
+  reassigning `active_tab`.
+
+### Fixed
+- **Copying or moving a directory into itself recursed until `ENAMETOOLONG`,** leaving
+  hundreds of nested copies on disk. Both endpoints are now canonicalized and the
+  transfer is refused before any I/O.
+- **A multi-item drag or an external drag transferred nothing**: the raw `text/uri-list`
+  payload was handed to `PathBuf::from`. Drops now parse the interchange format and
+  transfer every item.
+- **Quick Look could not be dismissed with `Esc` or a click outside**, both of which are
+  documented. The overlay is registered in lens's transient open-set and its dismissal is
+  mirrored back into app state.
+- **Selection highlight vanished after any refresh** (`Ctrl+R`, `F5`, or any inotify
+  event) because only the cursor index was restored.
+- **`multiple: true` file-chooser requests returned a single path** (or none): the staged
+  selection set was never written. Multi-select now stages on click and `Ctrl`-click and
+  returns the whole set; single mode still refuses to return more than one path.
+- **Grid file names were unreadable in the light theme** (1.30:1 at rest, 1.04:1 on
+  hover). Label colours are now theme tokens, and WCAG AA contrast is enforced by tests.
+- **Previewing a FIFO, device node or socket hung the UI thread.** Non-regular files are
+  detected and described instead of opened; the thumbnail decoders gained the same guard.
+- **Deleting a symlink to a directory recursively deleted the target's contents.**
+  `delete_path` now unlinks the link itself.
+- **Renaming onto a dangling symlink silently replaced it.** Destination existence is
+  probed with `symlink_metadata`.
+- **Trashing a symlink recorded its target's path,** so restoring put it in the wrong
+  directory.
+- **The sidebar's Trash bookmark opened `…/Trash`** (two bookkeeping directories) instead
+  of `…/Trash/files`, and the restore branch was therefore unreachable. The listing now
+  shows each item's original directory and deletion date, and offers Restore / Delete
+  permanently / Empty Trash.
+- `Ctrl+W` on the last tab did nothing despite being documented as closing the window;
+  it now requests a window close. `Ctrl+Q` is bound.
+- `sort = modified` (documented) parsed to `None` and silently fell back to name order.
+- The prompter accepted any contract version; it now rejects mismatches, and validates
+  its own response against the request before emitting it.
+- Dropping a non-file payload now reports "no usable file paths" instead of a bogus
+  `ENOENT` for a truncated path.
+- `count_path` in the IO worker no longer follows symlinked directories.
+
+### Engineering structure
+- **`arca-ui` test suites migrated out of `lib.rs`.** The single 1400-line test
+  module became per-module suites (`app`, `content`, `tabs`, `toolbar`, `theme`,
+  `icons`, `menus`, `sidebar`, `preview`, `chooser`, `statusbar`, `thumbs`, `ipc`),
+  sharing one `test_support` harness with an RAII `ScratchDir`. `lib.rs` now holds
+  zero tests, and `scripts/check-docs.py tests` fails if a substantial module lacks
+  a suite or the root block grows past 12 tests.
+- **`arca` argument parsing extracted to `src/cli.rs`** as a pure
+  `Command::parse(args, forward_probe)`, with 11 tests covering every flag
+  combination. `main` now only performs the described side effects.
+- **`UndoStack` gained its first tests** (6) — the module had none despite owning
+  undo/redo semantics for every destructive operation.
+- `statusbar`'s summary is a pure function, tested directly rather than through the
+  widget tree.
+- `ipc` gained 5 tests; the pending-request queue is now an `IpcServer` field
+  instead of a process-global static (the global made two windows in one process
+  share a mailbox, and made the tests race).
+
+### Fixed (found while auditing the refactor itself)
+- **`arca --grid` / `--list` / `--miller` silently rewrote the user's saved
+  default.** The CLI path had been changed to call `set_view_mode`, which persists;
+  a launch-time flag must not become a preference. Split into
+  `set_view_mode` (persists, used by the toolbar) and `override_view_mode`
+  (session only, used by the CLI), with a test asserting the config file is
+  byte-identical after an override.
+- `--help` omitted `--prompter`, `-h` and `-V`; `scripts/check-docs.py cli` now
+  cross-checks the parser, the usage text and `docs/reference/cli.md` as three
+  copies of the same list, and found the gap immediately.
+- Removed two `#[allow(dead_code)]` items that existed only to keep unused API
+  alive (`theme::label_centered`, `content::GRID_DEFAULT_ROW_PITCH` — the latter
+  was only ever asserted equal to its own definition).
+
+### Fixed (found while writing the missing tests)
+- **The status bar summed directory inode sizes into the selection total**: a
+  folder rendered as `—` in the Size column but reported its 41-byte inode length
+  in the aggregate. Only regular files contribute now.
+- `IpcServer::drop` is the sole socket owner and unlinks on every exit path
+  (window close, `Ctrl+W` on the last tab, `Ctrl+Q`); `UiApp` owns the endpoint.
+- Redo of a copy reported success while discarding the action.
+
+### Documentation
+- Corrected drift across the CLI, configuration, shortcut, Quick Look, trash, thumbnail
+  and architecture references (cache paths, feature claims, key bindings, dedup suffixes,
+  filename pre-selection, `trash:///` navigation, stale `arca-core` / `views/mod.rs`
+  references).
+- Added `.github/workflows/ci.yml` with architecture-firewall, doc-sync, clippy
+  (`-D warnings`), test and named-invariant gates, plus `scripts/check-docs.py` which
+  derives CLI flags, config keys and key bindings from source and asserts the reference
+  documents them.
+
+---
+
 ## [0.2.11] - 2026-10-18
 
 ### Added

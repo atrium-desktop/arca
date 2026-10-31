@@ -56,11 +56,10 @@ cache reaches capacity, older items are evicted automatically.
 
 ### 2. On-Disk Cache
 When a thumbnail is successfully decoded, a downscaled PNG representation is saved to
-the user cache directory (`$XDG_CACHE_HOME/arca/thumbnails/`).
-- The cache key incorporates the absolute path of the source file, file size, and
-  last modification timestamp (`mtime`).
-- If the source file is modified or replaced, the modification timestamp changes,
-  invalidating the stale disk cache entry.
+the standard FreeDesktop cache directory (`$XDG_CACHE_HOME/thumbnails/normal/`).
+- The cache key is the FreeDesktop-mandated `MD5(canonical file URI)` + `.png`.
+- The cached PNG's mtime is compared against the source file's: a source modified
+  after its thumbnail was written is treated as a miss and re-decoded.
 - When navigating back to a previously visited folder, Arca loads the pre-scaled
   cache files, bypassing expensive full-resolution image decoding.
 

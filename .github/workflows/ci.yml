@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # The engine/UI crates link the Optics C libraries. CI builds them from the
+  # pinned tag; this job only needs the pure-Rust layers plus a headless UI.
+  CARGO_TERM_COLOR: always
+
+jobs:
+  architecture:
+    name: Architecture firewalls
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # [INV-ARCH-01] arca-xdg is strictly `std`-only. Assert on the manifest
+      # rather than trusting review: a single added dependency breaks the
+      # Freedesktop layer's portability guarantee.
+      - name: arca-xdg must have zero dependencies
+        run: |
+          python3 - <<'PY'
+          import tomllib, sys
+          with open("crates/arca-xdg/Cargo.toml", "rb") as fh:
+              manifest = tomllib.load(fh)
+          deps = {
+              **manifest.get("dependencies", {}),
+              **manifest.get("dev-dependencies", {}),
+              **manifest.get("build-dependencies", {}),
+          }
+          if deps:
+              sys.exit(f"[INV-ARCH-01] arca-xdg declares dependencies: {sorted(deps)}")
+          print("arca-xdg is dependency-free")
+          PY
+
+      # [INV-ARCH-02] arca-engine must never link the graphics stack.
+      - name: arca-engine must not link GUI/Wayland crates
+        run: |
+          python3 - <<'PY'
+          import tomllib, sys
+          forbidden = {"lens", "lens-sys", "iris", "iris-sys", "flux", "flux-sys",
+                       "transit", "transit-sys", "arca-ui", "arca"}
+          with open("crates/arca-engine/Cargo.toml", "rb") as fh:
+              manifest = tomllib.load(fh)
+          used = set(manifest.get("dependencies", {})) & forbidden
+          if used:
+              sys.exit(f"[INV-ARCH-02] arca-engine links {sorted(used)}")
+          print("arca-engine is headless")
+          PY
+
+      # [INV-ARCH-03] The dependency graph must stay a DAG in the intended
+      # direction: outer layers may depend inward, never the reverse.
+      - name: Dependency direction
+        run: |
+          python3 - <<'PY'
+          import tomllib, sys
+          crates = {name: f"crates/{name}/Cargo.toml"
+                    for name in ["arca-xdg", "arca-engine", "arca-ui", "arca"]}
+          allowed = {
+              "arca-xdg": set(),
+              "arca-engine": {"arca-xdg"},
+              "arca-ui": {"arca-engine", "arca-xdg"},
+              "arca": {"arca-engine", "arca-ui", "arca-xdg"},
+          }
+          for name, path in crates.items():
+              with open(path, "rb") as fh:
+                  manifest = tomllib.load(fh)
+              internal = {d for d in manifest.get("dependencies", {}) if d in crates}
+              extra = internal - allowed[name]
+              if extra:
+                  sys.exit(f"{name} may not depend on {sorted(extra)}")
+          print("dependency direction is concentric")
+          PY
+
+      - name: Rustdoc links resolve
+        run: cargo doc --workspace --no-deps --offline 2>&1 | tee /tmp/doc.log
+        continue-on-error: false
+
+  docs:
+    name: Code-to-doc synchronisation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The workflow standard requires CLI/config/shortcut surfaces to be
+      # documented in the same change. These checks make that mechanical.
+      - name: CLI flags are documented
+        run: python3 scripts/check-docs.py cli
+
+      - name: Config keys are documented
+        run: python3 scripts/check-docs.py config
+
+      - name: Keyboard shortcuts are documented
+        run: python3 scripts/check-docs.py keys
+
+      - name: Internal doc links resolve
+        run: python3 scripts/check-docs.py links
+
+      # Tests belong beside the module they constrain. A monolithic
+      # `lib.rs::tests` block silently absorbs suites and hides the mapping
+      # between a module and its regression coverage.
+      - name: Test locality
+        run: python3 scripts/check-docs.py tests
+
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install Optics build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libvulkan-dev libwayland-dev \
+            libxkbcommon-dev meson ninja-build
+          # The pinned optics tag is built by the bindings' build scripts via
+          # pkg-config; see docs/dev/setup.md for a full local toolchain.
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+  invariants:
+    name: Regression invariants
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Named invariants from docs/dev/subsystems.md. Running them explicitly
+      # keeps the mapping between the document and the enforcing test honest.
+      - name: INV-UI-01 frame arena budget
+        run: cargo test -p arca-ui large_directory_does_not_overflow_frame_arena
+
+      - name: INV-OPS-01 trash roundtrip
+        run: cargo test -p arca-xdg trash::
+
+      - name: INV-OPS-02 anti-clobber
+        run: cargo test -p arca-engine ops::tests

@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "arca"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "arca-engine",
  "arca-ui",
@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "arca-engine"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "arca-xdg",
  "image",
@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "arca-ui"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "arca-engine",
  "arca-xdg",
@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "arca-xdg"
-version = "0.2.11"
+version = "0.2.12"
 
 [[package]]
 name = "autocfg"
@@ -125,18 +125,18 @@ dependencies = [
 
 [[package]]
 name = "crc32fast"
-version = "1.5.2"
+version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
+checksum = "0ba106e844045ddc02c20768ac4b0b7cb45f2cc2ecbd833ac9f5dacb183c2055"
 dependencies = [
  "cfg-if",
 ]
 
 [[package]]
 name = "either"
-version = "1.18.0"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
+checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
 name = "fdeflate"
@@ -160,16 +160,16 @@ dependencies = [
 
 [[package]]
 name = "flux"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.66"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.66#c5ac994387f1728cbf715a50d1f5ce4d7d05627f"
 dependencies = [
  "flux-sys",
 ]
 
 [[package]]
 name = "flux-sys"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.66"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.66#c5ac994387f1728cbf715a50d1f5ce4d7d05627f"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -198,8 +198,8 @@ dependencies = [
 
 [[package]]
 name = "iris"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.66"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.66#c5ac994387f1728cbf715a50d1f5ce4d7d05627f"
 dependencies = [
  "flux",
  "iris-sys",
@@ -209,8 +209,8 @@ dependencies = [
 
 [[package]]
 name = "iris-sys"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.66"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.66#c5ac994387f1728cbf715a50d1f5ce4d7d05627f"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -235,8 +235,8 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "lens"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.66"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.66#c5ac994387f1728cbf715a50d1f5ce4d7d05627f"
 dependencies = [
  "flux",
  "lens-sys",
@@ -244,8 +244,8 @@ dependencies = [
 
 [[package]]
 name = "lens-sys"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.66"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.66#c5ac994387f1728cbf715a50d1f5ce4d7d05627f"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -254,9 +254,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.189"
+version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "libloading"
@@ -270,9 +270,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.34"
+version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "memchr"
@@ -450,14 +450,14 @@ checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn 3.0.9",
 ]
 
 [[package]]
 name = "serde_json"
-version = "1.0.151"
+version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
  "itoa",
  "memchr",
@@ -491,9 +491,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "3.0.6"
+version = "3.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
+checksum = "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -502,16 +502,16 @@ dependencies = [
 
 [[package]]
 name = "transit"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.66"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.66#c5ac994387f1728cbf715a50d1f5ce4d7d05627f"
 dependencies = [
  "transit-sys",
 ]
 
 [[package]]
 name = "transit-sys"
-version = "0.0.60"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.60#6172664c5bb1da152e7842464f3b77d7ddba07b1"
+version = "0.0.66"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.66#c5ac994387f1728cbf715a50d1f5ce4d7d05627f"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -519,9 +519,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.25"
+version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab72a15cf68d77cb0987d3684aa8a45c5ef827e8cb49ee2f30bfd7ba2feb519f"
+checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "windows-link"

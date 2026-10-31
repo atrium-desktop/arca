@@ -170,3 +170,66 @@ fn upload(thumb: &Thumb) -> Option<*mut flux_sys::flux_image> {
     }
     Some(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The dispatch list must stay in sync with the engine decoder, which
+    /// only compiles PNG and JPEG support (`arca-engine`'s `image` features).
+    #[test]
+    fn thumbable_matches_the_decoder_feature_set() {
+        for name in [
+            "cover.flac",
+            "track.mp3",
+            "photo.png",
+            "photo.jpg",
+            "photo.jpeg",
+            // Case-insensitive, like the decoder's extension check.
+            "PHOTO.PNG",
+            "Cover.FLAC",
+        ] {
+            assert!(is_thumbable(name), "{name} must be decodable");
+        }
+
+        for name in [
+            // Formats the `image` crate could decode but that are not compiled
+            // in, so they must not be requested.
+            "photo.gif",
+            "photo.webp",
+            "photo.bmp",
+            "photo.tiff",
+            "document.pdf",
+            "notes.txt",
+            // No extension at all (also guards the empty-extension case).
+            "README",
+            "archive.tar.gz",
+            // A leading dot is not an extension.
+            ".hidden",
+        ] {
+            assert!(!is_thumbable(name), "{name} must not be requested");
+        }
+    }
+
+    /// A directory change drops queued work but keeps decoded pixels, so
+    /// returning to a folder is instant.
+    #[test]
+    fn sync_cwd_drops_pending_work_only() {
+        let mut store = ThumbStore::new();
+        store.sync_cwd("/a");
+        store.sync_cwd("/a");
+        assert_eq!(store.cwd, "/a");
+
+        store.sync_cwd("/b");
+        assert_eq!(store.cwd, "/b");
+    }
+
+    /// Without a GPU device (headless tests), requesting a thumbnail must be
+    /// a harmless no-op rather than a null-pointer upload.
+    #[test]
+    fn image_for_without_a_device_returns_none() {
+        let mut store = ThumbStore::new();
+        store.sync_cwd("/tmp");
+        assert!(store.image_for("/tmp/anything.png").is_none());
+    }
+}

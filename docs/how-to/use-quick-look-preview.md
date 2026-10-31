@@ -15,6 +15,10 @@ and text files using Arca's built-in Quick Look previewer.
    - Press `Esc`.
    - Click anywhere outside the preview card.
 
+Quick Look is a dismissable modal layer: until it closes, `Esc` and outside clicks
+belong to it, and only then fall through to the filter, the location bar or the
+chooser.
+
 ---
 
 ## Inspect Images
@@ -26,7 +30,8 @@ When triggered on raster images (`.png`, `.jpeg`, `.jpg`):
 - **Metadata**: Quick Look displays pixel dimensions (width × height) and total file
   size.
 - **Cache**: Decoded images are cached in an LRU memory buffer and on disk under
-  `~/.cache/arca/thumbnails/`, ensuring instant re-inspection.
+  `$XDG_CACHE_HOME/thumbnails/normal/` (the FreeDesktop Thumbnail Managing Standard
+  location, shared with other desktop applications), ensuring instant re-inspection.
 
 ---
 
@@ -36,9 +41,10 @@ When triggered on audio files (`.mp3`, `.flac`):
 
 - **Cover Art**: Quick Look parses ID3v2 APIC frames or FLAC `PICTURE` blocks to
   extract and display embedded album art.
-- **Track Details**: Displays the embedded track title, artist, album name, and duration
-  when available.
-- **File Specs**: Shows audio format and file size.
+- **File Specs**: Shows the resolved MIME type and file size.
+
+Quick Look does not yet decode audio tags (title, artist, album, duration); only the
+embedded artwork is extracted.
 
 ---
 
@@ -46,9 +52,9 @@ When triggered on audio files (`.mp3`, `.flac`):
 
 When triggered on a directory:
 
-- Quick Look calculates and displays the item count inside the directory (number of
-  subfolders and files).
-- Displays last modification date and filesystem permissions.
+- Quick Look calculates and displays the item count inside the directory (capped at
+  "More than 10,000 items").
+- Displays the last modification date.
 
 ---
 
@@ -56,10 +62,17 @@ When triggered on a directory:
 
 When triggered on plain text files (`.txt`, `.md`, `.rs`, `.toml`, `.json`):
 
-- Quick Look verifies that file contents are valid UTF-8 and contain no binary null
-  bytes.
-- Displays the first lines of text in a clean monospace font with bounded height.
-- Displays line count and file encoding.
+- Quick Look verifies that file contents look like text (no NUL bytes, few control
+  characters).
+- Displays up to the first 20 KiB of the file in a scrollable pane, ending with
+  `… Preview truncated` when the file is longer.
+- Displays size, modification time and MIME type.
+
+## Special files
+
+Device nodes, FIFOs and sockets are described (`Named pipe`, `Socket`,
+`Character device`, `Block device`) but never opened — reading them can block
+indefinitely, so Quick Look refuses to read anything that is not a regular file.
 
 ---
 

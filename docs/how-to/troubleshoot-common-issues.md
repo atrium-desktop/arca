@@ -101,8 +101,8 @@ requests to Arca, or the portal configuration defaults to another prompter.
    ```
 2. Ensure the thumbnail cache directory exists and is writable:
    ```bash
-   mkdir -p ~/.cache/arca/thumbnails
-   touch ~/.cache/arca/thumbnails/test && rm ~/.cache/arca/thumbnails/test
+   mkdir -p ~/.cache/thumbnails/normal
+   touch ~/.cache/thumbnails/normal/test && rm ~/.cache/thumbnails/normal/test
    ```
 3. Verify image format: Arca decodes PNG and JPEG images, and FLAC/MP3 cover art.
    Other formats (such as SVG, WebP, or AVIF) currently display standard MIME icons.

@@ -2,7 +2,7 @@
 set -eu
 
 manifest=${1:-Cargo.toml}
-expected_packages=5
+expected_packages=7
 
 if [ ! -f "$manifest" ]; then
     printf 'error: manifest not found: %s\n' "$manifest" >&2

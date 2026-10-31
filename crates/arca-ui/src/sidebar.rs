@@ -54,7 +54,11 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             }
                             if let Some(drop) = frame.dnd_drop_target(&place_id, 1) {
                                 if let Some(payload) = drop.payload {
-                                    app.state.drop_into(&payload, &bookmark.path);
+                                    app.state.drop_into(
+                                        &payload,
+                                        &bookmark.path,
+                                        arca_engine::TransferAction::Move,
+                                    );
                                 }
                             }
                             app.drop_targets.push(crate::app::DropTargetZone {
@@ -62,6 +66,7 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                 target_path: bookmark.path.clone(),
                                 is_bookmark_zone: false,
                             });
+                            crate::content::suppress_item_pointer_cursor(frame);
                             frame.pop_id();
                         }
 
@@ -91,7 +96,11 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             }
                             if let Some(drop) = frame.dnd_drop_target(&b_id, 1) {
                                 if let Some(payload) = drop.payload {
-                                    app.state.drop_into(&payload, &bookmark.path);
+                                    app.state.drop_into(
+                                        &payload,
+                                        &bookmark.path,
+                                        arca_engine::TransferAction::Move,
+                                    );
                                 }
                             }
                             app.drop_targets.push(crate::app::DropTargetZone {
@@ -99,6 +108,7 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                 target_path: bookmark.path.clone(),
                                 is_bookmark_zone: false,
                             });
+                            crate::content::suppress_item_pointer_cursor(frame);
                             frame.pop_id();
                         }
 
@@ -111,12 +121,11 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                         }
 
                         let is_drag_active = app.active_drag.as_ref().is_some_and(|d| d.started);
-                        let is_target_hovered =
-                            drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false)
-                                || (is_drag_active
-                                    && app.bookmark_drop_rect.is_some_and(|r| {
-                                        crate::app::rect_contains(&r, app.cursor_pos)
-                                    }));
+                        let is_target_hovered = is_drag_active
+                            && (drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false)
+                                || app.bookmark_drop_rect.is_some_and(|r| {
+                                    crate::app::rect_contains(&r, app.cursor_pos)
+                                }));
 
                         let (resp, ()) = frame
                             .row()
@@ -143,6 +152,7 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                     tones.muted,
                                 );
                             });
+                        crate::content::suppress_item_pointer_cursor(frame);
 
                         app.bookmark_drop_rect = Some(resp.rect);
                         app.drop_targets.push(crate::app::DropTargetZone {
@@ -153,6 +163,10 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
 
                         if let Some(path) = target {
                             app.state.navigate(&path);
+                            app.location.set(&path);
+                            app.location_focused = false;
+                            app.location_focused_now = false;
+                            app.location_completion = None;
                         }
                     },
                 );
@@ -188,4 +202,94 @@ fn section_label(frame: &mut Frame, tones: &Tones, title: &str) {
             theme::label_colored_sized(frame, title, 10.0, tones.muted);
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour tests for this module.
+    //!
+    //! Migrated out of the former monolithic `lib.rs::tests` block so each
+    //! test lives next to the code it constrains.
+
+    use crate::test_support::{fixture, frame};
+
+    #[test]
+    fn drag_and_drop_to_bookmark_and_folder() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        let sub_path = dir.join("sub").to_str().unwrap().to_string();
+        assert!(!app.state.is_bookmarked(&sub_path));
+
+        // Test interactive drag: press on "sub" row, move past threshold to show floating preview
+        let sub_r = app.sub_row_rect.expect("sub row rect captured");
+        let mut drag_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        drag_in.set_cursor(sub_r.x + 20.0, sub_r.y + 10.0);
+        drag_in.set_mouse_down(lens::MouseButton::Left, true);
+        drag_in.set_mouse_pressed(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &drag_in);
+        assert!(app.active_drag.is_some());
+
+        // Move cursor by 30px to trigger drag preview
+        drag_in.set_cursor(sub_r.x + 50.0, sub_r.y + 10.0);
+        drag_in.set_mouse_pressed(lens::MouseButton::Left, false);
+        frame(&mut app, &mut ui, &drag_in);
+        assert!(app.active_drag.as_ref().unwrap().started);
+
+        // Move cursor down-left over the bookmark drop zone and release
+        let b_r = app.bookmark_drop_rect.expect("bookmark drop rect captured");
+        let mut release_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        release_in.set_cursor(b_r.x + 10.0, b_r.y + 10.0);
+        release_in.set_mouse_down(lens::MouseButton::Left, false);
+        release_in.set_mouse_released(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &release_in);
+
+        assert!(app.active_drag.is_none());
+        assert!(app.state.is_bookmarked(&sub_path));
+
+        // Test dropping a file onto a folder in the listing
+        let file_path = dir.join("a.txt").to_str().unwrap().to_string();
+        assert!(dir.join("a.txt").exists());
+        assert!(!dir.join("sub").join("a.txt").exists());
+
+        let sub_rect = app.sub_row_rect.expect("sub row rect captured");
+        let sub_pos = (sub_rect.x + sub_rect.w * 0.5, sub_rect.y + sub_rect.h * 0.5);
+        ui.deliver_drop(&file_path, sub_pos);
+        frame(&mut app, &mut ui, &input);
+
+        assert!(!dir.join("a.txt").exists());
+        assert!(dir.join("sub").join("a.txt").exists());
+
+        app.state.toggle_bookmark(&sub_path); // clean up gtk bookmark
+    }
+
+    #[test]
+    fn sidebar_hover_retains_desktop_arrow_cursor() {
+        let (_dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        let place = app
+            .drop_targets
+            .iter()
+            .find(|t| !t.is_bookmark_zone && t.rect.x < app.sidebar_width)
+            .expect("must have at least one sidebar place");
+
+        let mut hover_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        hover_in.set_cursor(place.rect.x + 10.0, place.rect.y + 10.0);
+        frame(&mut app, &mut ui, &hover_in);
+
+        assert_eq!(
+            ui.cursor_hint(),
+            lens::CursorHint::Default,
+            "hovering sidebar item must preserve standard desktop arrow cursor (not web pointer hand)"
+        );
+    }
 }

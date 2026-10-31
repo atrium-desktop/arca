@@ -186,36 +186,6 @@ pub fn icon_button(frame: &mut Frame, id: AssetId, box_size: f32) -> bool {
     unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
 }
 
-/// Icon button whose active state is a rounded accent-tinted chip, used for
-/// the segmented view-mode toggle.
-#[allow(dead_code)]
-pub fn icon_button_active_rounded(
-    frame: &mut Frame,
-    id: AssetId,
-    box_size: f32,
-    active: bool,
-) -> bool {
-    let id_str = format!("##icon-active-{id:?}");
-    let c = std::ffi::CString::new(id_str).unwrap();
-    let opts = lens_sys::lens_button_opts {
-        box_: lens_sys::lens_box {
-            id: c.as_ptr(),
-            width: box_size,
-            height: box_size,
-            ..Default::default()
-        },
-        icon: lens_id(id),
-        variant: if active {
-            lens_sys::lens_button_variant::LENS_BUTTON_PRIMARY
-        } else {
-            lens_sys::lens_button_variant::LENS_BUTTON_SUBTLE
-        },
-        active,
-        ..Default::default()
-    };
-    unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
-}
-
 /// Icon button that swaps glyph with its checked state (eye/eye-off, star…).
 /// Borderless and transparent at rest; reveals subtle background on hover,
 /// and accent/active surface when checked.
@@ -244,21 +214,22 @@ pub fn icon_toggle_button(
     unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
 }
 
-/// Full-width sidebar/menu row with a leading icon and compact 30px height.
+/// Full-width sidebar/menu row with a leading icon, compact 30px height, and 18px icon size.
 pub fn selectable_icon(frame: &mut Frame, id: AssetId, label: &str, selected: bool) -> bool {
-    selectable_icon_sized(frame, id, label, selected, 30.0)
+    selectable_icon_sized(frame, id, label, selected, 30.0, 18.0)
 }
 
-/// Full-width sidebar/menu row with explicit height.
+/// Full-width sidebar/menu row with explicit height and icon size.
 pub fn selectable_icon_sized(
     frame: &mut Frame,
     id: AssetId,
     label: &str,
     selected: bool,
     height: f32,
+    icon_size: f32,
 ) -> bool {
     frame.size_next(0.0, height);
-    frame.selectable_icon(label, lens_id(id), selected)
+    frame.selectable_icon_sized(label, lens_id(id), selected, icon_size)
 }
 
 /// Icon for a directory entry (type glyph + MIME / extension mapping).
@@ -345,5 +316,24 @@ fn dir_icon(name: &str) -> AssetId {
         ".git" => ids::GitBranch,
         ".config" => ids::Settings,
         _ => ids::Folder,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour tests for this module.
+    //!
+    //! Migrated out of the former monolithic `lib.rs::tests` block so each
+    //! test lives next to the code it constrains.
+
+    use super::*;
+
+    #[test]
+    fn all_icon_assets_register() {
+        for &asset in AssetId::ALL {
+            let id = crate::icons::lens_id(asset);
+            assert_ne!(id.0, u32::MAX, "{asset:?} failed to parse/register");
+            assert!(id.0 >= lens_sys::lens_icon_id::LENS_ICON_COUNT.0);
+        }
     }
 }

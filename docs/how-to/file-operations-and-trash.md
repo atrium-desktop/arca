@@ -8,11 +8,11 @@ in Arca while complying with the FreeDesktop Trash specification.
 ## Create a New Directory
 
 1. Open the folder where you want to create a new subfolder.
-2. Press `Ctrl+Shift+N` (or right-click in empty space and select **New Folder**).
-3. An inline text entry field appears with the placeholder `New Folder`.
+2. Press `Ctrl+Shift+N`.
+3. An inline text entry field appears, pre-filled with `New Folder`.
 4. Type the new folder name and press `Enter`.
-5. If a folder with that name already exists, Arca automatically deduplicates the name
-   (e.g., `New Folder (1)`).
+5. If a folder with that name already exists, Arca automatically deduplicates the name:
+   `New Folder`, then `New Folder 2`, `New Folder 3`, …
 
 ---
 
@@ -20,8 +20,8 @@ in Arca while complying with the FreeDesktop Trash specification.
 
 1. Select the item you wish to rename using the mouse or arrow keys.
 2. Press `Ctrl+E` (or right-click and select **Rename**).
-3. The row's label transforms into an inline editable text field, with the filename
-   stem pre-selected (excluding the file extension).
+3. The row's label transforms into an inline editable text field containing the whole
+   current name, ready to edit.
 4. Edit the name.
 5. Press `Enter` to commit the rename.
 6. Press `Esc` or click outside the text field to cancel the rename without changes.
@@ -42,7 +42,20 @@ Arca supports clipboard operations conforming to the XDG clipboard specification
 3. Navigate to the destination directory (in the current tab or another tab).
 4. Press `Ctrl+V` to paste.
 5. If a file with identical name exists in the destination, Arca appends a numeric
-   suffix (e.g., `file (copy 1).txt`) rather than clobbering existing data.
+   suffix (`file (copy).txt`, `file (copy 2).txt`, …) rather than clobbering existing
+   data.
+
+Transfers of 8 MiB or more run on a background worker: the window keeps painting and
+the status bar shows `Transferring <name>: NN% (copied/total)`. Copying or moving a
+directory into itself (or into one of its own descendants) is refused with
+`cannot copy or move '<path>' inside itself`.
+
+### Drag and drop
+
+Dragging a row onto a folder row, a sidebar bookmark, or a sidebar place moves the
+selection there; hold `Ctrl` while dropping to copy instead. Dropping onto "Drop files here to add a bookmark" adds a bookmark
+instead. Drags out of Arca publish a standard `text/uri-list`, and drops into Arca
+accept `text/uri-list` and `x-special/gnome-copied-files` from other applications.
 
 ---
 
@@ -61,15 +74,22 @@ Arca follows the FreeDesktop.org Trash specification:
 
 ## Inspect and Restore Trashed Items
 
-1. In the left sidebar, click **Trash** (or press `Ctrl+L` and enter `trash:///`).
-2. The trash listing shows all deleted files, their original locations, and deletion dates.
-3. To restore an item:
-   - Select the file.
-   - Right-click and choose **Restore**.
-   - Arca reads the companion `.trashinfo` file and moves the file back to its
-     original location on disk.
-4. If the original parent directory was deleted, Arca recreates the directory
-   structure before restoring the file.
+1. In the left sidebar, click **Trash**. This opens the trash listing
+   (`$XDG_DATA_HOME/Trash/files`), not the bookkeeping root.
+2. In List view the `Size` column shows the item's **original directory** and the
+   `Modified` column shows its **deletion date**, both read from the companion
+   `.trashinfo` record.
+3. To restore one or more items:
+   - Select them (click, `Ctrl`-click, or `Shift`-click for a range).
+   - Right-click and choose **Restore** (or **Restore N items**).
+   - Arca reads the `.trashinfo` record and moves each item back to its recorded
+     original path, recreating missing parent directories.
+4. To destroy items without restoring, right-click and choose
+   **Delete permanently**. To clear everything, right-click the **Trash** entry in
+   the sidebar and choose **Empty Trash**.
+
+Deleting a symlink records the *link's* path, so restoring puts the link back where it
+was instead of beside its target.
 
 ---
 

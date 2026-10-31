@@ -11,10 +11,21 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-static PENDING_OPEN_PATHS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
 /// Resolve the standard XDG runtime socket path for Arca.
 pub fn socket_path() -> PathBuf {
+    endpoint(None)
+}
+
+/// Resolve a socket path, optionally overriding the standard location.
+///
+/// Tests pass an explicit path: several tests share one process, and the
+/// standard socket is a single instance-wide resource, so binding it from
+/// more than one test races (the second `bind` succeeds, the first server
+/// then serves the second's client).
+fn endpoint(override_path: Option<&std::path::Path>) -> PathBuf {
+    if let Some(path) = override_path {
+        return path.to_path_buf();
+    }
     if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
         PathBuf::from(runtime).join("arca-ipc.sock")
     } else {
@@ -26,12 +37,16 @@ pub fn socket_path() -> PathBuf {
 /// Attempt to forward an open request to an already running instance.
 /// Returns `true` if the request was accepted (caller may exit immediately).
 pub fn try_forward_to_existing(path: &str) -> bool {
-    let sock = socket_path();
+    try_forward_to(&socket_path(), path)
+}
+
+/// [`try_forward_to_existing`] against an explicit socket path.
+pub fn try_forward_to(sock: &std::path::Path, path: &str) -> bool {
     if !sock.exists() {
         return false;
     }
-    let Ok(mut stream) = UnixStream::connect(&sock) else {
-        let _ = fs::remove_file(&sock);
+    let Ok(mut stream) = UnixStream::connect(sock) else {
+        let _ = fs::remove_file(sock);
         return false;
     };
 
@@ -55,19 +70,28 @@ pub fn try_forward_to_existing(path: &str) -> bool {
 
 /// Background IPC server instance for the active Arca window.
 pub struct IpcServer {
-    socket_path: PathBuf,
+    socket: PathBuf,
     running: Arc<AtomicBool>,
+    /// Paths forwarded by other processes, drained by the UI each frame.
+    pending: Arc<Mutex<Vec<String>>>,
 }
 
 impl IpcServer {
     /// Start the Unix domain socket listener for this instance.
     pub fn start() -> Option<Self> {
-        let sock = socket_path();
+        Self::start_at(&socket_path())
+    }
+
+    /// [`IpcServer::start`] on an explicit socket path (tests).
+    pub fn start_at(sock: &std::path::Path) -> Option<Self> {
+        let sock = sock.to_path_buf();
         let _ = fs::remove_file(&sock);
 
         let listener = UnixListener::bind(&sock).ok()?;
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
+        let pending = Arc::new(Mutex::new(Vec::new()));
+        let pending_worker = Arc::clone(&pending);
 
         thread::Builder::new()
             .name("arca-ipc-server".into())
@@ -83,7 +107,7 @@ impl IpcServer {
                             if reader.read_line(&mut line).is_ok() {
                                 let trimmed = line.trim();
                                 if let Some(path) = trimmed.strip_prefix("OPEN\t") {
-                                    if let Ok(mut queue) = PENDING_OPEN_PATHS.lock() {
+                                    if let Ok(mut queue) = pending_worker.lock() {
                                         queue.push(path.to_string());
                                     }
                                     iris::post_to_main_thread(|| {});
@@ -98,25 +122,25 @@ impl IpcServer {
             .ok()?;
 
         Some(Self {
-            socket_path: sock,
+            socket: sock,
             running,
+            pending,
         })
+    }
+
+    /// Take the paths forwarded since the last drain.
+    pub fn drain(&self) -> Vec<String> {
+        self.pending
+            .lock()
+            .map(|mut queue| std::mem::take(&mut *queue))
+            .unwrap_or_default()
     }
 }
 
 impl Drop for IpcServer {
     fn drop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
-        let _ = fs::remove_file(&self.socket_path);
-    }
-}
-
-/// Drain pending external open requests received via IPC.
-pub fn drain_pending_open_requests() -> Vec<String> {
-    if let Ok(mut queue) = PENDING_OPEN_PATHS.lock() {
-        std::mem::take(&mut *queue)
-    } else {
-        Vec::new()
+        let _ = fs::remove_file(&self.socket);
     }
 }
 
@@ -124,20 +148,94 @@ pub fn drain_pending_open_requests() -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// A socket path unique to one test, removed when dropped.
+    struct Endpoint(PathBuf);
+
+    impl Endpoint {
+        fn new(name: &str) -> Endpoint {
+            let path = std::env::temp_dir().join(format!(
+                "arca-ipc-test-{name}-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let _ = fs::remove_file(&path);
+            Endpoint(path)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Endpoint {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
     #[test]
-    fn ipc_server_forwarding_roundtrip() {
-        let server = IpcServer::start().expect("server should start");
+    fn forwarding_roundtrip() {
+        let endpoint = Endpoint::new("forward");
+        let server = IpcServer::start_at(endpoint.path()).expect("server should start");
 
-        let forwarded = try_forward_to_existing("/tmp/test-ipc-folder");
-        assert!(forwarded, "forward should succeed");
-
-        let drained = drain_pending_open_requests();
-        assert_eq!(drained, vec!["/tmp/test-ipc-folder"]);
+        assert!(try_forward_to(endpoint.path(), "/tmp/test-ipc-folder"));
+        assert_eq!(
+            server.drain(),
+            vec!["/tmp/test-ipc-folder"],
+            "the server must queue the forwarded path"
+        );
 
         drop(server);
+        assert!(!endpoint.path().exists(), "drop unlinks the socket");
+    }
+
+    /// A stale socket file (a crashed window) must not make forwarding
+    /// believe a live instance is listening.
+    #[test]
+    fn forwarding_to_a_dead_socket_fails() {
+        let endpoint = Endpoint::new("dead");
+        fs::write(endpoint.path(), b"not a socket").unwrap();
+
         assert!(
-            !socket_path().exists(),
-            "socket should be cleaned up on drop"
+            !try_forward_to(endpoint.path(), "/tmp/nowhere"),
+            "a non-socket file must not accept a forward"
         );
+        assert!(!endpoint.path().exists(), "the dead endpoint is cleaned up");
+    }
+
+    #[test]
+    fn forwarding_without_a_socket_is_a_no_op() {
+        let endpoint = Endpoint::new("absent");
+        assert!(!try_forward_to(endpoint.path(), "/tmp/nowhere"));
+    }
+
+    /// Several requests in one window are all delivered.
+    #[test]
+    fn multiple_requests_are_queued_in_order() {
+        let endpoint = Endpoint::new("batch");
+        let server = IpcServer::start_at(endpoint.path()).expect("server should start");
+
+        for path in ["/tmp/one", "/tmp/two", "/tmp/three"] {
+            assert!(try_forward_to(endpoint.path(), path));
+        }
+        assert_eq!(server.drain(), vec!["/tmp/one", "/tmp/two", "/tmp/three"]);
+        // Draining is destructive.
+        assert!(server.drain().is_empty());
+
+        drop(server);
+    }
+
+    /// The default path is the XDG runtime dir and carries the filename the
+    /// CLI forwarder expects.
+    #[test]
+    fn default_socket_path_is_under_the_runtime_dir() {
+        let path = socket_path();
+        assert_eq!(path.file_name().unwrap(), "arca-ipc.sock");
+        if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
+            assert!(path.starts_with(runtime), "must honour XDG_RUNTIME_DIR");
+        }
     }
 }

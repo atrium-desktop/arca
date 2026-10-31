@@ -22,6 +22,8 @@ pub enum PreviewKind {
     Video,
     Archive,
     Generic,
+    /// Device node, FIFO, or socket: never read, only described.
+    Special,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,6 +85,22 @@ impl Preview {
             };
         }
 
+        // Character devices, block devices, FIFOs, and sockets are not
+        // documents: reading them may block forever (an unconnected FIFO
+        // never returns from `open`) and their contents are not file text.
+        // Report the node type instead of guessing a MIME kind for them.
+        if !metadata.is_file() {
+            let node = node_kind_label(&metadata);
+            return Preview {
+                title,
+                path: path.into(),
+                kind: PreviewKind::Special,
+                subtitle: node.clone(),
+                facts: vec![("Type".into(), node), ("Modified".into(), modified)],
+                text: None,
+            };
+        }
+
         let mime = crate::mime::guess_mime_type(source);
         let kind = kind_for_mime(&mime);
         let mut facts = vec![
@@ -109,6 +127,7 @@ impl Preview {
             PreviewKind::Audio => "Audio",
             PreviewKind::Video => "Video",
             PreviewKind::Archive => "Archive",
+            PreviewKind::Special => "Special file",
             _ if text.is_some() => "Text document",
             _ => "File",
         }
@@ -152,7 +171,35 @@ fn kind_for_mime(mime: &str) -> PreviewKind {
     }
 }
 
+/// Human label for a non-regular filesystem node (device, FIFO, socket).
+fn node_kind_label(metadata: &std::fs::Metadata) -> String {
+    use std::os::unix::fs::FileTypeExt;
+    let file_type = metadata.file_type();
+    if file_type.is_fifo() {
+        "Named pipe"
+    } else if file_type.is_socket() {
+        "Socket"
+    } else if file_type.is_char_device() {
+        "Character device"
+    } else if file_type.is_block_device() {
+        "Block device"
+    } else {
+        "Special file"
+    }
+    .to_string()
+}
+
+/// Read at most [`READ_LIMIT`] bytes from `path`.
+///
+/// Regular files only: opening a FIFO, character device, or socket for
+/// reading can block indefinitely (a FIFO with no writer never returns from
+/// `open`), which would freeze the UI thread inside the Space-bar preview.
+/// Unreadable or special files simply yield no text/prefix bytes.
 fn read_prefix(path: &Path) -> Vec<u8> {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_file() => {}
+        _ => return Vec::new(),
+    }
     let Ok(file) = File::open(path) else {
         return Vec::new();
     };
@@ -268,5 +315,32 @@ mod tests {
     fn text_detection_rejects_binary_data() {
         assert!(looks_like_text(b"hello\nworld"));
         assert!(!looks_like_text(b"abc\0def"));
+    }
+
+    /// A FIFO named like a document must not block the UI thread: opening it
+    /// for reading waits for a writer that never comes.
+    #[test]
+    fn preview_of_a_fifo_returns_immediately() {
+        let tmp = std::env::temp_dir().join(format!("arca-preview-fifo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let fifo = tmp.join("pipe.txt");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo available");
+        assert!(status.success());
+
+        let started = std::time::Instant::now();
+        let preview = Preview::load(fifo.to_str().unwrap());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "previewing a FIFO must not block"
+        );
+        assert_eq!(preview.kind, PreviewKind::Special);
+        assert_eq!(preview.subtitle, "Named pipe");
+        assert!(preview.text.is_none());
+
+        std::fs::remove_dir_all(&tmp).unwrap();
     }
 }

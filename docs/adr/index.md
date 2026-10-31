@@ -18,3 +18,5 @@ For the record template and guidelines, see [ADR Template](template.md).
 | [0003](0003-borderless-chrome-and-dense-hierarchy.md) | Borderless Surfaces, Subtle Controls, and Visual Density Hierarchy | Accepted (Amended by ADR-0005) | 2026-09-10 |
 | [0004](0004-optics-v0.0.60-motion-and-image-pipeline-alignment.md) | Optics v0.0.60 Motion and Premultiplied Image Upload Alignment | Accepted | 2026-10-17 |
 | [0005](0005-fluid-adaptive-grid-and-typographic-metrics.md) | Fluid Adaptive Grid Architecture and Derived Typographic Metrics | Accepted | 2026-10-18 |
+| [0006](0006-optics-v0.0.64-segmented-controls-and-orthogonal-icon-metrics.md) | Optics v0.0.64 Segmented Controls, Orthogonal Icon Sizing, and Presentation Pacing Alignment | Accepted | 2026-10-31 |
+| [0007](0007-optics-v0.0.66-compound-patterns-and-textedit-interaction-alignment.md) | Optics v0.0.66 Compound Patterns, TextEdit Interaction, and Desktop Cursor Alignment | Accepted | 2026-10-31 |

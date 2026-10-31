@@ -24,9 +24,17 @@ arca --save-file [--name NAME] [--title TITLE] [DIRECTORY]
 |--------|-------------|
 | `-h`, `--help` | Print help information and exit. |
 | `-V`, `--version` | Print Arca version information and exit. |
+| `--new-window` | Force a new window instead of handing the path to an already running instance. |
 | `--grid` | Launch directly in Grid view mode. |
 | `--list` | Launch directly in List view mode. |
 | `--miller` | Launch directly in Miller columns view mode. |
+
+### Single-instance behaviour
+
+Without `--new-window`, `arca [DIRECTORY]` forwards the path to the running
+instance over its `$XDG_RUNTIME_DIR/arca-ipc.sock` socket and exits; the running
+window opens it in a new tab and raises itself. `--new-window` skips that
+hand-off and always creates a second process.
 
 ---
 
@@ -50,7 +58,7 @@ paths to standard output upon confirmation.
 
 | Option | Description |
 |--------|-------------|
-| `--chooser-prompt`, `--prompter` | Run in headless prompter mode, reading a JSON FileChooser request from standard input and writing the result JSON to standard output. |
+| `--chooser-prompt`, `--prompter` | Run in headless prompter mode, reading a JSON FileChooser request from standard input and writing the result JSON to standard output. `--prompter` is an alias. |
 
 ---
 

@@ -33,6 +33,8 @@ pub struct ChooserState {
     pub filter_menu_open: bool,
     pub choices: Vec<(String, String)>,
     pub choice_menus_open: HashMap<String, bool>,
+    /// Paths staged by Ctrl/Shift-click in `multiple` mode. When the request
+    /// allows it, this — not just the active cursor — is what Accept returns.
     pub selected_paths: BTreeSet<PathBuf>,
     pub overwrite_confirm: Option<PathBuf>,
     pub result: Option<FileChooserResponse>,
@@ -89,6 +91,30 @@ impl ChooserState {
             result: None,
             done: false,
         }
+    }
+
+    /// Whether the request permits selecting more than one path.
+    pub fn allows_multiple(&self) -> bool {
+        self.request.multiple
+    }
+
+    /// Stage or unstage `path` in multiple-select mode.
+    pub fn toggle_selected_path(&mut self, path: PathBuf) {
+        if !self.selected_paths.remove(&path) {
+            self.selected_paths.insert(path);
+        }
+    }
+
+    /// The paths Accept should return, most-specific rule first.
+    ///
+    /// In multiple mode an explicit staged selection wins; otherwise the
+    /// cursor's row is the answer. In single mode staging is ignored
+    /// entirely, so a request can never receive more paths than it allowed.
+    pub fn accept_selection(&self, cursor: Option<PathBuf>) -> Vec<PathBuf> {
+        if self.allows_multiple() && !self.selected_paths.is_empty() {
+            return self.selected_paths.iter().cloned().collect();
+        }
+        cursor.into_iter().collect()
     }
 
     pub fn active_filter(&self) -> Option<FileFilter> {
@@ -224,8 +250,11 @@ pub(crate) fn build_chooser_footer(app: &mut UiApp, frame: &mut Frame, tones: &T
                         frame.label_compact("File name:");
                         frame.flex(1.0);
                         frame.size_next(0.0, 32.0);
-                        frame.textfield("##save-name", &mut chooser.save_name);
+                        let resp = frame.textfield_ex("##save-name", &mut chooser.save_name, false);
                         capture_save_name(chooser, frame);
+                        if resp.submitted {
+                            trigger_accepted = true;
+                        }
                     },
                 );
             }
@@ -577,21 +606,24 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
 
     match chooser.request.mode {
         FileChooserMode::OpenFile => {
-            if let Some(entry) = app.state.selected_entry() {
-                if entry.navigable {
-                    // Navigate into directory
-                    let name = entry.name.clone();
-                    app.state.open_child(&name);
-                } else {
-                    let path = Path::new(app.state.cwd()).join(&entry.name);
-                    chooser.accept_paths(vec![path]);
-                    iris::window_close();
-                }
-            } else if !chooser.selected_paths.is_empty() {
-                let paths: Vec<PathBuf> = chooser.selected_paths.iter().cloned().collect();
-                chooser.accept_paths(paths);
-                iris::window_close();
+            // A directory row means "descend", never "accept": a picker must
+            // not return a folder for an OpenFile request.
+            if let Some(entry) = app.state.selected_entry().filter(|e| e.navigable) {
+                let name = entry.name.clone();
+                app.state.open_child(&name);
+                return;
             }
+            let cursor = app
+                .state
+                .selected_entry()
+                .filter(|entry| !entry.navigable)
+                .map(|entry| Path::new(app.state.cwd()).join(&entry.name));
+            let paths = chooser.accept_selection(cursor);
+            if paths.is_empty() {
+                return;
+            }
+            chooser.accept_paths(paths);
+            iris::window_close();
         }
         FileChooserMode::OpenDirectory => {
             let path = if let Some(entry) = app.state.selected_entry() {
@@ -746,4 +778,310 @@ pub fn run_chooser(
         .take()
         .unwrap_or(FileChooserResponse::Cancelled);
     Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour tests for this module.
+    //!
+    //! Migrated out of the former monolithic `lib.rs::tests` block so each
+    //! test lives next to the code it constrains.
+
+    use super::*;
+    use crate::test_support::{fixture, fixture_two_files, frame};
+
+    #[test]
+    fn chooser_renders_headless_open_mode() {
+        let (dir, mut app) = fixture();
+        let req = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::OpenFile,
+            app_id: "org.test.App".into(),
+            title: "Select Document".into(),
+            accept_label: Some("Pick".into()),
+            modal: true,
+            parent_window: None,
+            multiple: false,
+            current_folder: Some(arca_engine::chooser::BytePath::from_path(dir.path())),
+            current_name: None,
+            current_file: None,
+            filters: vec![arca_engine::chooser::FileFilter::new(
+                "Text Files (*.txt)",
+                vec![arca_engine::chooser::FilterRule {
+                    kind: arca_engine::chooser::FilterRuleKind::Glob,
+                    value: "*.txt".into(),
+                }],
+            )],
+            current_filter: None,
+            choices: vec![arca_engine::chooser::Choice {
+                id: "read_only".into(),
+                label: "Read only".into(),
+                options: Vec::new(),
+                selected: "false".into(),
+            }],
+            files: Vec::new(),
+        };
+        app.chooser = Some(ChooserState::new(req, None));
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        for _ in 0..3 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        assert!(app.chooser.is_some());
+        assert!(!app.chooser.as_ref().unwrap().done);
+    }
+
+    #[test]
+    fn chooser_renders_headless_save_mode_and_accepts() {
+        let (dir, mut app) = fixture();
+        let req = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::SaveFile,
+            app_id: "org.test.App".into(),
+            title: "Save Report".into(),
+            accept_label: Some("Save Report".into()),
+            modal: true,
+            parent_window: None,
+            multiple: false,
+            current_folder: Some(arca_engine::chooser::BytePath::from_path(dir.path())),
+            current_name: Some("report.pdf".into()),
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: Vec::new(),
+            files: Vec::new(),
+        };
+        app.chooser = Some(ChooserState::new(req, None));
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        assert_eq!(
+            app.chooser.as_ref().unwrap().save_name.as_str(),
+            "report.pdf"
+        );
+
+        // Press Return to accept
+        let mut enter = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        enter.push_key(lens::key::RETURN, true, false);
+        frame(&mut app, &mut ui, &enter);
+
+        let res = app.chooser.as_ref().unwrap().result.as_ref().unwrap();
+        match res {
+            arca_engine::chooser::FileChooserResponse::Selected { paths, .. } => {
+                assert_eq!(paths.len(), 1);
+                assert_eq!(paths[0].to_path_buf(), dir.join("report.pdf"));
+            }
+            _ => panic!("Expected Selected response, got {res:?}"),
+        }
+    }
+
+    #[test]
+    fn chooser_save_overwrite_modal_triggers() {
+        let (dir, mut app) = fixture();
+        let req = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::SaveFile,
+            app_id: "org.test.App".into(),
+            title: "Save File".into(),
+            accept_label: None,
+            modal: true,
+            parent_window: None,
+            multiple: false,
+            current_folder: Some(arca_engine::chooser::BytePath::from_path(dir.path())),
+            current_name: Some("a.txt".into()), // "a.txt" already exists in fixture!
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: Vec::new(),
+            files: Vec::new(),
+        };
+        app.chooser = Some(ChooserState::new(req, None));
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        // Trigger accept (Return key)
+        let mut enter = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        enter.push_key(lens::key::RETURN, true, false);
+        frame(&mut app, &mut ui, &enter);
+
+        // Since a.txt exists, overwrite_confirm modal should be set
+        assert_eq!(
+            app.chooser.as_ref().unwrap().overwrite_confirm,
+            Some(dir.join("a.txt"))
+        );
+        assert!(!app.chooser.as_ref().unwrap().done);
+
+        // Escape dismisses the overwrite modal without cancelling the chooser
+        let mut esc = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        esc.push_key(lens::key::ESCAPE, true, false);
+        frame(&mut app, &mut ui, &esc);
+
+        assert_eq!(app.chooser.as_ref().unwrap().overwrite_confirm, None);
+        assert!(!app.chooser.as_ref().unwrap().done);
+
+        // Another Escape cancels the chooser
+        frame(&mut app, &mut ui, &esc);
+        assert_eq!(
+            app.chooser.as_ref().unwrap().result,
+            Some(arca_engine::chooser::FileChooserResponse::Cancelled)
+        );
+    }
+
+    /// A `multiple` OpenFile request must return every staged path. The
+    /// staged set (`ChooserState::selected_paths`) was never written to, so
+    /// the picker silently degraded to single selection and the
+    /// `--choose-files` / portal `multiple: true` contracts were broken.
+    #[test]
+    fn chooser_multiple_returns_every_staged_path() {
+        let (_dir, mut app) = fixture_two_files();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let request = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::OpenFile,
+            app_id: "io.arca.Test".into(),
+            title: "Pick files".into(),
+            accept_label: None,
+            modal: true,
+            parent_window: None,
+            multiple: true,
+            current_folder: None,
+            current_name: None,
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: Vec::new(),
+            files: Vec::new(),
+        };
+        app.chooser = Some(ChooserState::new(request, None));
+        frame(&mut app, &mut ui, &settle);
+
+        // Stage the two files (directories sort first, so rows 1 and 2).
+        app.state.select_visible(1);
+        app.row_clicked(1, "a.txt");
+        app.row_clicked(2, "b.txt");
+
+        trigger_accept(&mut app);
+
+        let result = app
+            .chooser
+            .as_ref()
+            .and_then(|c| c.result.clone())
+            .expect("a response must be produced");
+        match result {
+            arca_engine::chooser::FileChooserResponse::Selected { paths, .. } => {
+                let names: Vec<String> = paths
+                    .iter()
+                    .map(|p| {
+                        p.to_path_buf()
+                            .file_name()
+                            .unwrap()
+                            .to_string_lossy()
+                            .into_owned()
+                    })
+                    .collect();
+                assert_eq!(names, vec!["a.txt", "b.txt"], "both staged paths return");
+            }
+            other => panic!("expected a selection, got {other:?}"),
+        }
+    }
+
+    /// Double-clicking accepts the *whole* staged selection in multiple
+    /// mode — the fast path must not silently discard the other rows the
+    /// user had already clicked.
+    #[test]
+    fn chooser_double_click_accepts_the_staged_selection() {
+        let (_dir, mut app) = fixture_two_files();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let request = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::OpenFile,
+            app_id: "io.arca.Test".into(),
+            title: "Pick files".into(),
+            accept_label: None,
+            modal: true,
+            parent_window: None,
+            multiple: true,
+            current_folder: None,
+            current_name: None,
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: Vec::new(),
+            files: Vec::new(),
+        };
+        app.chooser = Some(ChooserState::new(request, None));
+        frame(
+            &mut app,
+            &mut ui,
+            &lens::Input::new((1040.0, 700.0), 1.0 / 60.0),
+        );
+
+        // Stage both files, then double-click the second one.
+        app.row_clicked(1, "a.txt");
+        app.row_clicked(2, "b.txt");
+        app.row_clicked(2, "b.txt");
+
+        let result = app
+            .chooser
+            .as_ref()
+            .and_then(|chooser| chooser.result.clone())
+            .expect("a double-click must accept");
+        match result {
+            arca_engine::chooser::FileChooserResponse::Selected { paths, .. } => {
+                assert_eq!(
+                    paths.len(),
+                    2,
+                    "double-click must accept every staged path, got {paths:?}"
+                );
+            }
+            other => panic!("expected a selection, got {other:?}"),
+        }
+    }
+
+    /// The same request with `multiple: false` must never return more than
+    /// one path, even if several rows carry a highlight.
+    #[test]
+    fn chooser_single_returns_only_the_cursor() {
+        let (_dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let request = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::OpenFile,
+            app_id: "io.arca.Test".into(),
+            title: "Pick one".into(),
+            accept_label: None,
+            modal: true,
+            parent_window: None,
+            multiple: false,
+            current_folder: None,
+            current_name: None,
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: Vec::new(),
+            files: Vec::new(),
+        };
+        app.chooser = Some(ChooserState::new(request, None));
+        app.state.select_all();
+        app.state.select_visible(1);
+        frame(&mut app, &mut ui, &settle);
+
+        trigger_accept(&mut app);
+
+        let result = app
+            .chooser
+            .as_ref()
+            .and_then(|c| c.result.clone())
+            .expect("a response must be produced");
+        match result {
+            arca_engine::chooser::FileChooserResponse::Selected { paths, .. } => {
+                assert_eq!(paths.len(), 1, "single mode must return exactly one path");
+                assert!(paths[0].to_path_buf().ends_with("a.txt"));
+            }
+            other => panic!("expected a selection, got {other:?}"),
+        }
+    }
 }

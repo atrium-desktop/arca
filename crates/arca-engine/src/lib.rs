@@ -39,7 +39,7 @@ pub use entry::{Entry, FileType, SortKey};
 pub use mime::MimeDatabase;
 pub use path::{complete_path, PathCompletion};
 pub use preview::{Preview, PreviewKind};
-pub use state::{AppState, Clipboard, MillerColumn, TabState};
+pub use state::{AppState, Clipboard, MillerColumn, TabState, TransferAction};
 pub use thumbs::{Thumb, ThumbService};
 pub use trash::TrashItem;
 pub use undo::{UndoAction, UndoStack};

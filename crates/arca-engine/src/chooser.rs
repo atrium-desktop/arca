@@ -92,14 +92,19 @@ impl FileFilter {
         }
     }
 
-    /// Whether this filter allows the given file name / path.
-    pub fn allows(&self, name: &str, path: &Path) -> bool {
+    /// Whether this filter allows `name`, whose MIME type is `mime`.
+    ///
+    /// The MIME type is passed in rather than derived from a path: the
+    /// listing already classified every entry when it read the directory, and
+    /// re-sniffing per frame means one `open`+`read` per file per call (~12 ms
+    /// for 2400 entries) inside the render path.
+    pub fn allows_mime(&self, name: &str, mime: &str) -> bool {
         if self.rules.is_empty() {
             return true;
         }
         self.rules.iter().any(|rule| match rule.kind {
             FilterRuleKind::Glob => glob_match(&rule.value, name),
-            FilterRuleKind::Mime => mime_matches(&rule.value, path),
+            FilterRuleKind::Mime => mime_rule_matches(&rule.value, mime),
         })
     }
 }
@@ -527,15 +532,23 @@ fn parse_class(pattern: &[char]) -> Option<(impl Fn(char) -> bool + 'static, &[c
     ))
 }
 
-/// Match path against a MIME type pattern (e.g. `image/png` or wildcard `image/*`).
-pub fn mime_matches(rule: &str, path: &Path) -> bool {
-    let mime = crate::mime::guess_mime_type(path);
+/// Match a known MIME type against a rule pattern (`image/png`, `image/*`).
+pub fn mime_rule_matches(rule: &str, mime: &str) -> bool {
     if let Some(prefix) = rule.strip_suffix('*') {
         mime.starts_with(prefix)
     } else {
         mime.eq_ignore_ascii_case(rule)
-            || crate::mime::default_database().is_subclass_of(&mime, rule)
+            || crate::mime::default_database().is_subclass_of(mime, rule)
     }
+}
+
+/// Match a path against a MIME type pattern, sniffing the file first.
+///
+/// Convenience for callers that only have a path. Hot paths (the listing
+/// filter) must use [`FileFilter::allows_mime`] with the entry's cached MIME
+/// type instead.
+pub fn mime_matches(rule: &str, path: &Path) -> bool {
+    mime_rule_matches(rule, &crate::mime::guess_mime_type(path))
 }
 
 // ---- JSON wire helpers ----------------------------------------------------
@@ -564,6 +577,15 @@ pub fn read_prompter_request<R: io::Read>(
 ) -> Result<(FileChooserRequest, Option<PromptAppearance>), String> {
     let req: PrompterRequest = serde_json::from_reader(reader)
         .map_err(|e| format!("failed to parse prompter request JSON: {e}"))?;
+    // The contract is versioned for a reason: a daemon speaking a different
+    // revision may send fields this build would silently misread. Refuse
+    // rather than guess — the caller can then fall back to another prompter.
+    if req.version != PROCESS_CONTRACT_VERSION {
+        return Err(format!(
+            "unsupported prompter contract version {} (this build speaks {})",
+            req.version, PROCESS_CONTRACT_VERSION
+        ));
+    }
     match req.prompt {
         PromptRequest::FileChooser(mut fc) => {
             if let Some(label) = fc.accept_label.as_deref() {
@@ -593,6 +615,37 @@ pub fn write_prompter_response<W: io::Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A daemon speaking another contract revision must be rejected, not
+    /// silently parsed against this build's field meanings.
+    #[test]
+    fn prompter_rejects_unknown_contract_versions() {
+        let request_json = |version: u32| {
+            format!(
+                r#"{{"version":{version},"prompt":{{"kind":"file_chooser","request":{{
+                    "mode":"open_file","app_id":"x","title":"t","accept_label":null,
+                    "modal":false,"parent_window":null,"multiple":false,
+                    "current_folder":null,"current_name":null,"current_file":null,
+                    "filters":[],"current_filter":null,"choices":[],"files":[]}}}}}}"#
+            )
+        };
+
+        assert!(read_prompter_request(request_json(PROCESS_CONTRACT_VERSION).as_bytes()).is_ok());
+        for version in [
+            1,
+            5,
+            PROCESS_CONTRACT_VERSION - 1,
+            PROCESS_CONTRACT_VERSION + 1,
+            99,
+        ] {
+            let error = read_prompter_request(request_json(version).as_bytes())
+                .expect_err("a foreign contract version must be refused");
+            assert!(
+                error.contains("contract version"),
+                "the error must name the version mismatch, got {error:?}"
+            );
+        }
+    }
 
     #[test]
     fn glob_matching() {
@@ -632,9 +685,13 @@ mod tests {
                 },
             ],
         );
-        assert!(filter.allows("photo.png", Path::new("/tmp/photo.png")));
-        assert!(filter.allows("photo.jpg", Path::new("/tmp/photo.jpg")));
-        assert!(!filter.allows("doc.pdf", Path::new("/tmp/doc.pdf")));
+        // `allows_mime` takes the MIME type the directory listing already
+        // resolved, so filtering never touches the filesystem.
+        assert!(filter.allows_mime("photo.png", "image/png"));
+        assert!(filter.allows_mime("photo.jpg", "image/jpeg"));
+        assert!(!filter.allows_mime("doc.pdf", "application/pdf"));
+        // A directory entry is navigable and must never be filtered out.
+        assert!(!filter.allows_mime("album", "inode/directory"));
     }
 
     #[test]

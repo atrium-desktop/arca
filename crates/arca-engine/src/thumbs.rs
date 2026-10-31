@@ -407,7 +407,12 @@ fn prune_cache_dir(dir: &Path, max_entries: usize) {
     }
 }
 
+/// Read at most [`READ_CAP`] bytes. Regular files only — a FIFO or device
+/// node named `*.png` would otherwise block a decode worker forever.
 fn read_capped(path: &Path) -> Option<Vec<u8>> {
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
     let file = File::open(path).ok()?;
     let mut bytes = Vec::new();
     file.take(READ_CAP).read_to_end(&mut bytes).ok()?;
@@ -442,6 +447,9 @@ fn syncsafe(bytes: &[u8]) -> Option<u32> {
 /// block headers and the one picture block are read; everything else is
 /// sought past.
 fn flac_picture(path: &Path) -> Option<Vec<u8>> {
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
     let mut file = File::open(path).ok()?;
     let mut magic = [0u8; 4];
     file.read_exact(&mut magic).ok()?;
@@ -492,6 +500,9 @@ fn flac_picture_block(mut file: File, length: u64) -> Option<Vec<u8>> {
 /// Extract the first APIC (v2.3/v2.4) or PIC (v2.2) frame from the ID3v2
 /// tag at the start of an MP3 file. The tag size caps the read.
 fn id3_picture(path: &Path) -> Option<Vec<u8>> {
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
     let mut file = File::open(path).ok()?;
     let mut header = [0u8; 10];
     file.read_exact(&mut header).ok()?;

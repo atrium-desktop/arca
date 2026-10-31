@@ -135,10 +135,17 @@ arca (binary)
 
 | Invariant ID | Name | Architectural Red-Line | Mechanical Enforcement |
 | :--- | :--- | :--- | :--- |
-| **`[INV-ARCH-01]`** | XDG Pure-Std Isolation | `arca-xdg` must have strictly zero external dependencies. | `crates/arca-xdg/Cargo.toml` dependency block verification |
-| **`[INV-ARCH-02]`** | Engine Headless Purity | `arca-engine` must never link GUI or Wayland libraries. | Headless unit test execution without Wayland compositor |
-| **`[INV-UI-01]`** | 1 MiB Frame Arena Budget | Viewport rendering must never exceed Lens 1 MiB arena memory limit. | `tests::large_directory_does_not_overflow_frame_arena` |
+| **`[INV-ARCH-01]`** | XDG Pure-Std Isolation | `arca-xdg` must have strictly zero external dependencies. | CI job `architecture` parses `crates/arca-xdg/Cargo.toml` and fails on any dependency block |
+| **`[INV-ARCH-02]`** | Engine Headless Purity | `arca-engine` must never link GUI or Wayland libraries. | CI job `architecture` rejects `lens`/`iris`/`flux`/`transit`/`arca-ui` as dependencies |
+| **`[INV-ARCH-03]`** | Concentric Dependency Direction | Outer layers may depend inward only; no cycles. | CI job `architecture` checks each crate's internal edges against an allow-list |
+| **`[INV-UI-01]`** | 1 MiB Frame Arena Budget | Viewport rendering must never exceed Lens 1 MiB arena memory limit. | `tests::large_directory_does_not_overflow_frame_arena` (CI job `invariants`) |
 | **`[INV-UI-02]`** | Motion Math Centralization | Easing curves and spring dynamics must delegate to Optics `transit`. | Elimination of private approach/clamping math; ADR-0004 |
-| **`[INV-OPS-01]`** | Non-Destructive Trash | Deletions must generate compliant FreeDesktop `.trashinfo` metadata. | `trash::tests::test_trash_roundtrip` |
-| **`[INV-OPS-02]`** | Anti-Clobber File Creation | Renaming and folder creation must never silently overwrite destinations. | `ops::tests::rename_refuses_to_clobber` |
+| **`[INV-UI-03]`** | Legible Text | Body text must meet WCAG AA (4.5:1) on its surface in both schemes. | `theme::contrast_tests::*` |
+| **`[INV-OPS-01]`** | Non-Destructive Trash | Deletions must generate compliant FreeDesktop `.trashinfo` metadata, recording the deleted path itself (never a symlink's target). | `trash::tests::test_trash_roundtrip`, `trash::tests::trashing_a_symlink_records_the_link_path` |
+| **`[INV-OPS-02]`** | Anti-Clobber File Creation | Renaming and folder creation must never silently overwrite destinations, including dangling symlinks. | `ops::tests::rename_refuses_to_clobber`, `ops::tests::rename_refuses_dangling_symlink_destination` |
+| **`[INV-OPS-03]`** | No Self-Containment | A directory may never be copied or moved into itself or a descendant. | `ops::tests::copy_and_move_reject_self_descendant_targets`, `state::tests::drop_refuses_a_directory_into_its_own_descendant` |
+| **`[INV-OPS-04]`** | Non-Blocking Special Files | FIFOs, devices and sockets are never opened for content. | `preview::tests::preview_of_a_fifo_returns_immediately` |
+| **`[INV-DATA-01]`** | Selection Identity | Selection is name-based and always a subset of the visible set; the cursor is always selected. | `regression_tests::refresh_keeps_the_selection_highlight`, `regression_tests::sorting_keeps_the_selection_on_the_same_file` |
+| **`[INV-DATA-02]`** | Transfer Payload Parity | Drops accept the same interchange formats the clipboard emits (`text/uri-list`, `x-special/gnome-copied-files`, bare paths). | `state::tests::drop_transfers_every_item_in_a_uri_list_payload`, `clipboard::tests::*` |
+| **`[INV-DOC-01]`** | Code-to-Doc Parity | Every CLI flag, config key, sort value and key binding appears in its reference. | `scripts/check-docs.py` (CI job `docs`) |
 | **`[INV-CLI-01]`** | Unified Binary Singleton | `arca` is the sole public executable binary. | Cargo workspace root manifest binary configuration |

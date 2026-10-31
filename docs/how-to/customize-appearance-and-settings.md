@@ -92,13 +92,16 @@ bookmark = /mnt/data/storage
 
 ## Clear Thumbnail Cache
 
-Decoded thumbnails are cached on disk under `$XDG_CACHE_HOME/arca/thumbnails/` (typically
-`~/.cache/arca/thumbnails/`).
+Decoded thumbnails are written to the standard FreeDesktop Thumbnail Managing
+Standard location, `$XDG_CACHE_HOME/thumbnails/normal/` (typically
+`~/.cache/thumbnails/normal/`), as 128 px PNGs keyed by `MD5(file URI)`. Other
+desktop applications read and write the same cache, so covers survive restarts and
+are shared across the desktop.
 
 To purge thumbnail cache files and free disk space:
 
 ```bash
-rm -rf ~/.cache/arca/thumbnails/*
+rm -rf ~/.cache/thumbnails/normal/*
 ```
 
 Arca automatically regenerates thumbnails on demand when directories are revisited.

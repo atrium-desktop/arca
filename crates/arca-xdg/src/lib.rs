@@ -25,7 +25,7 @@ pub use base::{
     all_config_dirs, all_data_dirs, cache_home, config_dirs, config_home, data_dirs, data_home,
     home_dir, runtime_dir, state_home,
 };
-pub use clipboard::FileClipboard;
+pub use clipboard::{FileClipboard, TransferAction};
 pub use desktop::{
     applications_for_mime, default_application_for_mime, discover_applications, open_path,
     parse_desktop_file, DesktopEntry,
@@ -33,8 +33,9 @@ pub use desktop::{
 pub use md5::md5_hex;
 pub use mime::{default_database, guess_mime_type, MimeDatabase};
 pub use trash::{
-    empty_trash, home_trash_root, list_trash, list_trash_in_root, purge_trash_item,
-    restore_trash_item, trash_paths, trash_root, trash_root_for, TrashItem,
+    empty_trash, home_trash_files_dir, home_trash_root, is_trash_files_dir, list_trash,
+    list_trash_in_root, purge_trash_item, restore_trash_item, trash_paths, trash_root,
+    trash_root_for, TrashItem,
 };
 pub use uri::{decode_file_uri, encode_file_uri};
 pub use user_dirs::{load_user_dirs, user_dir, UserDirKind};

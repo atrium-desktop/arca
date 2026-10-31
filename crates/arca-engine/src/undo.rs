@@ -208,9 +208,145 @@ impl UndoStack {
                 });
                 Ok(format!("Redid move of {moved} item(s)"))
             }
-            UndoAction::Copy { destinations: _ } => {
-                Ok("Redo copy not applicable; re-paste from clipboard".into())
+            // A copy cannot be redone: the undo already deleted the copies and
+            // the sources may have changed since. Put the action back on the
+            // redo stack (it was popped above) so it is not silently lost, and
+            // report it as a refusal rather than success.
+            copy @ UndoAction::Copy { .. } => {
+                self.redo_items.push(copy);
+                Err("Redo is not available for a copy; paste from the clipboard again".into())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_fixture() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "arca-undo-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn empty_stack_reports_both_directions() {
+        let mut stack = UndoStack::new();
+        assert!(!stack.can_undo());
+        assert!(!stack.can_redo());
+        assert!(stack.undo().is_err());
+        assert!(stack.redo().is_err());
+    }
+
+    #[test]
+    fn rename_undo_and_redo_roundtrip() {
+        let dir = temp_fixture();
+        let original = dir.join("a.txt");
+        let renamed = dir.join("b.txt");
+        fs::write(&original, b"x").unwrap();
+        fs::rename(&original, &renamed).unwrap();
+
+        let mut stack = UndoStack::new();
+        stack.push(UndoAction::Rename {
+            original: original.clone(),
+            new_path: renamed.clone(),
+        });
+
+        stack.undo().expect("undo rename");
+        assert!(original.exists() && !renamed.exists());
+
+        stack.redo().expect("redo rename");
+        assert!(renamed.exists() && !original.exists());
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn create_folder_undo_and_redo() {
+        let dir = temp_fixture();
+        let folder = dir.join("made");
+        fs::create_dir(&folder).unwrap();
+
+        let mut stack = UndoStack::new();
+        stack.push(UndoAction::CreateFolder(folder.clone()));
+
+        stack.undo().expect("undo create");
+        assert!(!folder.exists());
+
+        stack.redo().expect("redo create");
+        assert!(folder.exists());
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn copy_undo_removes_the_copies() {
+        let dir = temp_fixture();
+        let copied = dir.join("copy.txt");
+        fs::write(&copied, b"x").unwrap();
+
+        let mut stack = UndoStack::new();
+        stack.push(UndoAction::Copy {
+            destinations: vec![copied.clone()],
+        });
+
+        stack.undo().expect("undo copy");
+        assert!(!copied.exists(), "undoing a copy removes what it created");
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A copy cannot be redone. It must be reported as a refusal *and* kept on
+    /// the redo stack — it used to be popped and answered with `Ok`, so the
+    /// entry vanished while the user was told nothing was wrong.
+    #[test]
+    fn copy_redo_is_refused_without_losing_the_entry() {
+        let dir = temp_fixture();
+        let copied = dir.join("copy.txt");
+        fs::write(&copied, b"x").unwrap();
+
+        let mut stack = UndoStack::new();
+        stack.push(UndoAction::Copy {
+            destinations: vec![copied.clone()],
+        });
+        stack.undo().expect("undo copy");
+
+        assert!(stack.can_redo());
+        let error = stack.redo().expect_err("a copy has no redo");
+        assert!(error.contains("not available"), "got {error:?}");
+        assert!(
+            stack.can_redo(),
+            "the refused action must stay on the redo stack"
+        );
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn push_clears_the_redo_branch() {
+        let dir = temp_fixture();
+        let a = dir.join("a");
+        let b = dir.join("b");
+        fs::create_dir(&a).unwrap();
+        fs::create_dir(&b).unwrap();
+
+        let mut stack = UndoStack::new();
+        stack.push(UndoAction::CreateFolder(a.clone()));
+        stack.undo().expect("undo");
+        assert!(stack.can_redo());
+
+        stack.push(UndoAction::CreateFolder(b));
+        assert!(!stack.can_redo(), "a new action truncates the redo branch");
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

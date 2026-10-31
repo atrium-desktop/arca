@@ -5,6 +5,7 @@ use arca_engine::entry::{FileType, SortKey};
 use arca_engine::format::{format_size, format_time};
 use arca_engine::{Entry, ViewMode};
 use iris::{Align, Color, Frame, LayoutOpts};
+use std::path::PathBuf;
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -22,8 +23,6 @@ pub(crate) const GRID_MAX_LABEL_LINES: usize = 2;
 
 /// Canonical default resting card height for headless initial state and test assertions.
 pub(crate) const GRID_DEFAULT_CARD_HEIGHT: f32 = 102.0;
-#[allow(dead_code)]
-pub(crate) const GRID_DEFAULT_ROW_PITCH: f32 = GRID_DEFAULT_CARD_HEIGHT + GRID_GAP;
 
 /// Dynamically derive the card height required to fit `GRID_ICON_SIZE` art plus
 /// `GRID_MAX_LABEL_LINES` of text based on the active theme font's line box metrics.
@@ -53,6 +52,29 @@ const MILLER_ROW_PITCH: f32 = 36.0 + 2.0;
 /// Extra rows built past each viewport edge so one-frame-stale geometry
 /// never flashes blank while scrolling.
 const OVERSCAN_ROWS: usize = 2;
+
+/// Drag-and-drop action bitmask advertised to the compositor
+/// (`lens_dnd_source_desc.actions`: 1 = copy, 2 = move).
+const DND_ACTIONS: u32 = 1 | 2;
+
+/// The interchange payload for a drag started on `row_path`.
+///
+/// A pointer press that lands inside an existing multi-selection starts a
+/// drag of the *whole* selection; otherwise just that row. The payload is an
+/// RFC 2483 `text/uri-list`, which is what both the Wayland host and every
+/// external file manager speak, and what [`AppState::drop_into`] parses.
+fn drag_payload(app: &UiApp, row_selected: bool, row_path: &str) -> String {
+    let paths: Vec<PathBuf> = if row_selected && app.state.selected_count() > 1 {
+        app.state
+            .selected_paths()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect()
+    } else {
+        vec![PathBuf::from(row_path)]
+    };
+    arca_xdg::FileClipboard::new(paths, arca_xdg::TransferAction::Copy).to_uri_list()
+}
 
 // Test-only record of the last `build_list` virtualized window, so a test can
 // assert scrolling advances `(first, last)` instead of freezing on the
@@ -216,7 +238,9 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
     let columns = (plan.columns as usize).max(1);
     app.current_grid_columns = columns;
 
-    let card_width = plan.column_width.clamp(GRID_MIN_CARD_WIDTH, GRID_MAX_CARD_WIDTH);
+    let card_width = plan
+        .column_width
+        .clamp(GRID_MIN_CARD_WIDTH, GRID_MAX_CARD_WIDTH);
     let row_count = visible.len().div_ceil(columns);
     let fallback = (app.viewport.1 / row_pitch).ceil() as usize + OVERSCAN_ROWS + 2;
     let geometry = scroll_geometry(frame, "grid-files");
@@ -276,7 +300,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
 fn build_grid_card(
     app: &mut UiApp,
     frame: &mut Frame,
-    _tones: &Tones,
+    tones: &Tones,
     entry_index: usize,
     visible_index: usize,
     card_width: f32,
@@ -302,23 +326,38 @@ fn build_grid_card(
     };
     if let Some(drop) = &drop_info {
         if let Some(payload) = &drop.payload {
-            app.state.drop_into(payload, &full_path);
+            app.state
+                .drop_into(payload, &full_path, arca_engine::TransferAction::Move);
         }
     }
-    let drop_hovered = drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false);
+    let is_drag_active = app.active_drag.as_ref().is_some_and(|d| d.started);
+    let drop_hovered = is_drag_active && drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false);
 
-    let is_dragged = app
-        .active_drag
-        .as_ref()
-        .is_some_and(|d| d.started && d.path == full_path);
+    let is_dragged = is_drag_active
+        && app
+            .active_drag
+            .as_ref()
+            .is_some_and(|d| d.path == full_path);
 
     let is_hovered = app.hovered_grid_index == Some(visible_index);
-    let text_color = if selected || drop_hovered {
-        frame.theme().accent()
+    // macOS Finder-grade desktop presentation:
+    // Grid items do not paint heavy background cards on pointer hover.
+    // At rest and on hover, the card canvas remains completely transparent.
+    // Selection highlights only the label text pill with an accent capsule
+    // and high-contrast white text, conforming snugly to the label lines.
+    // Active drag-and-drop targets receive an explicit highlight wash and border.
+    let (text_color, label_bg) = if selected || drop_hovered {
+        (Color::rgba(255, 255, 255, 255), frame.theme().accent())
     } else if is_hovered {
-        iris::Color::rgba(255, 255, 255, 255)
+        (tones.file_label_hover, Color::TRANSPARENT)
     } else {
-        iris::Color::rgba(215, 222, 235, 255)
+        (tones.file_label, Color::TRANSPARENT)
+    };
+
+    let (card_bg, card_border, card_border_w) = if drop_hovered {
+        (tones.selected, frame.theme().accent(), 1.5)
+    } else {
+        (Color::TRANSPARENT, Color::TRANSPARENT, 0.0)
     };
 
     let text_width = card_width - (GRID_CARD_PAD * 2.0);
@@ -328,7 +367,9 @@ fn build_grid_card(
         gap: 0.0,
         pad: GRID_CARD_PAD,
         cross: Align::Start,
-        bg: Color::TRANSPARENT,
+        bg: card_bg,
+        border: card_border,
+        border_width: card_border_w,
         radius: 6.0,
         ..Default::default()
     };
@@ -350,8 +391,11 @@ fn build_grid_card(
                 frame.size_next(0.0, 2.0);
                 frame.spacer(2.0);
                 frame.size_next(text_width, 0.0);
-                frame.textfield("##grid-rename", &mut app.rename);
+                let resp = frame.textfield_ex("##grid-rename", &mut app.rename, false);
                 capture_rename(app, frame);
+                if resp.submitted {
+                    app.commit_rename(frame);
+                }
             },
         );
         frame.pop_id();
@@ -360,6 +404,16 @@ fn build_grid_card(
         }
         return;
     }
+
+    // Suppress lens's automatic pressable card hover/active wash and focus border so the
+    // grid item follows native desktop canvas conventions (no flashing gray cards, no focus border).
+    let prev_theme = frame.theme();
+    frame.set_theme(
+        prev_theme
+            .with_hover(Color::TRANSPARENT)
+            .with_active(Color::TRANSPARENT)
+            .with_accent(Color::TRANSPARENT),
+    );
 
     let (response, ()) = frame
         .row()
@@ -382,7 +436,7 @@ fn build_grid_card(
                             ..Default::default()
                         },
                         |frame| {
-                            card_art(app, frame, &entry, GRID_ICON_SIZE);
+                            card_art(app, frame, &entry, GRID_ICON_SIZE, selected);
                         },
                     );
                     theme::label_centered_styled(
@@ -392,26 +446,20 @@ fn build_grid_card(
                         text_width,
                         GRID_MAX_LABEL_LINES,
                         text_color,
-                        Color::TRANSPARENT,
+                        label_bg,
                     );
                 },
             );
         });
+
+    frame.set_theme(prev_theme);
     if response.hovered {
         app.next_hovered_grid_index = Some(visible_index);
     }
-    let dnd_payload = if selected && app.state.selected_count() > 1 {
-        let paths = app.state.selected_paths();
-        let mut out = String::new();
-        for p in paths {
-            out.push_str(&arca_xdg::uri::encode_file_uri(std::path::Path::new(&p)));
-            out.push_str("\r\n");
-        }
-        out
-    } else {
-        full_path.clone()
-    };
-    frame.dnd_source(&grid_id, &dnd_payload, 1);
+    let dnd_payload = drag_payload(app, selected, &full_path);
+    // COPY | MOVE: the negotiated action decides, and the payload carries
+    // the path list so the drop side never has to re-derive it.
+    frame.dnd_source(&grid_id, &dnd_payload, DND_ACTIONS);
     if is_dragged {
         frame.set_opacity(prev_opacity);
     }
@@ -420,7 +468,7 @@ fn build_grid_card(
             entry.name.clone(),
             full_path.clone(),
             entry.navigable,
-            visible_index,
+            dnd_payload.clone(),
         );
     }
     if entry.navigable {
@@ -435,6 +483,13 @@ fn build_grid_card(
     } else if response.right_clicked {
         app.row_right_clicked(visible_index, response.rect);
     }
+    suppress_item_pointer_cursor(frame);
+}
+
+/// Restore standard desktop arrow cursor over content listing items (ADR desktop conventions:
+/// file manager items are desktop objects, not web hyperlinks, so they use the standard arrow cursor).
+pub(crate) fn suppress_item_pointer_cursor(frame: &mut Frame) {
+    frame.set_cursor_hint(lens::CursorHint::Default);
 }
 
 fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usize]) {
@@ -533,12 +588,26 @@ fn build_list_row(
     let Some(entry) = app.state.entries().get(entry_index).cloned() else {
         return;
     };
-    let size = if entry.file_type == FileType::Directory {
-        "—".into()
-    } else {
-        format_size(entry.size)
+    // A Trash listing is a view over `.trashinfo` records: the on-disk size
+    // and mtime describe the trash copy, while what the user needs is where
+    // the item came from and when it was deleted.
+    let (size, modified) = match app.state.trash_record(&entry.name) {
+        Some(item) => (
+            item.original_path
+                .parent()
+                .map(|parent| parent.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            item.deletion_date.clone(),
+        ),
+        None => (
+            if entry.file_type == FileType::Directory {
+                "—".into()
+            } else {
+                format_size(entry.size)
+            },
+            format_time(entry.mtime),
+        ),
     };
-    let modified = format_time(entry.mtime);
     let full_path = std::path::Path::new(app.state.cwd())
         .join(&entry.name)
         .to_string_lossy()
@@ -551,16 +620,19 @@ fn build_list_row(
     };
     if let Some(drop) = &drop_info {
         if let Some(payload) = &drop.payload {
-            app.state.drop_into(payload, &full_path);
+            app.state
+                .drop_into(payload, &full_path, arca_engine::TransferAction::Move);
         }
     }
-    let drop_hovered = drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false);
+    let is_drag_active = app.active_drag.as_ref().is_some_and(|d| d.started);
+    let drop_hovered = is_drag_active && drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false);
     let selected = app.state.is_selected(visible_index);
 
-    let is_dragged = app
-        .active_drag
-        .as_ref()
-        .is_some_and(|d| d.started && d.path == full_path);
+    let is_dragged = is_drag_active
+        && app
+            .active_drag
+            .as_ref()
+            .is_some_and(|d| d.path == full_path);
 
     let options = LayoutOpts {
         height: 42.0,
@@ -586,8 +658,11 @@ fn build_list_row(
         frame.row_ex(&options, |frame| {
             row_icon(frame, &entry);
             frame.flex(1.0);
-            frame.textfield("##list-rename", &mut app.rename);
+            let resp = frame.textfield_ex("##list-rename", &mut app.rename, false);
             capture_rename(app, frame);
+            if resp.submitted {
+                app.commit_rename(frame);
+            }
             metadata_label(frame, tones, &size, 86.0);
             metadata_label(frame, tones, &modified, 124.0);
         });
@@ -597,6 +672,14 @@ fn build_list_row(
         }
         return;
     }
+
+    let prev_theme = frame.theme();
+    frame.set_theme(
+        prev_theme
+            .with_hover(Color::TRANSPARENT)
+            .with_active(Color::TRANSPARENT)
+            .with_accent(Color::TRANSPARENT),
+    );
 
     let (response, ()) = frame
         .row()
@@ -610,18 +693,9 @@ fn build_list_row(
             metadata_label(frame, tones, &size, 86.0);
             metadata_label(frame, tones, &modified, 124.0);
         });
-    let dnd_payload = if selected && app.state.selected_count() > 1 {
-        let paths = app.state.selected_paths();
-        let mut out = String::new();
-        for p in paths {
-            out.push_str(&arca_xdg::uri::encode_file_uri(std::path::Path::new(&p)));
-            out.push_str("\r\n");
-        }
-        out
-    } else {
-        full_path.clone()
-    };
-    frame.dnd_source(&entry.name, &dnd_payload, 1);
+    frame.set_theme(prev_theme);
+    let dnd_payload = drag_payload(app, selected, &full_path);
+    frame.dnd_source(&entry.name, &dnd_payload, DND_ACTIONS);
     if is_dragged {
         frame.set_opacity(prev_opacity);
     }
@@ -630,7 +704,7 @@ fn build_list_row(
             entry.name.clone(),
             full_path.clone(),
             entry.navigable,
-            visible_index,
+            dnd_payload.clone(),
         );
     }
     if entry.navigable {
@@ -648,6 +722,7 @@ fn build_list_row(
     } else if response.right_clicked {
         app.row_right_clicked(visible_index, response.rect);
     }
+    suppress_item_pointer_cursor(frame);
 }
 
 fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
@@ -817,6 +892,13 @@ fn miller_row(
     };
     frame.push_id(&entry.name);
     let miller_id = format!("miller-{}-{}", directory, entry.name);
+    let prev_theme = frame.theme();
+    frame.set_theme(
+        prev_theme
+            .with_hover(Color::TRANSPARENT)
+            .with_active(Color::TRANSPARENT)
+            .with_accent(Color::TRANSPARENT),
+    );
     let (response, ()) = frame
         .row()
         .id_label(&miller_id, &entry.name)
@@ -830,6 +912,7 @@ fn miller_row(
                 icons::icon(frame, ids::ChevronRight, 13.0);
             }
         });
+    frame.set_theme(prev_theme);
     frame.pop_id();
     if response.clicked {
         app.miller_clicked(directory, &entry.name);
@@ -838,6 +921,7 @@ fn miller_row(
             app.row_right_clicked(index, response.rect);
         }
     }
+    suppress_item_pointer_cursor(frame);
 }
 
 fn miller_header(frame: &mut Frame, tones: &Tones, path: &str, current: bool) {
@@ -881,8 +965,13 @@ fn row_icon(frame: &mut Frame, entry: &Entry) {
 
 /// Grid-card artwork: the entry's decoded thumbnail (album cover, image
 /// file) fitted into a `size` square, or the type glyph while it decodes.
+/// When selected, the art is slightly shaded (macOS Finder-grade darkening filter).
 /// Only built — i.e. visible — cards ever reach here, so requests stay lazy.
-fn card_art(app: &mut UiApp, frame: &mut Frame, entry: &Entry, size: f32) {
+fn card_art(app: &mut UiApp, frame: &mut Frame, entry: &Entry, size: f32, selected: bool) {
+    let prev_opacity = frame.opacity();
+    if selected {
+        frame.set_opacity(0.72);
+    }
     if app.state.show_thumbnails && crate::thumbs::is_thumbable(&entry.name) {
         let path = std::path::Path::new(app.state.cwd())
             .join(&entry.name)
@@ -904,11 +993,21 @@ fn card_art(app: &mut UiApp, frame: &mut Frame, entry: &Entry, size: f32) {
             };
             frame.size_next(dw, dh);
             // SAFETY: as above.
-            unsafe { frame.image(image, dw, dh) };
+            if selected {
+                unsafe { frame.image_tinted(image, dw, dh, Color::rgba(180, 180, 180, 255)) };
+            } else {
+                unsafe { frame.image(image, dw, dh) };
+            }
+            if selected {
+                frame.set_opacity(prev_opacity);
+            }
             return;
         }
     }
     icons::icon(frame, icons::entry_icon(entry), size);
+    if selected {
+        frame.set_opacity(prev_opacity);
+    }
 }
 
 fn metadata_label(frame: &mut Frame, tones: &Tones, text: &str, width: f32) {
@@ -941,6 +1040,13 @@ fn sort_cell(
         ..Default::default()
     };
     let sort_id = format!("sort-{label}");
+    let prev_theme = frame.theme();
+    frame.set_theme(
+        prev_theme
+            .with_hover(Color::TRANSPARENT)
+            .with_active(Color::TRANSPARENT)
+            .with_accent(Color::TRANSPARENT),
+    );
     let (response, ()) = frame
         .row()
         .id_label(&sort_id, label)
@@ -961,6 +1067,8 @@ fn sort_cell(
                 icons::icon(frame, icon, 12.0);
             }
         });
+    frame.set_theme(prev_theme);
+    suppress_item_pointer_cursor(frame);
     if response.clicked {
         app.state.toggle_sort(key);
     }
@@ -1009,6 +1117,8 @@ fn placeholder(
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::{fixture, frame};
+
     use super::*;
     use arca_engine::config::Config;
     use arca_engine::state::AppState;
@@ -1066,7 +1176,417 @@ mod tests {
             after.0 > before.0,
             "scroll must advance the window: {before:?} -> {after:?}"
         );
+    }
 
-        std::fs::remove_dir_all(&dir).unwrap();
+    #[test]
+    fn all_three_view_modes_build_headless() {
+        let (_dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1280.0, 760.0), 1.0 / 60.0);
+        for mode in [
+            arca_engine::ViewMode::Grid,
+            arca_engine::ViewMode::List,
+            arca_engine::ViewMode::Miller,
+        ] {
+            app.state.set_view_mode(mode);
+            for _ in 0..2 {
+                frame(&mut app, &mut ui, &input);
+            }
+        }
+    }
+
+    #[test]
+    fn compact_window_builds_every_view() {
+        let (_dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((720.0, 520.0), 1.0 / 60.0);
+        for mode in [
+            arca_engine::ViewMode::Grid,
+            arca_engine::ViewMode::List,
+            arca_engine::ViewMode::Miller,
+        ] {
+            app.state.set_view_mode(mode);
+            frame(&mut app, &mut ui, &input);
+        }
+    }
+
+    /// A listing of a few thousand entries once overflowed lens's 1 MiB
+    /// per-frame arena: draw calls past the limit are dropped silently, which
+    /// blanked every grid icon. The virtualized listings must stay far below
+    /// the budget no matter how large the directory.
+    #[test]
+    fn large_directory_does_not_overflow_frame_arena() {
+        let dir = std::env::temp_dir().join(format!(
+            "arca-ui-big-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..2500 {
+            std::fs::write(dir.join(format!("file-{i:04}.txt")), b"x").unwrap();
+        }
+        let config_file = dir.join("cfg").join("arca.conf");
+        let state = AppState::with_config(
+            config_file.to_str().unwrap().into(),
+            Config::default(),
+            dir.to_str().unwrap(),
+        );
+        let mut app = UiApp::new(state);
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1280.0, 760.0), 1.0 / 60.0);
+
+        for mode in [
+            arca_engine::ViewMode::Grid,
+            arca_engine::ViewMode::List,
+            arca_engine::ViewMode::Miller,
+        ] {
+            app.state.set_view_mode(mode);
+            let mut overflowed = false;
+            for _ in 0..3 {
+                ui.frame(&input, |f| {
+                    app.build(f, &input);
+                });
+                overflowed |= ui.overflowed();
+            }
+            assert!(!overflowed, "{mode:?} overflowed the lens frame arena");
+        }
+    }
+
+    #[test]
+    fn light_and_dark_mode_renders_all_views_and_icons() {
+        let (dir, mut app) = fixture();
+        std::fs::write(dir.join("photo.png"), b"fake png").unwrap();
+        std::fs::write(dir.join("song.mp3"), b"fake mp3").unwrap();
+        std::fs::write(dir.join("clip.mp4"), b"fake mp4").unwrap();
+        std::fs::write(dir.join("archive.zip"), b"fake zip").unwrap();
+        std::fs::write(dir.join("main.rs"), b"fn main() {}").unwrap();
+        std::fs::write(dir.join("build.sh"), b"#!/bin/sh\n").unwrap();
+        app.state.navigate(dir.to_str().unwrap());
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+
+        for theme in [arca_engine::ThemeMode::Light, arca_engine::ThemeMode::Dark] {
+            app.state.set_theme(theme);
+            for view_mode in [
+                arca_engine::ViewMode::Grid,
+                arca_engine::ViewMode::List,
+                arca_engine::ViewMode::Miller,
+            ] {
+                app.state.set_view_mode(view_mode);
+                frame(&mut app, &mut ui, &input);
+            }
+        }
+    }
+
+    #[test]
+    fn grid_cards_with_two_line_names_do_not_overlap_rows() {
+        let (dir, mut app) = fixture();
+        let names = [
+            "浅影阿 - 牡丹亭.flac",
+            "21 Savage,J. Cole - a lot.flac",
+            "R. Kelly - The World's Greatest.mp3",
+            "Janet Jackson - Together Again.flac",
+            "Kanye West - Late Registration.mp3",
+            "Kanye West - Graduation.mp3",
+        ];
+        for name in &names {
+            std::fs::write(dir.join(name), b"audio data").unwrap();
+        }
+        app.state.navigate(dir.to_str().unwrap());
+        app.state.set_view_mode(arca_engine::ViewMode::Grid);
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+
+        ui.frame(&input, |f| {
+            app.build(f, &input);
+
+            // Test derived typographic metrics on live Frame
+            let derived_card_h = crate::content::derive_grid_card_height(f);
+            let derived_pitch = crate::content::derive_grid_row_pitch(f);
+            assert!(
+                derived_card_h >= GRID_DEFAULT_CARD_HEIGHT,
+                "derived height ({derived_card_h}) must cover default height"
+            );
+            assert_eq!(derived_pitch, derived_card_h + GRID_GAP);
+
+            // Verify fluid column allocation
+            assert!(
+                app.current_grid_columns >= 4,
+                "expected at least 4 fluid columns in 800px width, got {}",
+                app.current_grid_columns
+            );
+
+            // Verify that CJK and Latin names wrap into two lines inside fluid width.
+            let text_width = GRID_MIN_CARD_WIDTH
+                - (GRID_CARD_PAD * 2.0);
+            let cjk_lines = theme::break_lines(
+                f,
+                names[0],
+                GRID_FONT_SIZE,
+                text_width,
+                GRID_MAX_LABEL_LINES,
+            );
+            assert_eq!(cjk_lines.len(), 2, "CJK name wraps into 2 lines");
+            let cjk_h1 = f.measure_text(&cjk_lines[0], GRID_FONT_SIZE).height;
+            let cjk_h2 = f.measure_text(&cjk_lines[1], GRID_FONT_SIZE).height;
+            let total_text_h = cjk_h1 + GRID_LABEL_LINE_GAP + cjk_h2;
+
+            // Total card content: pad(4) + art(50) + gap(4) + text + pad(4)
+            let total_card_content = (GRID_CARD_PAD * 2.0)
+                + GRID_ICON_SIZE
+                + GRID_ART_LABEL_GAP
+                + total_text_h;
+            assert!(
+                total_card_content <= derived_card_h,
+                "card content ({total_card_content}px) must fit inside derived card height ({derived_card_h}px)"
+            );
+
+            // Clearance between row 0 text bottom and row 1 art top
+            let row_0_text_bottom = GRID_CARD_PAD
+                + GRID_ICON_SIZE
+                + GRID_ART_LABEL_GAP
+                + total_text_h;
+            let row_1_art_top = derived_pitch + GRID_CARD_PAD;
+            assert!(
+                row_1_art_top > row_0_text_bottom,
+                "row 1 preview ({row_1_art_top}px) must be below row 0 text ({row_0_text_bottom}px)"
+            );
+            let clearance = row_1_art_top - row_0_text_bottom;
+            assert!(
+                clearance >= 8.0,
+                "clearance between row 0 text and row 1 preview should be comfortable, got {clearance}px"
+            );
+        });
+    }
+
+    #[test]
+    fn grid_layout_edge_cases_and_interaction_integrity() {
+        let (dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        app.state.set_view_mode(arca_engine::ViewMode::Grid);
+
+        // 1. Edge Case: Empty Directory
+        let empty_dir = dir.join("empty_folder");
+        std::fs::create_dir(&empty_dir).unwrap();
+        app.state.navigate(empty_dir.to_str().unwrap());
+        let input_std = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input_std);
+        assert!(
+            !ui.overflowed(),
+            "empty directory in grid view should render clean placeholder without arena overflow"
+        );
+
+        // 2. Edge Case: Single Item Directory (items < columns)
+        let single_dir = dir.join("single_folder");
+        std::fs::create_dir(&single_dir).unwrap();
+        std::fs::write(single_dir.join("sole_file.txt"), b"only one").unwrap();
+        app.state.navigate(single_dir.to_str().unwrap());
+        frame(&mut app, &mut ui, &input_std);
+        assert!(
+            !ui.overflowed(),
+            "single item directory in grid view should render properly"
+        );
+
+        // 3. Edge Case: Extreme Viewport Resizing (Very Narrow vs Very Wide)
+        let input_narrow = lens::Input::new((300.0, 400.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input_narrow);
+        assert_eq!(
+            app.current_grid_columns, 1,
+            "narrow viewport should clamp to 1 column"
+        );
+
+        let input_wide = lens::Input::new((2560.0, 1440.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input_wide);
+        assert!(
+            app.current_grid_columns >= 15,
+            "ultrawide viewport should allocate 15+ fluid columns"
+        );
+
+        // 4. Edge Case: Keyboard Navigation (2D Grid Step Movement)
+        let nav_dir = dir.join("nav_folder");
+        std::fs::create_dir(&nav_dir).unwrap();
+        for i in 0..12 {
+            std::fs::write(nav_dir.join(format!("track_{i:02}.flac")), b"audio").unwrap();
+        }
+        app.state.navigate(nav_dir.to_str().unwrap());
+        let input_nav = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input_nav);
+        let cols = app.current_grid_columns;
+        assert!(cols >= 4);
+
+        // Move Down from None selects index 0
+        let mut down = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        down.push_key(lens::key::DOWN, true, false);
+        frame(&mut app, &mut ui, &down);
+        assert_eq!(app.state.selected(), Some(0));
+
+        // Move Down from 0 jumps by `cols`
+        frame(&mut app, &mut ui, &down);
+        assert_eq!(app.state.selected(), Some(cols));
+
+        // Move Right moves by +1
+        let mut right = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        right.push_key(lens::key::RIGHT, true, false);
+        frame(&mut app, &mut ui, &right);
+        assert_eq!(app.state.selected(), Some(cols + 1));
+
+        // Move Left moves by -1
+        let mut left = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        left.push_key(lens::key::LEFT, true, false);
+        frame(&mut app, &mut ui, &left);
+        assert_eq!(app.state.selected(), Some(cols));
+
+        // Move Up jumps back by `cols` to 0
+        let mut up = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        up.push_key(lens::key::UP, true, false);
+        frame(&mut app, &mut ui, &up);
+        assert_eq!(app.state.selected(), Some(0));
+
+        // 5. Edge Case: Inline Renaming Workflow in Grid View
+        app.begin_rename("track_00.flac".to_string());
+        assert_eq!(app.renaming.as_deref(), Some("track_00.flac"));
+        // Render frame with rename textfield active
+        frame(&mut app, &mut ui, &input_nav);
+        assert!(
+            !ui.overflowed(),
+            "rename textfield renders cleanly inside card"
+        );
+
+        // Cancel rename with Escape
+        let mut esc = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        esc.push_key(lens::key::ESCAPE, true, false);
+        frame(&mut app, &mut ui, &esc);
+        assert!(app.renaming.is_none());
+    }
+
+    #[test]
+    fn visual_hierarchy_metrics_and_borderless_chrome() {
+        assert_eq!(GRID_MIN_CARD_WIDTH, 104.0);
+        assert_eq!(GRID_MAX_CARD_WIDTH, 144.0);
+        assert_eq!(GRID_GAP, 6.0);
+        assert_eq!(GRID_DEFAULT_CARD_HEIGHT, 102.0);
+        assert_eq!(GRID_DEFAULT_CARD_HEIGHT + GRID_GAP, 108.0);
+
+        let (_dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        // Sidebar rows should have compact 30px height
+        let places = app
+            .drop_targets
+            .iter()
+            .filter(|t| !t.is_bookmark_zone && t.rect.x < app.sidebar_width)
+            .collect::<Vec<_>>();
+        assert!(!places.is_empty());
+        for target in places {
+            assert_eq!(
+                target.rect.h, 30.0,
+                "sidebar place/bookmark row height should be 30px"
+            );
+        }
+    }
+
+    #[test]
+    fn grid_card_desktop_presentation_hover_and_selection_invariants() {
+        let (dir, mut app) = fixture();
+        let f1 = dir.join("vault");
+        let f2 = dir.join("notes.txt");
+        std::fs::create_dir(&f1).unwrap();
+        std::fs::write(&f2, b"hello").unwrap();
+
+        app.state.navigate(dir.to_str().unwrap());
+        app.state.set_view_mode(arca_engine::ViewMode::Grid);
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+
+        // Frame 1: Resting state — build initial geometry and settle
+        frame(&mut app, &mut ui, &input);
+        frame(&mut app, &mut ui, &input);
+        assert!(!ui.overflowed(), "grid cards render cleanly at rest");
+
+        // Frame 2: Select the first item ("vault")
+        app.state.select_visible(0);
+        assert!(app.state.is_selected(0));
+        assert!(!app.state.is_selected(1));
+
+        frame(&mut app, &mut ui, &input);
+        assert!(
+            !ui.overflowed(),
+            "selected grid card with label pill renders without arena overflow"
+        );
+
+        // Frame 3: Hover over the first card's drop/hit target
+        let f1_path = f1.to_string_lossy().into_owned();
+        let target = app
+            .drop_targets
+            .iter()
+            .find(|t| !t.is_bookmark_zone && t.target_path == f1_path)
+            .cloned()
+            .expect("must register navigable directory drop target for vault in grid");
+
+        let vault_idx = app
+            .state
+            .entries()
+            .iter()
+            .position(|e| e.name == "vault")
+            .expect("vault must exist in entries");
+
+        let mut hover_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        hover_in.set_cursor(target.rect.x + 10.0, target.rect.y + 10.0);
+        frame(&mut app, &mut ui, &hover_in);
+
+        assert_eq!(
+            app.next_hovered_grid_index,
+            Some(vault_idx),
+            "hovering inside card hit zone must capture hovered grid index"
+        );
+        assert!(
+            !ui.overflowed(),
+            "hovered grid card renders cleanly without arena overflow"
+        );
+
+        // Frame 4: Run next frame with the hovered index applied
+        frame(&mut app, &mut ui, &hover_in);
+        assert_eq!(app.hovered_grid_index, Some(vault_idx));
+        assert_eq!(ui.cursor_hint(), lens::CursorHint::Default);
+        assert!(!app.active_drag.as_ref().is_some_and(|d| d.started));
+    }
+
+    #[test]
+    fn inline_rename_submit_on_return() {
+        let (dir, mut app) = fixture();
+        let file_path = dir.join("test_file.txt");
+        std::fs::write(&file_path, "hello").unwrap();
+        app.state.navigate(dir.to_str().unwrap());
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input);
+
+        // Start rename
+        app.begin_rename("test_file.txt".to_string());
+        assert_eq!(app.renaming.as_deref(), Some("test_file.txt"));
+        app.rename.set("renamed_file.txt");
+
+        // First frame with rename textfield active
+        frame(&mut app, &mut ui, &input);
+
+        // Press Return to submit rename
+        let mut enter_input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        enter_input.push_key(lens::key::RETURN, true, false);
+        frame(&mut app, &mut ui, &enter_input);
+
+        assert!(app.renaming.is_none());
+        assert!(dir.join("renamed_file.txt").exists());
+        assert!(!dir.join("test_file.txt").exists());
     }
 }

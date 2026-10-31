@@ -14,6 +14,9 @@ pub(crate) struct PreviewOverlay {
     pub(crate) target_open: bool,
     pub(crate) spring: Spring,
     pub(crate) progress: f32,
+    /// Whether this presentation has already been registered in lens's
+    /// transient open-set.
+    registered: bool,
 }
 
 impl PreviewOverlay {
@@ -23,6 +26,7 @@ impl PreviewOverlay {
             target_open: false,
             spring: Spring::new(0.0),
             progress: 0.0,
+            registered: false,
         }
     }
 
@@ -39,13 +43,20 @@ impl PreviewOverlay {
         self.target_open = true;
     }
 
+    /// Start the close animation.
+    ///
+    /// The lens transient entry is closed by the next `build_preview` (it
+    /// only exists while the node is on screen), so no frame handle is
+    /// needed here.
     pub fn close(&mut self) {
         self.target_open = false;
+        self.registered = false;
     }
 
     pub fn reset(&mut self) {
         self.data = None;
         self.target_open = false;
+        self.registered = false;
         self.spring = Spring::new(0.0);
         self.progress = 0.0;
     }
@@ -101,6 +112,16 @@ pub(crate) fn build_preview(
         return;
     };
 
+    // Quick Look is a dismissable modal: registering it in lens's transient
+    // open-set is what makes Escape and a press outside the card close it.
+    // The open must happen exactly once per presentation — it is not a
+    // per-frame "keep alive" — because lens removes the slot on dismissal and
+    // re-opening here would silently resurrect the overlay.
+    if !preview.registered {
+        frame.place_open(PREVIEW_OVERLAY_ID);
+        preview.registered = true;
+    }
+
     let display = input.as_raw().display_size;
     let ease = preview.progress;
     let final_width = (display.x * 0.64).clamp(520.0, 780.0);
@@ -136,7 +157,7 @@ pub(crate) fn build_preview(
     );
 
     frame.place(
-        "quick-look",
+        PREVIEW_OVERLAY_ID,
         &PlaceOpts {
             band: Band::Modal,
             mode: PlaceMode::Exact,
@@ -157,7 +178,7 @@ pub(crate) fn build_preview(
                 min_width: width,
                 ..Default::default()
             },
-            transient: false,
+            transient: true,
             ..Default::default()
         },
         |frame| {
@@ -181,7 +202,18 @@ pub(crate) fn build_preview(
             frame.set_opacity(prev_opacity);
         },
     );
+
+    // The user pressed Escape or clicked outside: lens removed the transient
+    // without telling us, so mirror that dismissal into the app state and
+    // animate out. `close()` clears `registered`, so the next presentation
+    // registers afresh.
+    if preview.registered && !frame.place_is_open(PREVIEW_OVERLAY_ID) {
+        preview.close();
+    }
 }
+
+/// Transient id of the Quick Look card (see `lens_place_open`).
+const PREVIEW_OVERLAY_ID: &str = "quick-look";
 
 fn build_header(preview: &mut PreviewOverlay, frame: &mut Frame, tones: &Tones, data: &Preview) {
     frame.size_next(0.0, 76.0);
@@ -368,6 +400,88 @@ fn preview_icon(kind: PreviewKind) -> icons::AssetId {
         PreviewKind::Audio => ids::Music,
         PreviewKind::Video => ids::Film,
         PreviewKind::Archive => ids::Archive,
+        PreviewKind::Special => ids::Terminal,
         PreviewKind::Generic => ids::File,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour tests for this module.
+    //!
+    //! Migrated out of the former monolithic `lib.rs::tests` block so each
+    //! test lives next to the code it constrains.
+
+    use crate::test_support::{fixture, frame, open_preview, press};
+
+    #[test]
+    fn preview_transit_reduced_motion_snaps_instantly() {
+        let (_dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        ui.set_reduced_motion(true);
+
+        app.state.move_selection(1);
+        let mut space = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        space.push_key(' ' as i32, true, false);
+        frame(&mut app, &mut ui, &space);
+
+        // Under reduced motion, transit resolves to 1.0 in a single step.
+        assert_eq!(app.preview.progress, 1.0);
+
+        // Close preview
+        let mut close_space = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        close_space.push_key(' ' as i32, true, false);
+        frame(&mut app, &mut ui, &close_space);
+
+        // Under reduced motion, closing resolves to 0.0 in a single step.
+        assert_eq!(app.preview.progress, 0.0);
+        assert!(app.preview.data.is_none());
+    }
+
+    /// Quick Look is documented as dismissing on `Esc`; it was pinned open
+    /// because the placement was not registered as a transient.
+    #[test]
+    fn escape_closes_quick_look() {
+        let (_dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        open_preview(&mut app, &mut ui);
+
+        press(&mut app, &mut ui, lens::key::ESCAPE, 0);
+
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..90 {
+            frame(&mut app, &mut ui, &settle);
+        }
+        assert!(!app.preview.target_open, "Esc must close Quick Look");
+        assert_eq!(
+            app.preview.progress, 0.0,
+            "the overlay must animate fully out and release its data"
+        );
+        assert!(app.preview.data.is_none(), "preview data must be released");
+    }
+
+    /// Quick Look is documented as dismissing on a click outside the card.
+    #[test]
+    fn clicking_outside_closes_quick_look() {
+        let (_dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        open_preview(&mut app, &mut ui);
+
+        let mut click = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        click.set_cursor(4.0, 4.0);
+        click.set_mouse_down(lens::MouseButton::Left, true);
+        click.set_mouse_pressed(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &click);
+        let mut release = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        release.set_cursor(4.0, 4.0);
+        release.set_mouse_released(lens::MouseButton::Left, true);
+        frame(&mut app, &mut ui, &release);
+
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..90 {
+            frame(&mut app, &mut ui, &settle);
+        }
+        assert!(!app.preview.target_open, "an outside press must dismiss");
+        assert_eq!(app.preview.progress, 0.0, "the overlay must animate out");
     }
 }

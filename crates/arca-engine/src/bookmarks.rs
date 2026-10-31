@@ -172,7 +172,9 @@ pub fn standard_bookmarks() -> Vec<Bookmark> {
         }
     }
 
-    let trash_path = crate::trash::home_trash_root()
+    // Open `…/Trash/files`: the root holds only `files/` and `info/`, so the
+    // user would see two bookkeeping directories and no deleted item.
+    let trash_path = crate::trash::home_trash_files_dir()
         .to_string_lossy()
         .into_owned();
     out.push(Bookmark {

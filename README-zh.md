@@ -20,9 +20,9 @@ Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 
 - **三种视图形态**：自适应图标网格视图、详尽可排序列视图以及响应式 Miller 多列视图；借助严格的视口虚拟化渲染（Virtualized Rows），大型文件夹浏览始终保持极速且内存受控。
 - **异步缩略图流水线**：高性能非阻塞图片与音频专辑封面（FLAC/MP3）缩略图提取，严格遵循 FreeDesktop 缩略图缓存规范，并通过 GPU 纹理即时渲染。
 - **多标签页工作区**：每个标签页独立维护浏览路径、历史记录、选中状态与过滤条件，并支持平滑拖拽重排（`Ctrl+T`、`Ctrl+W`、`Ctrl+Tab`、`Ctrl+1..9`）。
-- **Quick Look 快速预览**：按下 `Space`（空格键）即可唤起带 Optics `transit` 三次缓动动效的弹窗，支持文本快速查阅、图片全尺寸预览与音频元数据提取。
-- **安全的文件操作**：双击或 `Enter` 使用默认应用打开文件，新建文件夹（`Ctrl+Shift+N`）自动重名规避，原地安全重命名（`Ctrl+E`），遵循 FreeDesktop 规范的回收站与恢复（`Del`），复制/剪切/粘贴（`Ctrl+C/X/V`）以及丰富的右键上下文菜单。
-- **XDG 桌面 Portal 文件选择器**：原生支持桌面 Portal 文件选择器（`arca --chooser-prompt`），支持 `OpenFile`、`SaveFile`、`OpenDirectory`、MIME/Glob 过滤、自定义复选框以及文件覆盖防误触保护；同时提供独立的命令行文件选择工具（`--choose-file`、`--choose-files`、`--choose-dir`、`--save-file`）。
+- **Quick Look 快速预览**：按下 `Space`（空格键）即可唤起带 Optics `transit` 弹簧动效的弹窗，支持文本摘录、图片尺寸与预览、音频内嵌专辑封面；`Space`、`Esc` 或点击弹窗外部均可关闭。
+- **安全的文件操作**：双击或 `Enter` 使用默认应用打开文件，新建文件夹（`Ctrl+Shift+N`）自动重名规避，原地安全重命名（`Ctrl+E`/`F2`）绝不覆盖既有文件，遵循 FreeDesktop 规范的回收站/恢复/彻底删除（`Del`/`Shift+Del`），复制/剪切/粘贴（`Ctrl+C/X/V`）完整支持 `text/uri-list` 与 `x-special/gnome-copied-files`，支持应用内及跨应用拖放、多步撤销/重做以及右键上下文菜单；8 MiB 以上的传输在后台线程执行并在状态栏显示进度。
+- **XDG 桌面 Portal 文件选择器**：原生支持桌面 Portal 文件选择器（`arca --chooser-prompt`），遵循契约 v6，支持 `OpenFile`、`SaveFile`、`SaveFiles`、`OpenDirectory`、多选、MIME/Glob 过滤、自定义选项控件以及文件覆盖防误触保护；响应在写出前会依据请求进行校验；同时提供独立的命令行文件选择工具（`--choose-file`、`--choose-files`、`--choose-dir`、`--save-file`）。
 - **自适应主题**：实时跟随系统深色/浅色偏好，工具栏外观设置支持在「跟随系统 / 浅色 / 深色」之间自由切换。
 - **持久化配置**：视图模式、隐藏文件显示、排序规则、主题以及书签统一存储于 `~/.config/arca/arca.conf`。
 

@@ -38,6 +38,33 @@ pub fn trash_root() -> PathBuf {
     home_trash_root()
 }
 
+/// The directory a "Trash" bookmark should open.
+///
+/// `…/Trash/files`, not `…/Trash`: the root only holds the `files/` and
+/// `info/` bookkeeping directories, so opening it presents nothing the user
+/// can restore or delete.
+#[must_use]
+pub fn home_trash_files_dir() -> PathBuf {
+    home_trash_root().join("files")
+}
+
+/// Whether `path` is a Trash `files/` directory — the home trash or a
+/// per-mount `.Trash-<uid>` — i.e. a listing made entirely of trashed items.
+#[must_use]
+pub fn is_trash_files_dir(path: &Path) -> bool {
+    if path.file_name().is_none_or(|name| name != "files") {
+        return false;
+    }
+    let Some(root) = path.parent() else {
+        return false;
+    };
+    let root_name = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    root_name == "Trash" || root_name.starts_with(".Trash-")
+}
+
 /// Determine the appropriate trash directory for `path` according to XDG Trash Spec v1.0.
 #[must_use]
 pub fn trash_root_for(path: &Path) -> PathBuf {
@@ -116,7 +143,11 @@ pub fn trash_paths_record<P: AsRef<Path>>(
         let target = files_dir.join(&unique);
         let info_file = info_dir.join(format!("{unique}.trashinfo"));
 
-        let absolute = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        // The spec records the path *as the user deleted it*: resolve the
+        // parent directory to an absolute path, but never follow the final
+        // component, or a trashed symlink would be restored into the
+        // directory of its target.
+        let absolute = absolutize(path);
         let deletion_date = local_deletion_date_now();
         let info_content = format!(
             "[Trash Info]\nPath={}\nDeletionDate={}\n",
@@ -355,6 +386,27 @@ fn percent_decode(s: &str) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
+/// Absolute form of `path` for `.trashinfo` metadata.
+///
+/// Only the *parent* directory is canonicalized: that resolves `..` segments
+/// and symlinked directory components while leaving the final component
+/// untouched. Canonicalizing the whole path would follow a trailing symlink
+/// and record the target's location, so restoring the item would put it back
+/// in the wrong directory and lose the link identity.
+fn absolutize(path: &Path) -> PathBuf {
+    let file_name = match path.file_name() {
+        Some(name) => name,
+        None => return fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
+    };
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        // A bare relative name: anchor it at the process working directory.
+        _ => return fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
+    };
+    let parent = fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
+    parent.join(file_name)
+}
+
 fn local_deletion_date_now() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -425,6 +477,54 @@ mod tests {
         let restored = restore_trash_item(&items[0]).unwrap();
         assert_eq!(restored, victim);
         assert!(victim.exists());
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// The bookmark target must be `files/`, and `files/` must be
+    /// recognised as a trash listing (home trash and per-mount alike).
+    #[test]
+    fn trash_files_dir_detection() {
+        assert!(is_trash_files_dir(&home_trash_files_dir()));
+        assert_eq!(
+            home_trash_files_dir(),
+            home_trash_root().join("files"),
+            "the listing directory is files/, not the bookkeeping root"
+        );
+        assert!(!is_trash_files_dir(&home_trash_root()));
+        assert!(!is_trash_files_dir(Path::new("/tmp")));
+        // The shape is structural, so a per-mount trash matches too.
+        assert!(is_trash_files_dir(Path::new("/mnt/data/.Trash-1000/files")));
+        assert!(!is_trash_files_dir(Path::new("/home/u/Documents/files")));
+    }
+
+    /// A trashed symlink must record the link's own path, not its target's.
+    /// Canonicalizing the whole path used to restore the link into the
+    /// target's directory.
+    #[test]
+    fn trashing_a_symlink_records_the_link_path() {
+        let tmp = std::env::temp_dir().join(format!("arca_xdg_trash_link_{}", std::process::id()));
+        let root = tmp.join("TrashRoot");
+        let data_dir = tmp.join("data");
+        let links_dir = tmp.join("links");
+        fs::create_dir_all(&data_dir).unwrap();
+        fs::create_dir_all(&links_dir).unwrap();
+        let target = data_dir.join("real.txt");
+        fs::write(&target, b"real").unwrap();
+        let link = links_dir.join("mylink.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let items = trash_paths_record(std::slice::from_ref(&link), Some(&root)).unwrap();
+        assert_eq!(
+            items[0].original_path, link,
+            "the link path, not the target path, belongs in .trashinfo"
+        );
+
+        let restored = restore_trash_item(&items[0]).unwrap();
+        assert_eq!(restored, link, "the link must return to its own directory");
+        let meta = fs::symlink_metadata(&restored).unwrap();
+        assert!(meta.file_type().is_symlink(), "still a symlink");
+        assert_eq!(fs::read_link(&restored).unwrap(), target);
 
         fs::remove_dir_all(&tmp).ok();
     }

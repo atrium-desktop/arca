@@ -17,87 +17,10 @@ use crate::path;
 use crate::trash;
 use crate::watch::{FsWatcher, WakeFn};
 
-/// Clipboard supporting standard Linux / XDG file transfer formats
-/// (`x-special/gnome-copied-files` and `text/uri-list`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Clipboard {
-    pub paths: Vec<PathBuf>,
-    /// `true` = move on paste (cut), `false` = copy.
-    pub cut: bool,
-}
-
-impl Clipboard {
-    pub fn new(paths: Vec<PathBuf>, cut: bool) -> Self {
-        Self { paths, cut }
-    }
-
-    /// Format as standard Linux desktop `x-special/gnome-copied-files`.
-    pub fn to_gnome_copied_files(&self) -> String {
-        let action = if self.cut { "cut" } else { "copy" };
-        let mut out = format!("{action}\n");
-        for p in &self.paths {
-            out.push_str(&crate::xdg::encode_file_uri(p));
-            out.push('\n');
-        }
-        out
-    }
-
-    /// Format as standard RFC 2483 / XDG `text/uri-list`.
-    pub fn to_uri_list(&self) -> String {
-        let mut out = String::new();
-        for p in &self.paths {
-            out.push_str(&crate::xdg::encode_file_uri(p));
-            out.push_str("\r\n");
-        }
-        out
-    }
-
-    /// Parse clipboard payload from system clipboard string.
-    /// Handles `x-special/gnome-copied-files`, `text/uri-list`, and raw paths.
-    pub fn from_text_payload(text: &str) -> Option<Clipboard> {
-        let text = text.trim();
-        if text.is_empty() {
-            return None;
-        }
-
-        let mut lines = text.lines();
-        let first = lines.next()?.trim();
-
-        let (cut, remaining_lines) = if first == "cut" {
-            (true, lines.collect::<Vec<_>>())
-        } else if first == "copy" {
-            (false, lines.collect::<Vec<_>>())
-        } else {
-            let mut l = vec![first];
-            l.extend(lines);
-            (false, l)
-        };
-
-        let mut paths = Vec::new();
-        for line in remaining_lines {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some(p) = crate::xdg::decode_file_uri(line) {
-                if p.exists() {
-                    paths.push(p);
-                }
-            } else if line.starts_with('/') {
-                let p = PathBuf::from(line);
-                if p.exists() {
-                    paths.push(p);
-                }
-            }
-        }
-
-        if paths.is_empty() {
-            None
-        } else {
-            Some(Clipboard { paths, cut })
-        }
-    }
-}
+/// The engine's clipboard is the XDG transfer payload itself: one type for
+/// `Ctrl+C`/`Ctrl+X` staging and for drop payloads, so the two paths can
+/// never drift apart again.
+pub use arca_xdg::clipboard::{FileClipboard as Clipboard, TransferAction};
 
 /// The complete application state.
 pub struct AppState {
@@ -121,11 +44,31 @@ pub struct AppState {
 
     config_file: String,
     pub watcher: Option<FsWatcher>,
+
+    /// Lazily built `.trashinfo` index for the current Trash listing.
+    ///
+    /// Enumerating the trash root costs ~2 ms for 500 items, so looking a row
+    /// up by name per frame would blow the frame budget. Built once per
+    /// listing and invalidated whenever the directory changes.
+    trash_index: Option<std::collections::HashMap<String, trash::TrashItem>>,
 }
 
 /// One independent browsing session. Navigation, selection and filtering are
 /// deliberately tab-local; preferences, bookmarks and the clipboard remain
 /// application-wide.
+///
+/// # Selection identity
+///
+/// Selection is modelled by [`Entry`] *name*, never by visible index. The
+/// visible list is rebuilt by every directory read, sort toggle, hidden-file
+/// toggle and filter edit, so an index kept across a rebuild would silently
+/// address a different file — and the next `Delete` would then trash the
+/// wrong entry. The `*_indices` fields are a cache derived from the names by
+/// [`TabState::resync_selection`] and are never written from outside it.
+///
+/// Selection is always a subset of the visible set: names hidden by the
+/// filter are dropped, because every file operation resolves through
+/// `visible()` and acting on an invisible entry is not what the user sees.
 #[derive(Clone, Debug)]
 pub struct TabState {
     pub id: u64,
@@ -133,14 +76,132 @@ pub struct TabState {
     entries: Vec<Entry>,
     pub read_error: Option<String>,
     history: History,
-    /// Index into this tab's visible (filtered) entries (primary cursor).
-    pub selected: Option<usize>,
-    /// Set of selected indices for multi-selection.
-    pub selected_indices: BTreeSet<usize>,
-    /// Anchor index for range selection.
-    pub anchor: Option<usize>,
+
+    /// Authoritative multi-selection, by entry name.
+    selected_names: BTreeSet<String>,
+    /// Authoritative primary cursor (the row that owns focus), by entry name.
+    cursor_name: Option<String>,
+    /// Authoritative range-selection anchor, by entry name.
+    anchor_name: Option<String>,
+
+    /// Derived: visible index of `cursor_name`.
+    selected: Option<usize>,
+    /// Derived: visible indices of `selected_names`.
+    selected_indices: BTreeSet<usize>,
+    /// Derived: visible index of `anchor_name`.
+    anchor: Option<usize>,
+
     pub filter: String,
     miller_columns: Vec<MillerColumn>,
+}
+
+impl TabState {
+    /// Recompute the derived index caches from the authoritative names.
+    ///
+    /// Must run after any change to `entries`, `filter`, `file_filter`, the
+    /// sort order, or the selection itself. Names that are no longer visible
+    /// are dropped, keeping `selected_names` a subset of the visible set.
+    /// Selection is always a subset of the visible set, and the cursor is
+    /// always a member of the selection: names hidden by the filter are
+    /// dropped, because every file operation resolves through `visible()`
+    /// and acting on an invisible entry is not what the user sees.
+    fn resync_selection(&mut self, visible: &[usize]) {
+        // Drop names that left the visible set (deleted, filtered out).
+        let visible_names: BTreeSet<&str> = visible
+            .iter()
+            .filter_map(|&i| self.entries.get(i))
+            .map(|e| e.name.as_str())
+            .collect();
+        self.selected_names
+            .retain(|n| visible_names.contains(n.as_str()));
+        if let Some(cursor) = &self.cursor_name {
+            if !visible_names.contains(cursor.as_str()) {
+                self.cursor_name = None;
+            }
+        }
+        if let Some(anchor) = &self.anchor_name {
+            if !visible_names.contains(anchor.as_str()) {
+                self.anchor_name = None;
+            }
+        }
+        // Keep the cursor/selection invariant: a cursor whose row is not
+        // selected would make `selected()` and `selected_entries()` disagree.
+        if let Some(cursor) = self.cursor_name.clone() {
+            self.selected_names.insert(cursor);
+        }
+
+        // Re-derive indices in visible order.
+        let mut selected_indices = BTreeSet::new();
+        let mut selected = None;
+        let mut anchor = None;
+        for (visible_idx, &entry_idx) in visible.iter().enumerate() {
+            let Some(entry) = self.entries.get(entry_idx) else {
+                continue;
+            };
+            if self.selected_names.contains(&entry.name) {
+                selected_indices.insert(visible_idx);
+            }
+            if self.cursor_name.as_deref() == Some(entry.name.as_str()) {
+                selected = Some(visible_idx);
+            }
+            if self.anchor_name.as_deref() == Some(entry.name.as_str()) {
+                anchor = Some(visible_idx);
+            }
+        }
+        self.selected = selected;
+        self.selected_indices = selected_indices;
+        self.anchor = anchor;
+    }
+
+    /// Assert the derived index caches agree with the authoritative names.
+    ///
+    /// The invariant: every `selected_indices` entry resolves to a member of
+    /// `selected_names`, `selected` resolves to `cursor_name`, and the cursor
+    /// is itself selected. Any violation means an entries write skipped
+    /// `resync_selection`.
+    #[cfg(test)]
+    fn debug_assert_selection_coherent(&self, visible: &[usize]) {
+        let name_at = |visible_index: usize| {
+            visible
+                .get(visible_index)
+                .and_then(|&entry_index| self.entries.get(entry_index))
+                .map(|entry| entry.name.as_str())
+        };
+
+        for visible_index in &self.selected_indices {
+            let name = name_at(*visible_index)
+                .unwrap_or_else(|| panic!("selected index {visible_index} is out of range"));
+            assert!(
+                self.selected_names.contains(name),
+                "selected index {visible_index} resolves to {name:?}, which is not in selected_names"
+            );
+        }
+        assert_eq!(
+            self.selected_indices.len(),
+            self.selected_names.len(),
+            "every selected name must have exactly one visible index"
+        );
+        if let Some(cursor_name) = &self.cursor_name {
+            let resolved = self.selected.and_then(name_at);
+            assert_eq!(
+                resolved,
+                Some(cursor_name.as_str()),
+                "cursor index must resolve to cursor_name"
+            );
+            assert!(
+                self.selected_names.contains(cursor_name),
+                "the cursor must always be a member of the selection"
+            );
+        }
+    }
+
+    /// Drop every selection name (derived caches are refreshed by
+    /// [`TabState::resync_selection`]).
+    fn clear_selection_names(&mut self) {
+        self.selected_names.clear();
+        self.cursor_name = None;
+        self.anchor_name = None;
+    }
 }
 
 /// A directory presented in Miller view. The final column is always the
@@ -162,6 +223,9 @@ impl TabState {
             entries: Vec::new(),
             read_error: None,
             history: History::new(),
+            selected_names: BTreeSet::new(),
+            cursor_name: None,
+            anchor_name: None,
             selected: None,
             selected_indices: BTreeSet::new(),
             anchor: None,
@@ -194,6 +258,7 @@ impl AppState {
             io_engine: crate::worker::AsyncIoEngine::new(),
             config_file,
             watcher: FsWatcher::new().ok(),
+            trash_index: None,
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
         state.navigate(&path::home_dir());
@@ -221,6 +286,7 @@ impl AppState {
             io_engine: crate::worker::AsyncIoEngine::new(),
             config_file,
             watcher: FsWatcher::new().ok(),
+            trash_index: None,
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
         state.navigate(start_dir);
@@ -387,9 +453,6 @@ impl AppState {
         let listing = entry::read_dir(path, self.show_hidden, self.sort_key, self.sort_ascending);
         let tab = &mut self.tabs[self.active_tab];
         tab.cwd = path.to_string();
-        tab.selected = None;
-        tab.selected_indices.clear();
-        tab.anchor = None;
         tab.filter.clear();
         match listing {
             Ok(entries) => {
@@ -401,8 +464,17 @@ impl AppState {
                 tab.read_error = Some(e.to_string());
             }
         }
+        // Entering a directory is a new listing: nothing is selected. A
+        // *re-read* of the same directory goes through `refresh` instead,
+        // which preserves selection by name.
+        let tab = &mut self.tabs[self.active_tab];
+        tab.clear_selection_names();
+        let visible = self.visible();
+        let tab = &mut self.tabs[self.active_tab];
+        tab.resync_selection(&visible);
         self.rebuild_miller_columns();
         self.sync_fs_watches();
+        self.rebuild_trash_index();
     }
 
     pub fn go_back(&mut self) {
@@ -440,27 +512,62 @@ impl AppState {
         self.active_tab().history.can_go_forward()
     }
 
+    /// Re-read the current directory in place.
+    ///
+    /// Selection is carried across by name (not by index), so an external
+    /// change or `Ctrl+R` cannot shift the highlight onto a different file.
+    /// Entries that genuinely disappeared are dropped from the selection.
     pub fn refresh(&mut self) {
         let cwd = self.cwd().to_string();
-        let filter = self.filter().to_string();
-        let selected = self.selected_entry().map(|item| item.name.clone());
-        self.set_dir(&cwd);
-        self.tabs[self.active_tab].filter = filter;
-        if let Some(name) = selected {
-            self.select_by_name(&name);
+        let listing = entry::read_dir(&cwd, self.show_hidden, self.sort_key, self.sort_ascending);
+        let tab = &mut self.tabs[self.active_tab];
+        match listing {
+            Ok(entries) => {
+                tab.entries = entries;
+                tab.read_error = None;
+            }
+            Err(e) => {
+                tab.entries.clear();
+                tab.read_error = Some(e.to_string());
+            }
         }
+        let visible = self.visible();
+        let tab = &mut self.tabs[self.active_tab];
+        tab.resync_selection(&visible);
+        self.rebuild_miller_columns();
         self.sync_miller_selection();
+        self.rebuild_trash_index();
     }
 
+    /// Toggle dotfile visibility across every tab.
+    ///
+    /// Refreshes each tab in place through an index loop rather than by
+    /// temporarily reassigning `active_tab`, so an early return can never
+    /// leave the active-tab pointer on the wrong tab.
     pub fn toggle_hidden(&mut self) {
         self.show_hidden = !self.show_hidden;
-        let active = self.active_tab;
         for index in 0..self.tabs.len() {
-            self.active_tab = index;
-            self.refresh();
+            let cwd = self.tabs[index].cwd.clone();
+            let listing =
+                entry::read_dir(&cwd, self.show_hidden, self.sort_key, self.sort_ascending);
+            let tab = &mut self.tabs[index];
+            match listing {
+                Ok(entries) => {
+                    tab.entries = entries;
+                    tab.read_error = None;
+                }
+                Err(e) => {
+                    tab.entries.clear();
+                    tab.read_error = Some(e.to_string());
+                }
+            }
         }
-        self.active_tab = active;
+        for index in 0..self.tabs.len() {
+            let visible = self.visible_in_tab(index);
+            self.tabs[index].resync_selection(&visible);
+        }
         self.rebuild_miller_columns();
+        self.sync_fs_watches();
         self.save_config();
     }
 
@@ -531,17 +638,9 @@ impl AppState {
                 self.refresh();
                 refreshed_active = true;
             } else {
-                for (idx, tab) in self.tabs.iter_mut().enumerate() {
-                    if idx != self.active_tab && Path::new(&tab.cwd) == path {
-                        if let Ok(entries) = entry::read_dir(
-                            &tab.cwd,
-                            self.show_hidden,
-                            self.sort_key,
-                            self.sort_ascending,
-                        ) {
-                            tab.entries = entries;
-                            tab.read_error = None;
-                        }
+                for index in 0..self.tabs.len() {
+                    if Path::new(&self.tabs[index].cwd) == path {
+                        self.reload_tab(index);
                     }
                 }
                 if self.view_mode == ViewMode::Miller && !refreshed_active {
@@ -559,6 +658,56 @@ impl AppState {
         true
     }
 
+    /// Re-read one tab's directory in place, refreshing its derived
+    /// selection caches.
+    ///
+    /// `entries` is exactly what the index caches address, so a re-read that
+    /// skips [`TabState::resync_selection`] leaves `selected_indices`
+    /// pointing at whatever entry now occupies those indices — and the next
+    /// `Delete` in that tab would act on the wrong file. Every entries write
+    /// must therefore go through here or through an equivalent resync.
+    fn reload_tab(&mut self, index: usize) {
+        let Some(cwd) = self.tabs.get(index).map(|tab| tab.cwd.clone()) else {
+            return;
+        };
+        let listing = entry::read_dir(&cwd, self.show_hidden, self.sort_key, self.sort_ascending);
+        let tab = &mut self.tabs[index];
+        match listing {
+            Ok(entries) => {
+                tab.entries = entries;
+                tab.read_error = None;
+            }
+            Err(error) => {
+                tab.entries.clear();
+                tab.read_error = Some(error.to_string());
+            }
+        }
+        let visible = self.visible_in_tab(index);
+        self.tabs[index].resync_selection(&visible);
+        // The index describes the *active* listing only; rebuilding it for a
+        // background tab would enumerate the trash root for nothing.
+        if index == self.active_tab {
+            self.rebuild_trash_index();
+        }
+    }
+
+    /// (Re)build the trash metadata index for the active listing.
+    ///
+    /// Only a Trash `files/` listing needs it; anywhere else the map is
+    /// dropped so no stale records survive navigation.
+    fn rebuild_trash_index(&mut self) {
+        self.trash_index = if self.is_showing_trash() {
+            Some(
+                self.trash_items()
+                    .into_iter()
+                    .map(|item| (item.id.clone(), item))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+    }
+
     // ---- listing --------------------------------------------------------
 
     /// All entries (unfiltered). Read-only; mutations go through methods.
@@ -567,37 +716,50 @@ impl AppState {
     }
 
     /// Indices of entries passing the current text filter and file filter.
+    ///
+    /// Recomputed per call: the filter combines a substring match with
+    /// per-file MIME classification, which requires filesystem access and
+    /// cannot be memoized without invalidation bugs.
     pub fn visible(&self) -> Vec<usize> {
-        let q = self.filter().trim().to_lowercase();
-        let cwd = std::path::Path::new(self.cwd());
-        self.entries()
+        self.visible_in_tab(self.active_tab)
+    }
+
+    /// [`Self::visible`] for an arbitrary tab index.
+    ///
+    /// Pure in-memory work: the substring test uses the entry name and the
+    /// file filter uses the MIME type the directory read already resolved.
+    /// (Deriving MIME from a path here cost a `open`+`read` per entry per
+    /// call — ~12 ms for 2400 files, three times per frame.)
+    fn visible_in_tab(&self, tab_index: usize) -> Vec<usize> {
+        let Some(tab) = self.tabs.get(tab_index) else {
+            return Vec::new();
+        };
+        let query = tab.filter.trim().to_lowercase();
+        tab.entries
             .iter()
             .enumerate()
-            .filter(|(_, e)| {
-                if !q.is_empty() && !e.name.to_lowercase().contains(&q) {
+            .filter(|(_, entry)| {
+                if !query.is_empty() && !entry.name.to_lowercase().contains(&query) {
                     return false;
                 }
                 if let Some(filter) = &self.file_filter {
-                    if !e.navigable {
-                        let full_path = cwd.join(&e.name);
-                        if !filter.allows(&e.name, &full_path) {
-                            return false;
-                        }
+                    // Directories stay navigable regardless of the filter.
+                    if !entry.navigable && !filter.allows_mime(&entry.name, &entry.mime_type) {
+                        return false;
                     }
                 }
                 true
             })
-            .map(|(i, _)| i)
+            .map(|(index, _)| index)
             .collect()
     }
 
     /// Set an active file filter (e.g. for portal file chooser mode).
     pub fn set_file_filter(&mut self, filter: Option<FileFilter>) {
         self.file_filter = filter;
+        let visible = self.visible();
         let tab = &mut self.tabs[self.active_tab];
-        tab.selected = None;
-        tab.selected_indices.clear();
-        tab.anchor = None;
+        tab.resync_selection(&visible);
         self.sync_miller_selection();
     }
 
@@ -624,11 +786,6 @@ impl AppState {
         self.active_tab().selected_indices.len()
     }
 
-    /// Set of selected visible indices.
-    pub fn selected_indices(&self) -> &BTreeSet<usize> {
-        &self.active_tab().selected_indices
-    }
-
     /// All selected entries, resolved through the visible filter.
     pub fn selected_entries(&self) -> Vec<&Entry> {
         let visible = self.visible();
@@ -641,16 +798,15 @@ impl AppState {
             .collect()
     }
 
-    /// Absolute paths of all selected entries.
+    /// Absolute paths of all selected entries, in visible order.
+    ///
+    /// This is the single source every destructive operation resolves
+    /// through, so it must agree with what the listing highlights. The
+    /// cursor is not a fallback here: an unselected cursor must not silently
+    /// become the operand of `Delete`.
     pub fn selected_paths(&self) -> Vec<String> {
         let cwd = self.cwd();
-        let entries = self.selected_entries();
-        if entries.is_empty() {
-            if let Some(p) = self.selected_path() {
-                return vec![p];
-            }
-        }
-        entries
+        self.selected_entries()
             .into_iter()
             .map(|e| entry::child_path(cwd, &e.name))
             .collect()
@@ -683,106 +839,173 @@ impl AppState {
 
     /// Select a single visible index, clearing others and setting anchor.
     pub fn select_visible(&mut self, index: usize) {
-        let count = self.visible().len();
+        let visible = self.visible();
+        let name = visible
+            .get(index)
+            .and_then(|&entry_idx| self.entries().get(entry_idx))
+            .map(|entry| entry.name.clone());
         let tab = &mut self.tabs[self.active_tab];
-        if index < count {
-            tab.selected = Some(index);
-            tab.selected_indices.clear();
-            tab.selected_indices.insert(index);
-            tab.anchor = Some(index);
-        } else {
-            tab.selected = None;
-            tab.selected_indices.clear();
-            tab.anchor = None;
+        match name {
+            Some(name) => {
+                tab.selected_names = BTreeSet::from([name.clone()]);
+                tab.cursor_name = Some(name.clone());
+                tab.anchor_name = Some(name);
+            }
+            None => tab.clear_selection_names(),
         }
+        tab.resync_selection(&visible);
         self.sync_miller_selection();
     }
 
     /// Toggle selection of a visible item (Ctrl+Click).
     pub fn toggle_select_visible(&mut self, index: usize) {
-        let count = self.visible().len();
-        if index >= count {
+        let visible = self.visible();
+        let Some(name) = visible
+            .get(index)
+            .and_then(|&entry_idx| self.entries().get(entry_idx))
+            .map(|entry| entry.name.clone())
+        else {
             return;
-        }
+        };
         let tab = &mut self.tabs[self.active_tab];
-        if tab.selected_indices.contains(&index) {
-            tab.selected_indices.remove(&index);
-            if tab.selected == Some(index) {
-                tab.selected = tab.selected_indices.iter().copied().next();
+        if tab.selected_names.contains(&name) {
+            tab.selected_names.remove(&name);
+            if tab.cursor_name.as_deref() == Some(name.as_str()) {
+                // Cursor falls back to the first remaining selected name;
+                // order is re-derived from the visible list below.
+                tab.cursor_name = tab.selected_names.iter().next().cloned();
             }
         } else {
-            tab.selected_indices.insert(index);
-            tab.selected = Some(index);
-            tab.anchor = Some(index);
+            tab.selected_names.insert(name.clone());
+            tab.cursor_name = Some(name.clone());
+            tab.anchor_name = Some(name);
         }
+        tab.resync_selection(&visible);
         self.sync_miller_selection();
     }
 
     /// Range selection from anchor to index (Shift+Click or Shift+Arrows).
     pub fn select_range_visible(&mut self, index: usize) {
-        let count = self.visible().len();
-        if count == 0 {
+        let visible = self.visible();
+        if visible.is_empty() {
             return;
         }
-        let target = index.min(count - 1);
-        let tab = &mut self.tabs[self.active_tab];
-        let anchor = tab
-            .anchor
-            .unwrap_or(tab.selected.unwrap_or(0))
-            .min(count - 1);
-        let start = anchor.min(target);
-        let end = anchor.max(target);
+        let target = index.min(visible.len() - 1);
+        // Snapshot names up front: the closure runs while `tab` is borrowed
+        // mutably below.
+        let names_at: Vec<Option<String>> = visible
+            .iter()
+            .map(|&entry_idx| {
+                self.tabs[self.active_tab]
+                    .entries
+                    .get(entry_idx)
+                    .map(|entry| entry.name.clone())
+            })
+            .collect();
+        let name_at = |v: usize| names_at.get(v).cloned().flatten();
 
-        tab.selected_indices.clear();
-        for i in start..=end {
-            tab.selected_indices.insert(i);
-        }
-        tab.selected = Some(target);
+        let tab = &mut self.tabs[self.active_tab];
+        // Resolve the anchor by name first: it survives re-sorts, and falls
+        // back to the cursor (or the first row) when there is none.
+        let anchor_visible = tab
+            .anchor_name
+            .as_ref()
+            .and_then(|anchor| {
+                names_at
+                    .iter()
+                    .position(|name| name.as_deref() == Some(anchor.as_str()))
+            })
+            .or(tab.selected)
+            .unwrap_or(0)
+            .min(visible.len() - 1);
+
+        let start = anchor_visible.min(target);
+        let end = anchor_visible.max(target);
+        let names: BTreeSet<String> = (start..=end).filter_map(name_at).collect();
+        // Anchor keeps its original row so the range can be re-extended.
+        tab.anchor_name = name_at(anchor_visible);
+        tab.cursor_name = name_at(target);
+        tab.selected_names = names;
+        tab.resync_selection(&visible);
         self.sync_miller_selection();
     }
 
     /// Select all visible items (Ctrl+A).
     pub fn select_all(&mut self) {
-        let count = self.visible().len();
+        let visible = self.visible();
+        let names: BTreeSet<String> = visible
+            .iter()
+            .filter_map(|&entry_idx| self.tabs[self.active_tab].entries.get(entry_idx))
+            .map(|entry| entry.name.clone())
+            .collect();
         let tab = &mut self.tabs[self.active_tab];
-        tab.selected_indices.clear();
-        for i in 0..count {
-            tab.selected_indices.insert(i);
-        }
-        tab.selected = (count > 0).then_some(0);
-        tab.anchor = (count > 0).then_some(0);
+        // Select all keeps the existing cursor when it is still visible;
+        // otherwise the first row takes focus.
+        let cursor = tab
+            .cursor_name
+            .clone()
+            .filter(|name| names.contains(name))
+            .or_else(|| names.iter().next().cloned());
+        tab.selected_names = names;
+        tab.cursor_name = cursor.clone();
+        tab.anchor_name = cursor;
+        tab.resync_selection(&visible);
         self.sync_miller_selection();
     }
 
     /// Clear all selection.
     pub fn clear_selection(&mut self) {
+        let visible = self.visible();
         let tab = &mut self.tabs[self.active_tab];
-        tab.selected = None;
-        tab.selected_indices.clear();
-        tab.anchor = None;
+        tab.clear_selection_names();
+        tab.resync_selection(&visible);
         self.sync_miller_selection();
     }
 
-    /// Update the filter text. Any selection is dropped: indices address the
-    /// visible list, which the filter just reshaped.
+    /// Update the filter text. Selection outside the filtered set is dropped
+    /// by `resync_selection`, so file operations only ever reach rows the
+    /// user can actually see.
     pub fn set_filter(&mut self, filter: String) {
-        let tab = &mut self.tabs[self.active_tab];
-        tab.filter = filter;
-        tab.selected = None;
-        tab.selected_indices.clear();
-        tab.anchor = None;
+        self.tabs[self.active_tab].filter = filter;
+        let visible = self.visible();
+        self.tabs[self.active_tab].resync_selection(&visible);
         self.sync_miller_selection();
     }
 
+    /// Change the view mode as a *user action*: applies it and persists it as
+    /// the new default for future launches.
+    ///
+    /// A command-line `--grid`/`--list`/`--miller` is a one-shot override, not
+    /// a preference, so it must use [`Self::override_view_mode`] instead —
+    /// persisting it would silently rewrite the user's configuration every
+    /// time the binary is invoked with a flag.
     pub fn set_view_mode(&mut self, mode: ViewMode) {
-        if self.view_mode != mode {
-            self.view_mode = mode;
-            if mode == ViewMode::Miller {
-                self.rebuild_miller_columns();
-            }
-            self.sync_fs_watches();
+        if self.apply_view_mode(mode) {
             self.save_config();
         }
+    }
+
+    /// Change the view mode for this session only.
+    pub fn override_view_mode(&mut self, mode: ViewMode) {
+        self.apply_view_mode(mode);
+    }
+
+    /// Apply `mode` to the live state. Returns whether anything changed.
+    fn apply_view_mode(&mut self, mode: ViewMode) -> bool {
+        if self.view_mode == mode {
+            return false;
+        }
+        self.view_mode = mode;
+        if mode == ViewMode::Miller {
+            self.rebuild_miller_columns();
+        } else {
+            // Drop the stale model rather than leaving it readable: it would
+            // be silently out of date after any navigation in this mode.
+            let tab = &mut self.tabs[self.active_tab];
+            tab.miller_columns.clear();
+        }
+        self.sync_fs_watches();
+        true
     }
 
     /// Toggle the sort column; same column flips direction.
@@ -796,12 +1019,27 @@ impl AppState {
         for tab in &mut self.tabs {
             entry::sort_entries(&mut tab.entries, self.sort_key, self.sort_ascending);
         }
+        // Selection and cursor are name-based, so a re-sort keeps them on the
+        // same files instead of shifting the highlight to whatever index the
+        // new order happens to place there.
+        let visible = self.visible();
+        let tab = &mut self.tabs[self.active_tab];
+        tab.resync_selection(&visible);
         self.rebuild_miller_columns();
+        self.sync_miller_selection();
         self.save_config();
     }
 
+    /// Rebuild the Miller column model.
+    ///
+    /// Only meaningful in Miller view: building it otherwise re-reads up to
+    /// four ancestor directories on every navigation, refresh and sort
+    /// (~10 ms for a large directory) for a model nothing renders.
     fn rebuild_miller_columns(&mut self) {
         const MAX_COLUMNS: usize = 4;
+        if self.view_mode != ViewMode::Miller {
+            return;
+        }
         let cwd = self.cwd().to_string();
         if cwd.is_empty() {
             return;
@@ -862,11 +1100,6 @@ impl AppState {
         } else if let Err(e) = ops::open_with_token(&target, token) {
             self.set_status(format!("Cannot open {}: {e}", entry.name));
         }
-    }
-
-    /// Open the selected entry: navigate into directories, `xdg-open` files.
-    pub fn open_selected(&mut self) {
-        self.open_selected_with_token(None);
     }
 
     /// Open `name` with optional activation token.
@@ -1009,22 +1242,78 @@ impl AppState {
     }
 
     /// Copy (`cut = false`) or cut all selected entries into the clipboard.
-    pub fn yank_selected(&mut self, cut: bool) {
+    /// Stage the selection on the clipboard.
+    pub fn yank_selected(&mut self, action: TransferAction) {
         let paths = self.selected_paths();
         if paths.is_empty() {
             return;
         }
         let count = paths.len();
         let path_bufs: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-        self.clipboard = Some(Clipboard {
-            paths: path_bufs,
-            cut,
+        self.clipboard = Some(Clipboard::new(path_bufs, action));
+        self.set_status(match action {
+            TransferAction::Move => format!("Cut {count} item(s) — paste with Ctrl+V"),
+            TransferAction::Copy => format!("Copied {count} item(s) — paste with Ctrl+V"),
         });
-        self.set_status(if cut {
-            format!("Cut {count} item(s) — paste with Ctrl+V")
-        } else {
-            format!("Copied {count} item(s) — paste with Ctrl+V")
-        });
+    }
+
+    /// Transfer `sources` into `destination`, recording one undo transaction
+    /// for everything that succeeded.
+    ///
+    /// Shared by paste and drag-and-drop so both obey identical collision,
+    /// self-containment, and undo rules. Returns the number of items moved.
+    fn transfer_into(
+        &mut self,
+        sources: &[PathBuf],
+        destination: &Path,
+        action: TransferAction,
+    ) -> usize {
+        let mut created = Vec::new();
+        let mut errors = Vec::new();
+        for src in sources {
+            let result = match action {
+                TransferAction::Move => ops::move_into(src, destination),
+                TransferAction::Copy => ops::copy_into(src, destination),
+            };
+            match result {
+                Ok(dst) => created.push(dst),
+                Err(error) => errors.push(format!(
+                    "{}: {error}",
+                    src.file_name().unwrap_or_default().to_string_lossy()
+                )),
+            }
+        }
+
+        if !created.is_empty() {
+            match action {
+                TransferAction::Move => self.undo_stack.push(crate::undo::UndoAction::Move {
+                    sources: sources.to_vec(),
+                    destinations: created.clone(),
+                }),
+                TransferAction::Copy => self.undo_stack.push(crate::undo::UndoAction::Copy {
+                    destinations: created.clone(),
+                }),
+            }
+        }
+
+        let done = created.len();
+        let verb = match action {
+            TransferAction::Move => "Moved",
+            TransferAction::Copy => "Copied",
+        };
+        match (done, errors.first()) {
+            (0, Some(error)) => self.set_status(format!("Cannot transfer — {error}")),
+            (0, None) => {}
+            (n, Some(error)) => self.set_status(format!(
+                "{verb} {n} item{}, {} failed ({error})",
+                if n == 1 { "" } else { "s" },
+                errors.len()
+            )),
+            (n, None) => {
+                self.set_status(format!("{verb} {n} item{}", if n == 1 { "" } else { "s" }))
+            }
+        }
+        done
     }
 
     /// Paste the clipboard into cwd.
@@ -1032,45 +1321,28 @@ impl AppState {
         let Some(clipboard) = self.clipboard.clone() else {
             return;
         };
-        let dest_dir = PathBuf::from(self.cwd());
-        let mut done = 0usize;
-        let mut created_dsts = Vec::new();
-        for src in &clipboard.paths {
-            let result = if clipboard.cut {
-                ops::move_into(src, &dest_dir)
-            } else {
-                ops::copy_into(src, &dest_dir)
-            };
-            match result {
-                Ok(dst) => {
-                    done += 1;
-                    created_dsts.push(dst);
-                }
-                Err(e) => self.set_status(format!(
-                    "Cannot paste {}: {e}",
-                    src.file_name().unwrap_or_default().to_string_lossy()
-                )),
-            }
+        if self.is_transferring() {
+            self.set_status("A transfer is already running".into());
+            return;
         }
-        if clipboard.cut {
-            self.undo_stack.push(crate::undo::UndoAction::Move {
-                sources: clipboard.paths.clone(),
-                destinations: created_dsts,
-            });
-        } else if !created_dsts.is_empty() {
-            self.undo_stack.push(crate::undo::UndoAction::Copy {
-                destinations: created_dsts,
-            });
+        // Large transfers go to the IO worker so the window keeps painting
+        // and can report progress; small ones finish within a frame.
+        if Self::total_transfer_bytes(&clipboard.paths) >= Self::ASYNC_TRANSFER_THRESHOLD {
+            // The clipboard stays staged until the worker reports success:
+            // clearing it up front would lose the source list if the job is
+            // cancelled or fails. `poll_async_jobs` clears it on success.
+            self.paste_async(&clipboard);
+            return;
         }
-        if clipboard.cut && done == clipboard.paths.len() {
+        let destination = PathBuf::from(self.cwd());
+        let total = clipboard.paths.len();
+        let done = self.transfer_into(&clipboard.paths, &destination, clipboard.action);
+        // A cut clipboard is consumed only once every item actually moved;
+        // a partial failure leaves it staged for a retry elsewhere.
+        if clipboard.action == TransferAction::Move && done == total {
             self.clipboard = None;
         }
         if done > 0 {
-            self.set_status(format!(
-                "{} {done} item{}",
-                if clipboard.cut { "Moved" } else { "Copied" },
-                if done == 1 { "" } else { "s" }
-            ));
             self.refresh();
         }
     }
@@ -1088,62 +1360,90 @@ impl AppState {
         }
     }
 
-    /// Submit an asynchronous copy job to the background IO worker.
-    pub fn copy_async(
-        &mut self,
-        sources: Vec<PathBuf>,
-        destination: PathBuf,
-    ) -> crate::worker::JobId {
-        self.io_engine.submit_copy(sources, destination)
+    /// Whether a background transfer is currently running.
+    pub fn is_transferring(&self) -> bool {
+        self.io_engine.is_busy()
     }
 
-    /// Submit an asynchronous move job to the background IO worker.
-    pub fn move_async(
-        &mut self,
-        sources: Vec<PathBuf>,
-        destination: PathBuf,
-    ) -> crate::worker::JobId {
-        self.io_engine.submit_move(sources, destination)
+    /// Cancel the in-flight background transfer, if any.
+    pub fn cancel_transfer(&mut self) {
+        self.io_engine.cancel_active();
     }
 
-    /// Poll for async job progress and completion, committing finished jobs to the UndoStack.
+    /// Total bytes of `paths`, for deciding whether a transfer needs a worker.
+    fn total_transfer_bytes(paths: &[PathBuf]) -> u64 {
+        fn measure(path: &Path) -> u64 {
+            // `symlink_metadata` keeps the walk out of symlinked directories.
+            match std::fs::symlink_metadata(path) {
+                Ok(meta) if meta.is_dir() => std::fs::read_dir(path)
+                    .map(|entries| entries.flatten().map(|e| measure(&e.path())).sum())
+                    .unwrap_or(0),
+                Ok(meta) => meta.len(),
+                Err(_) => 0,
+            }
+        }
+        paths.iter().map(|path| measure(path)).sum()
+    }
+
+    /// Transfers at or above this size run on the IO worker.
+    ///
+    /// Below it the synchronous path is faster (no thread hand-off, no
+    /// progress round-trips) and finishes inside a frame.
+    const ASYNC_TRANSFER_THRESHOLD: u64 = 8 * 1024 * 1024;
+
+    /// Paste the clipboard into cwd, off the UI thread when it is large.
+    fn paste_async(&mut self, clipboard: &Clipboard) {
+        let destination = PathBuf::from(self.cwd());
+        self.io_engine
+            .submit(clipboard.action, clipboard.paths.clone(), destination);
+        self.set_status(format!(
+            "{} {} item(s)…",
+            match clipboard.action {
+                TransferAction::Move => "Moving",
+                TransferAction::Copy => "Copying",
+            },
+            clipboard.paths.len()
+        ));
+    }
+
+    /// Poll for async job progress and completion, committing finished jobs to
+    /// the UndoStack. Returns `true` when the listing changed.
     pub fn poll_async_jobs(&mut self) -> bool {
         let mut completed_any = false;
         while let Some(completed) = self.io_engine.poll() {
             completed_any = true;
-            match completed.kind {
-                crate::worker::JobKind::Copy {
-                    sources: _,
-                    destination: _,
-                } => {
-                    if !completed.created_destinations.is_empty() {
+            let moved = matches!(completed.kind, crate::worker::JobKind::Move { .. });
+            let created = completed.created_destinations.clone();
+            if !created.is_empty() {
+                match &completed.kind {
+                    crate::worker::JobKind::Copy { .. } => {
                         self.undo_stack.push(crate::undo::UndoAction::Copy {
-                            destinations: completed.created_destinations.clone(),
-                        });
-                        self.set_status(format!(
-                            "Copied {} item(s)",
-                            completed.created_destinations.len()
-                        ));
+                            destinations: created,
+                        })
                     }
-                }
-                crate::worker::JobKind::Move {
-                    sources,
-                    destination: _,
-                } => {
-                    if !completed.created_destinations.is_empty() {
+                    crate::worker::JobKind::Move { sources, .. } => {
                         self.undo_stack.push(crate::undo::UndoAction::Move {
-                            sources,
-                            destinations: completed.created_destinations.clone(),
-                        });
-                        self.set_status(format!(
-                            "Moved {} item(s)",
-                            completed.created_destinations.len()
-                        ));
+                            sources: sources.clone(),
+                            destinations: created,
+                        })
                     }
                 }
             }
-            if let Some(err) = completed.error {
-                self.set_status(format!("Operation error: {err}"));
+            match (&completed.error, completed.path_count()) {
+                (Some(error), _) => self.set_status(format!("Transfer failed — {error}")),
+                (None, Some(count)) => {
+                    // A completed move consumes the staged cut; clearing it
+                    // earlier would lose the sources on cancellation.
+                    if moved {
+                        self.clipboard = None;
+                    }
+                    self.set_status(format!(
+                        "{} {count} item{}",
+                        if moved { "Moved" } else { "Copied" },
+                        if count == 1 { "" } else { "s" }
+                    ));
+                }
+                (None, None) => {}
             }
         }
         if completed_any {
@@ -1189,24 +1489,136 @@ impl AppState {
     }
 
     /// Move a dropped item into a destination directory.
-    pub fn drop_into(&mut self, src_path: &str, dst_dir: &str) {
-        let src = std::path::PathBuf::from(src_path);
-        let dst = std::path::PathBuf::from(dst_dir);
-        if src == dst || src.parent() == Some(&dst) {
-            return;
+    /// Handle a drop payload produced by the drag source.
+    ///
+    /// The payload is an interchange format (`text/uri-list`, gnome-copied-
+    /// files, or bare paths) — never a single raw path — because that is what
+    /// both the in-app drag source and every external file manager publish.
+    /// `action` is the fallback for formats that cannot encode one.
+    ///
+    /// Returns `true` when at least one item was transferred.
+    pub fn drop_into(&mut self, payload: &str, dst_dir: &str, action: TransferAction) -> bool {
+        let Some(transfer) = Clipboard::parse(payload, action, false) else {
+            self.set_status("Dropped data carried no usable file paths".into());
+            return false;
+        };
+        let destination = PathBuf::from(dst_dir);
+        // A drop onto the directory the items already live in is a no-op, not
+        // an error: the pointer simply never left the source row.
+        let sources: Vec<PathBuf> = transfer
+            .paths
+            .into_iter()
+            .filter(|src| src.parent() != Some(destination.as_path()))
+            .collect();
+        if sources.is_empty() {
+            return false;
         }
-        match ops::move_into(&src, &dst) {
-            Ok(_) => {
-                let name = src.file_name().unwrap_or_default().to_string_lossy();
-                let dst_name = dst.file_name().unwrap_or_default().to_string_lossy();
-                self.set_status(format!("Moved {name} into {dst_name}"));
-                self.refresh();
-            }
-            Err(e) => {
-                let name = src.file_name().unwrap_or_default().to_string_lossy();
-                self.set_status(format!("Cannot move {name}: {e}"));
-            }
+        let moved = self.transfer_into(&sources, &destination, transfer.action) > 0;
+        if moved {
+            self.refresh();
         }
+        moved
+    }
+
+    // ---- Trash -----------------------------------------------------------
+
+    /// Every item currently in the user's home Trash, newest first.
+    ///
+    /// The sidebar opens `…/Trash/files`, so the listing itself only holds
+    /// bare file names. The original location and deletion date live in the
+    /// companion `.trashinfo` records and are surfaced from here.
+    pub fn trash_items(&self) -> Vec<trash::TrashItem> {
+        trash::list_trash().unwrap_or_default()
+    }
+
+    /// The `.trashinfo` record backing a trash listing row, if `name` is a
+    /// trashed item id in the current directory.
+    pub fn trash_record(&self, name: &str) -> Option<trash::TrashItem> {
+        if !self.is_showing_trash() {
+            return None;
+        }
+        self.trash_index
+            .as_ref()
+            .and_then(|index| index.get(name))
+            .cloned()
+    }
+
+    /// Whether the active tab is showing a Trash listing.
+    pub fn is_showing_trash(&self) -> bool {
+        trash::is_trash_files_dir(Path::new(self.cwd()))
+    }
+
+    /// Restore the given trash ids. Returns how many were restored.
+    pub fn restore_trash_ids(&mut self, ids: &[String]) -> usize {
+        let restored = self
+            .trash_items()
+            .into_iter()
+            .filter(|item| ids.contains(&item.id))
+            .filter(|item| trash::restore_trash_item(item).is_ok())
+            .count();
+        if restored > 0 {
+            self.set_status(format!(
+                "Restored {restored} item{}",
+                if restored == 1 { "" } else { "s" }
+            ));
+            self.refresh();
+        } else {
+            self.set_status("Could not restore the selection".into());
+        }
+        restored
+    }
+
+    /// Permanently delete everything in the home Trash. Returns the count.
+    pub fn empty_trash(&mut self) -> usize {
+        let count = trash::empty_trash().unwrap_or(0);
+        self.set_status(format!("Emptied Trash ({count} items deleted)"));
+        self.refresh();
+        count
+    }
+
+    /// Whether `path` is this user's Trash (root or `files/`) — the sidebar
+    /// offers "Empty Trash" there.
+    pub fn is_trash_location(path: &str) -> bool {
+        let path = Path::new(path);
+        trash::is_trash_files_dir(path)
+            || path == Path::new(&trash::home_trash_root())
+            || path == Path::new(&trash::home_trash_files_dir())
+    }
+
+    /// Permanently delete the given trash ids. Returns how many were purged.
+    pub fn purge_trash_ids(&mut self, ids: &[String]) -> usize {
+        let purged = self
+            .trash_items()
+            .into_iter()
+            .filter(|item| ids.contains(&item.id))
+            .filter(|item| trash::purge_trash_item(item).is_ok())
+            .count();
+        if purged > 0 {
+            self.set_status(format!("Permanently deleted {purged} item(s)"));
+            self.refresh();
+        }
+        purged
+    }
+
+    /// Restore every selected item when the tab shows the Trash.
+    pub fn restore_selected(&mut self) -> usize {
+        let names = self.selected_entry_names();
+        if names.is_empty() {
+            self.set_status("Select an item to restore".into());
+            return 0;
+        }
+        self.restore_trash_ids(&names)
+    }
+
+    /// The ids of the trash items backing the current selection.
+    ///
+    /// Trash ids are the stored file names (`Trash/files/<id>`), which is
+    /// also what the listing shows — so the selection names *are* the ids.
+    pub fn selected_entry_names(&self) -> Vec<String> {
+        self.selected_entries()
+            .into_iter()
+            .map(|entry| entry.name.clone())
+            .collect()
     }
 
     /// Set an explicit colour-scheme preference and persist it.
@@ -1224,10 +1636,19 @@ impl AppState {
         self.status = Some(msg);
     }
 
+    /// Select exactly the entry named `name` (cursor + selection).
+    ///
+    /// The cursor is always a member of the selection — there is no
+    /// "focused but unselected" state to reason about, and no operation can
+    /// depend on a cursor whose row is not selected. The name is
+    /// authoritative, so the selection survives later re-sorts and re-reads.
     fn select_by_name(&mut self, name: &str) {
         let visible = self.visible();
-        let selected = visible.iter().position(|&i| self.entries()[i].name == name);
-        self.tabs[self.active_tab].selected = selected;
+        let tab = &mut self.tabs[self.active_tab];
+        tab.selected_names = BTreeSet::from([name.to_string()]);
+        tab.cursor_name = Some(name.to_string());
+        tab.anchor_name = Some(name.to_string());
+        tab.resync_selection(&visible);
     }
 
     /// Persist the current settings (hidden/thumbnails/sort/theme/bookmarks).
@@ -1415,16 +1836,16 @@ mod tests {
 
         // Select a.txt, copy, go into dst, paste.
         s.select_by_name("a.txt");
-        s.yank_selected(false);
+        s.yank_selected(TransferAction::Copy);
         s.navigate("dst");
         s.paste();
-        assert!(dir.join("dst/a.txt").exists());
+        assert!(dir.join("dst/a.txt").exists(), "status: {:?}", s.status);
         assert!(dir.join("a.txt").exists(), "copy keeps the source");
 
         // Cut b.txt, paste into dst.
         s.go_up();
         s.select_by_name("b.txt");
-        s.yank_selected(true);
+        s.yank_selected(TransferAction::Move);
         s.navigate("dst");
         s.paste();
         assert!(dir.join("dst/b.txt").exists());
@@ -1434,31 +1855,34 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// The engine's clipboard type *is* the XDG payload type, so the
+    /// gnome-copied-files verb, the URI list, and a paste all round-trip
+    /// through one implementation (see `arca_xdg::clipboard` for the format
+    /// contract itself).
     #[test]
-    fn clipboard_xdg_payload_roundtrip() {
-        let (dir, _) = fixture();
+    fn clipboard_uses_the_xdg_transfer_payload() {
+        let (dir, mut s) = fixture();
         let file1 = dir.join("a.txt");
         let file2 = dir.join("b.txt");
 
-        let clip = Clipboard::new(vec![file1.clone(), file2.clone()], false);
-        let gnome_payload = clip.to_gnome_copied_files();
-        assert!(gnome_payload.starts_with("copy\n"));
+        // Directories sort first, so rows 1..=2 are a.txt and b.txt.
+        s.select_visible(1);
+        s.select_range_visible(2);
+        assert_eq!(s.selected_count(), 2);
+        s.yank_selected(TransferAction::Copy);
+        let clipboard = s.clipboard.clone().expect("staged");
+        assert_eq!(clipboard.action, TransferAction::Copy);
+        assert_eq!(clipboard.paths, vec![file1.clone(), file2.clone()]);
+        assert_eq!(
+            s.clipboard_payload().unwrap(),
+            clipboard.to_gnome_copied_files()
+        );
 
-        let parsed = Clipboard::from_text_payload(&gnome_payload).expect("should parse");
-        assert!(!parsed.cut);
-        assert_eq!(parsed.paths, vec![file1.clone(), file2.clone()]);
-
-        let cut_clip = Clipboard::new(vec![file1.clone()], true);
-        let cut_payload = cut_clip.to_gnome_copied_files();
-        assert!(cut_payload.starts_with("cut\n"));
-        let parsed_cut = Clipboard::from_text_payload(&cut_payload).expect("should parse");
-        assert!(parsed_cut.cut);
-        assert_eq!(parsed_cut.paths, vec![file1.clone()]);
-
-        let uri_list = clip.to_uri_list();
-        assert!(uri_list.contains("\r\n"));
-        let parsed_uri = Clipboard::from_text_payload(&uri_list).expect("should parse uri-list");
-        assert_eq!(parsed_uri.paths, vec![file1, file2]);
+        // The URI list a drag publishes parses back to the same paths.
+        let parsed = Clipboard::parse(&clipboard.to_uri_list(), TransferAction::Move, false)
+            .expect("uri-list parses");
+        assert_eq!(parsed.paths, vec![file1, file2]);
+        assert_eq!(parsed.action, TransferAction::Move);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1484,7 +1908,7 @@ mod tests {
     fn add_bookmark_and_drop_into() {
         let (dir, mut s) = fixture();
         let sub = dir.join("sub").to_str().unwrap().to_string();
-        let file_a = dir.join("a.txt").to_str().unwrap().to_string();
+        let file_a = dir.join("a.txt");
 
         assert!(!s.is_bookmarked(&sub));
         s.add_bookmark(&sub);
@@ -1492,11 +1916,119 @@ mod tests {
         s.add_bookmark(&sub);
         assert!(s.is_bookmarked(&sub));
 
-        s.drop_into(&file_a, &sub);
-        assert!(!dir.join("a.txt").exists());
+        // A drop arrives as an interchange payload, exactly like an external
+        // drag from another file manager.
+        let payload =
+            arca_xdg::FileClipboard::new(vec![file_a.clone()], TransferAction::Move).to_uri_list();
+        assert!(s.drop_into(&payload, &sub, TransferAction::Move));
+        assert!(!file_a.exists());
         assert!(dir.join("sub").join("a.txt").exists());
 
         s.toggle_bookmark(&sub); // clean up gtk bookmark
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A multi-item drag from the listing used to be dropped wholesale: the
+    /// raw `text/uri-list` string was handed to `PathBuf::from`, so nothing
+    /// transferred and the status line reported a bogus `ENOENT`.
+    #[test]
+    fn drop_transfers_every_item_in_a_uri_list_payload() {
+        let (dir, mut s) = fixture();
+        let dst = dir.join("dst");
+        std::fs::create_dir_all(&dst).unwrap();
+        let sources: Vec<PathBuf> = ["a.txt", "b.txt"]
+            .iter()
+            .map(|name| dir.join(name))
+            .collect();
+
+        let payload =
+            arca_xdg::FileClipboard::new(sources.clone(), TransferAction::Move).to_uri_list();
+        assert!(s.drop_into(&payload, dst.to_str().unwrap(), TransferAction::Move));
+
+        for source in &sources {
+            let name = source.file_name().unwrap();
+            assert!(!source.exists(), "source must be consumed on move");
+            assert!(dst.join(name).exists(), "destination must receive {name:?}");
+        }
+
+        // Undo restores both in one transaction.
+        s.undo();
+        for source in &sources {
+            assert!(source.exists(), "undo must restore every moved item");
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A copy-action drop leaves the sources in place.
+    #[test]
+    fn drop_honours_the_copy_action() {
+        let (dir, mut s) = fixture();
+        let dst = dir.join("dst");
+        std::fs::create_dir_all(&dst).unwrap();
+        let source = dir.join("a.txt");
+        let payload =
+            arca_xdg::FileClipboard::new(vec![source.clone()], TransferAction::Copy).to_uri_list();
+
+        assert!(s.drop_into(&payload, dst.to_str().unwrap(), TransferAction::Copy));
+        assert!(source.exists(), "copy keeps the source");
+        assert!(dst.join("a.txt").exists());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Dropping a directory onto its own descendant must be refused, not
+    /// recursively copied into itself.
+    #[test]
+    fn drop_refuses_a_directory_into_its_own_descendant() {
+        let (dir, mut s) = fixture();
+        let payload =
+            arca_xdg::FileClipboard::new(vec![dir.clone()], TransferAction::Copy).to_uri_list();
+
+        assert!(!s.drop_into(
+            &payload,
+            dir.join("sub").to_str().unwrap(),
+            TransferAction::Copy
+        ));
+        assert!(
+            s.status
+                .as_deref()
+                .is_some_and(|status| status.contains("itself")),
+            "status must explain the refusal, got {:?}",
+            s.status
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.join("sub")).unwrap().count(),
+            0,
+            "nothing may be created inside the target"
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A drop back onto the directory the item already lives in is a no-op.
+    #[test]
+    fn drop_onto_the_same_directory_is_a_no_op() {
+        let (dir, mut s) = fixture();
+        let payload = arca_xdg::FileClipboard::new(vec![dir.join("a.txt")], TransferAction::Move)
+            .to_uri_list();
+
+        assert!(!s.drop_into(&payload, dir.to_str().unwrap(), TransferAction::Move));
+        assert!(dir.join("a.txt").exists());
+        assert!(!dir.join("a.txt (copy)").exists());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn drop_of_a_non_file_payload_is_reported() {
+        let (dir, mut s) = fixture();
+        assert!(!s.drop_into("hello world", dir.to_str().unwrap(), TransferAction::Copy));
+        assert!(s
+            .status
+            .as_deref()
+            .is_some_and(|status| status.contains("no usable file paths")));
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1572,6 +2104,8 @@ mod tests {
     #[test]
     fn miller_columns_end_at_active_directory() {
         let (dir, mut s) = fixture();
+        // The column model is built for Miller view only.
+        s.set_view_mode(ViewMode::Miller);
         s.navigate("sub");
         let columns = s.miller_columns();
         assert!(!columns.is_empty());
@@ -1581,6 +2115,146 @@ mod tests {
             let selected = parent.selected.expect("parent selects active child");
             assert_eq!(parent.entries[selected].name, "sub");
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Every entries write must keep the derived selection caches coherent.
+    ///
+    /// The watcher used to assign `tab.entries` for background tabs without
+    /// resyncing, so `selected_indices` kept the old row numbers while the
+    /// rows now held different files — the next `Delete` in that tab would
+    /// act on the wrong entry. `TabState::debug_assert_selection_coherent`
+    /// encodes the invariant; this test drives every entries-writing path.
+    #[test]
+    fn every_listing_reload_keeps_the_selection_coherent() {
+        let (dir, mut s) = fixture();
+
+        // Two tabs over the same directory, the second with a selection.
+        s.new_tab(Some(dir.to_str().unwrap()));
+        s.select_visible(1);
+        assert_eq!(s.selected_count(), 1);
+        s.tabs()[1].debug_assert_selection_coherent(&s.visible_in_tab(1));
+
+        // Insert entries that sort *before* the selected one, shifting every
+        // index. Any path that reloads without resyncing now corrupts state.
+        for name in ["0-first.txt", "1-second.txt"] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+
+        // 1. Watcher reload of a background tab.
+        assert!(s.switch_tab(0));
+        s.reload_tab(1);
+        s.tabs()[1].debug_assert_selection_coherent(&s.visible_in_tab(1));
+
+        // 2. Explicit refresh of the active tab.
+        s.refresh();
+        s.tabs()[0].debug_assert_selection_coherent(&s.visible_in_tab(0));
+
+        // 3. Sort toggle.
+        s.toggle_sort(SortKey::Size);
+        s.tabs()[0].debug_assert_selection_coherent(&s.visible_in_tab(0));
+
+        // 4. Hidden-file toggle (re-reads every tab).
+        s.toggle_hidden();
+        for index in 0..s.tabs().len() {
+            s.tabs()[index].debug_assert_selection_coherent(&s.visible_in_tab(index));
+        }
+
+        // 5. Filter edit.
+        s.set_filter("txt".into());
+        s.tabs()[0].debug_assert_selection_coherent(&s.visible_in_tab(0));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The trash metadata index must reflect each listing, not linger from a
+    /// previous one — and it must be empty outside a Trash listing.
+    #[test]
+    fn trash_index_tracks_the_active_listing() {
+        let (dir, mut s) = fixture();
+        assert!(s.trash_record("anything").is_none(), "no Trash listing yet");
+
+        // A plain directory is never a Trash listing.
+        s.navigate(dir.to_str().unwrap());
+        assert!(!s.is_showing_trash());
+        assert!(s.trash_record("anything").is_none());
+
+        // Entering the trash files/ directory builds the index.
+        let trash_files = arca_xdg::home_trash_files_dir();
+        if !trash_files.is_dir() {
+            eprintln!("no home trash on this host; skipping");
+            std::fs::remove_dir_all(&dir).unwrap();
+            return;
+        }
+        s.navigate(trash_files.to_str().unwrap());
+        assert!(s.is_showing_trash(), "files/ must be recognised as Trash");
+        let index = s
+            .trash_index
+            .as_ref()
+            .expect("the index must be built for a Trash listing");
+        for (id, item) in index {
+            assert_eq!(id, &item.id, "index keys are trash ids");
+        }
+
+        // Leaving drops it.
+        s.navigate(dir.to_str().unwrap());
+        assert!(
+            s.trash_index.is_none(),
+            "the index must not survive navigation"
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Miller columns are only built in Miller view: building them for a
+    /// List/Grid navigation re-reads four ancestor directories that nothing
+    /// renders.
+    #[test]
+    fn miller_columns_are_not_built_outside_miller_view() {
+        let (dir, mut s) = fixture();
+        s.set_view_mode(ViewMode::List);
+        s.navigate("sub");
+        assert!(s.miller_columns().is_empty());
+
+        s.set_view_mode(ViewMode::Miller);
+        assert!(
+            !s.miller_columns().is_empty(),
+            "switching in builds the model"
+        );
+
+        s.set_view_mode(ViewMode::Grid);
+        s.refresh();
+        assert!(s.miller_columns().is_empty());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `--grid`/`--list`/`--miller` are launch-time overrides. Persisting them
+    /// would silently rewrite the user's saved default on every invocation,
+    /// so the override must leave the config file untouched.
+    #[test]
+    fn a_cli_view_override_does_not_rewrite_the_config() {
+        let (dir, mut s) = fixture();
+        let config = dir.join("cfg/arca.conf");
+
+        // Establish a saved default.
+        s.set_view_mode(ViewMode::Grid);
+        let saved = std::fs::read_to_string(&config).unwrap();
+        assert!(saved.contains("view = grid"), "got {saved:?}");
+
+        // A one-shot override changes the live mode only.
+        s.override_view_mode(ViewMode::Miller);
+        assert_eq!(s.view_mode, ViewMode::Miller);
+        assert_eq!(
+            std::fs::read_to_string(&config).unwrap(),
+            saved,
+            "an override must not touch the config file"
+        );
+
+        // Re-opening from that config still yields the saved default.
+        let reopened = config::load(config.to_str().unwrap());
+        assert_eq!(reopened.view_mode, ViewMode::Grid);
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1596,6 +2270,11 @@ mod tests {
     #[test]
     fn fs_watcher_updates_directory_listing_on_external_mutation() {
         let (dir, mut s) = fixture();
+        if s.watcher.is_none() {
+            eprintln!("inotify instances exhausted on host; skipping test");
+            std::fs::remove_dir_all(&dir).unwrap();
+            return;
+        }
         assert_eq!(s.entries().len(), 3); // sub, a.txt, b.txt
 
         // Allow watcher thread to register watch
@@ -1719,7 +2398,7 @@ mod tests {
         assert!(s.is_selected(2));
 
         // 4. Batch Yank (Copy)
-        s.yank_selected(false);
+        s.yank_selected(TransferAction::Copy);
         assert_eq!(s.clipboard.as_ref().unwrap().paths.len(), 2);
 
         // 5. Select All (Ctrl+A)

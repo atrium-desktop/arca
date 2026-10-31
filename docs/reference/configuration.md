@@ -24,7 +24,7 @@ prevent truncation or file corruption during unexpected termination.
 |-----|------|---------|----------------|-------------|
 | `show_hidden` | Boolean | `false` | `true`, `false` | When `true`, dotfiles and hidden directories are shown in file listings. |
 | `show_thumbnails` | Boolean | `true` | `true`, `false` | When `true`, off-thread thumbnail decoding is enabled for images and audio files. |
-| `sort` | String | `name` | `name`, `size`, `modified` | The primary sort attribute used to order directory listings. |
+| `sort` | String | `name` | `name`, `size`, `mtime` (alias `modified`) | The primary sort attribute used to order directory listings. The file is always rewritten with the canonical `mtime`. |
 | `sort_ascending` | Boolean | `true` | `true`, `false` | When `true`, items are sorted ascending (A-Z, smallest to largest, oldest to newest). |
 | `theme` | String | `system` | `system`, `light`, `dark` | Visual theme mode. `system` follows the compositor live; `light` and `dark` force fixed schemes. |
 | `view` | String | `list` | `grid`, `list`, `miller` | The default content presentation mode used for new windows and tabs. |

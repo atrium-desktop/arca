@@ -8,6 +8,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 
+use arca_xdg::TransferAction;
+
 use crate::ops;
 
 /// Unique identifier for an asynchronous IO job.
@@ -58,6 +60,16 @@ pub struct JobCompleted {
     pub error: Option<String>,
 }
 
+impl JobCompleted {
+    /// Number of items that reached the destination, or `None` when the job
+    /// failed outright (so the caller reports the error, not a count).
+    #[must_use]
+    pub fn path_count(&self) -> Option<usize> {
+        (self.error.is_none() && !self.created_destinations.is_empty())
+            .then_some(self.created_destinations.len())
+    }
+}
+
 struct JobRequest {
     id: JobId,
     kind: JobKind,
@@ -70,6 +82,8 @@ pub struct AsyncIoEngine {
     completion_rx: Receiver<JobCompleted>,
     next_id: Arc<AtomicU64>,
     active_cancel: Option<Arc<AtomicBool>>,
+    /// True between `submit` and the completion event.
+    busy: bool,
     pub current_progress: Option<JobProgress>,
 }
 
@@ -100,37 +114,39 @@ impl AsyncIoEngine {
             completion_rx: comp_rx,
             next_id: Arc::new(AtomicU64::new(1)),
             active_cancel: None,
+            busy: false,
             current_progress: None,
         }
     }
 
-    pub fn submit_copy(&mut self, sources: Vec<PathBuf>, destination: PathBuf) -> JobId {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let cancel = Arc::new(AtomicBool::new(false));
-        self.active_cancel = Some(cancel.clone());
-        let _ = self.tx.send(JobRequest {
-            id,
-            kind: JobKind::Copy {
-                sources,
-                destination,
-            },
-            cancel,
-        });
-        id
+    /// Whether a job is queued or running.
+    #[must_use]
+    pub fn is_busy(&self) -> bool {
+        self.busy
     }
 
-    pub fn submit_move(&mut self, sources: Vec<PathBuf>, destination: PathBuf) -> JobId {
+    /// Submit a transfer. The action decides whether the source is consumed.
+    pub fn submit(
+        &mut self,
+        action: TransferAction,
+        sources: Vec<PathBuf>,
+        destination: PathBuf,
+    ) -> JobId {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let cancel = Arc::new(AtomicBool::new(false));
-        self.active_cancel = Some(cancel.clone());
-        let _ = self.tx.send(JobRequest {
-            id,
-            kind: JobKind::Move {
+        self.active_cancel = Some(Arc::clone(&cancel));
+        self.busy = true;
+        let kind = match action {
+            TransferAction::Copy => JobKind::Copy {
                 sources,
                 destination,
             },
-            cancel,
-        });
+            TransferAction::Move => JobKind::Move {
+                sources,
+                destination,
+            },
+        };
+        let _ = self.tx.send(JobRequest { id, kind, cancel });
         id
     }
 
@@ -145,6 +161,7 @@ impl AsyncIoEngine {
         while let Ok(prog) = self.progress_rx.try_recv() {
             if prog.is_finished {
                 self.current_progress = None;
+                self.busy = false;
             } else {
                 self.current_progress = Some(prog);
             }
@@ -164,6 +181,8 @@ fn calculate_total_bytes(paths: &[PathBuf]) -> (u64, usize) {
 }
 
 fn count_path(p: &Path, bytes: &mut u64, files: &mut usize) {
+    // `symlink_metadata` keeps symlinked directories out of the walk: a link
+    // pointing at an ancestor would otherwise recurse without bound.
     if let Ok(meta) = fs::symlink_metadata(p) {
         if meta.is_dir() {
             if let Ok(read) = fs::read_dir(p) {
@@ -207,37 +226,43 @@ fn run_job(req: JobRequest, prog_tx: &Sender<JobProgress>, comp_tx: &Sender<JobC
             None => continue,
         };
 
-        let dst = ops::unique_destination(dest, &name);
-
         let res = if is_move {
+            // `move_into` enforces the self-containment guard itself.
             match ops::move_into(src, dest) {
                 Ok(actual_dst) => {
                     bytes_copied += fs::metadata(&actual_dst).map(|m| m.len()).unwrap_or(0);
                     files_completed += 1;
-                    created_destinations.push(actual_dst);
-                    Ok(())
+                    Ok(actual_dst)
                 }
                 Err(e) => Err(e),
             }
         } else {
-            let mut ctx = ProgressContext {
-                job_id: req.id,
-                cancel: &req.cancel,
-                total_bytes,
-                total_files,
-                bytes_copied: &mut bytes_copied,
-                files_completed: &mut files_completed,
-                prog_tx,
-            };
-            copy_with_progress(src, &dst, &mut ctx)
+            // The progressive copy below is a hot path that cannot report
+            // progress through `ops::copy_into`, so it re-implements the walk.
+            // It must therefore re-apply the same preconditions: without the
+            // guard, a large multi-selection could be copied into its own
+            // descendant and recurse until ENAMETOOLONG — the exact failure
+            // the synchronous path refuses up front.
+            match ops::ensure_transfer_allowed(src, dest) {
+                Err(e) => Err(e),
+                Ok(()) => {
+                    let dst = ops::unique_destination(dest, &name);
+                    let mut ctx = ProgressContext {
+                        job_id: req.id,
+                        cancel: req.cancel.as_ref(),
+                        total_bytes,
+                        total_files,
+                        bytes_copied: &mut bytes_copied,
+                        files_completed: &mut files_completed,
+                        prog_tx,
+                    };
+                    copy_with_progress(src, &dst, &mut ctx).map(|()| dst)
+                }
+            }
         };
 
         match res {
-            Ok(()) => {
-                if !is_move {
-                    created_destinations.push(dst);
-                }
-            }
+            Ok(created) => created_destinations.push(created),
             Err(e) => {
                 job_error = Some(e.to_string());
                 break;
@@ -266,7 +291,7 @@ fn run_job(req: JobRequest, prog_tx: &Sender<JobProgress>, comp_tx: &Sender<JobC
 
 struct ProgressContext<'a> {
     job_id: JobId,
-    cancel: &'a Arc<AtomicBool>,
+    cancel: &'a AtomicBool,
     total_bytes: u64,
     total_files: usize,
     bytes_copied: &'a mut u64,
@@ -354,11 +379,13 @@ mod tests {
         fs::create_dir_all(&dst_dir).unwrap();
 
         let mut engine = AsyncIoEngine::new();
-        let job_id = engine.submit_copy(vec![src.clone()], dst_dir.clone());
+        assert!(!engine.is_busy());
+        let job_id = engine.submit(TransferAction::Copy, vec![src.clone()], dst_dir.clone());
         assert!(job_id > 0);
+        assert!(engine.is_busy(), "a submitted job marks the engine busy");
 
         let mut completed = None;
-        for _ in 0..100 {
+        for _ in 0..200 {
             if let Some(comp) = engine.poll() {
                 completed = Some(comp);
                 break;
@@ -369,11 +396,96 @@ mod tests {
         let comp = completed.expect("job should complete");
         assert_eq!(comp.job_id, job_id);
         assert!(comp.error.is_none());
-        assert_eq!(comp.created_destinations.len(), 1);
+        assert_eq!(comp.path_count(), Some(1));
         assert!(dst_dir.join("source.dat").exists());
         assert_eq!(
             fs::metadata(dst_dir.join("source.dat")).unwrap().len(),
             256 * 1024
+        );
+        assert!(!engine.is_busy(), "completion clears the busy flag");
+
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    /// The progressive copy path re-implements the walk, so it must re-apply
+    /// the self-containment guard: a large multi-selection copied into its
+    /// own descendant must be refused, not recurse to ENAMETOOLONG.
+    #[test]
+    fn async_copy_refuses_a_directory_into_its_own_descendant() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "arca-async-self-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outer = temp_dir.join("outer");
+        let inner = outer.join("inner");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(outer.join("f.txt"), b"x").unwrap();
+
+        let mut engine = AsyncIoEngine::new();
+        engine.submit(TransferAction::Copy, vec![outer.clone()], inner.clone());
+
+        let mut finished = None;
+        for _ in 0..300 {
+            if let Some(comp) = engine.poll() {
+                finished = Some(comp);
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let comp = finished.expect("the job must finish");
+        let error = comp.error.as_deref().unwrap_or_default();
+        assert!(
+            error.contains("inside itself"),
+            "the worker must refuse self-containment, got {error:?}"
+        );
+        assert!(comp.created_destinations.is_empty());
+        assert_eq!(
+            fs::read_dir(&inner).unwrap().count(),
+            0,
+            "nothing may be created inside the descendant"
+        );
+
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    /// A cancelled job stops promptly and reports the cancellation, and the
+    /// partially written destination is not left behind.
+    #[test]
+    fn async_io_cancellation_stops_the_job() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "arca-async-cancel-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let src = temp_dir.join("big.dat");
+        // 24 MiB so the copy spans many 64 KiB chunks.
+        fs::write(&src, vec![0x5a; 24 * 1024 * 1024]).unwrap();
+        let dst_dir = temp_dir.join("out");
+        fs::create_dir_all(&dst_dir).unwrap();
+
+        let mut engine = AsyncIoEngine::new();
+        engine.submit(TransferAction::Copy, vec![src], dst_dir.clone());
+        engine.cancel_active();
+
+        let mut finished = None;
+        for _ in 0..300 {
+            if let Some(comp) = engine.poll() {
+                finished = Some(comp);
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let comp = finished.expect("a cancelled job still reports completion");
+        let error = comp.error.as_deref().unwrap_or_default();
+        assert!(
+            error.contains("ancelled"),
+            "cancellation must be reported, got {error:?}"
         );
 
         fs::remove_dir_all(&temp_dir).unwrap();

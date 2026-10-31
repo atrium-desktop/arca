@@ -99,3 +99,51 @@ Full Directory (10,000 files)
 
 As a result, viewing a folder with 50,000 files consumes identical frame memory and
 render time to viewing a folder with 50 files.
+
+---
+
+## Selection Identity: Names, Not Indices
+
+Selection is stored as a set of entry **names**. The visible list is rebuilt by every
+directory read, sort toggle, hidden-file toggle and filter edit, so an index kept
+across a rebuild would point at a different file — and the next `Delete` would trash
+the wrong entry.
+
+```text
+selected_names: { "photos/2024", "report.pdf" }   ← authoritative
+        │
+        │  resync_selection(visible)   (after every entries/filter/sort change)
+        ▼
+selected_indices: { 3, 17 }                        ← derived cache, never written directly
+cursor_name ──► selected (index)
+anchor_name ──► anchor (index)
+```
+
+Two invariants hold by construction:
+
+1. The selection is always a **subset of the visible set** — names hidden by the
+   filter are dropped, because every file operation resolves through the same
+   `visible()` list the user is looking at.
+2. The **cursor is always a member of the selection** — there is no "focused but
+   unselected" state in which `selected()` and `selected_entries()` could disagree.
+
+---
+
+## File Transfer: One Payload, One Code Path
+
+Clipboard export, clipboard import and drag-and-drop all use
+`arca_xdg::FileClipboard`, the XDG interchange type:
+
+| Direction | Format |
+| :--- | :--- |
+| `Ctrl+C` / `Ctrl+X` → system clipboard | `x-special/gnome-copied-files` (carries the `copy`/`cut` verb) |
+| Drag source → compositor and other apps | `text/uri-list` (RFC 2483) |
+| System clipboard / external drop → Arca | both of the above, plus bare absolute paths |
+
+The *action* travels either as the gnome-copied-files verb or as the caller-supplied
+default for formats that cannot encode one. Paste and drop both funnel into a single
+`transfer_into` routine, so collision naming, the "cannot move a directory into
+itself" guard, and undo grouping are identical regardless of how the items arrived.
+
+Transfers at or above 8 MiB are handed to the background IO worker; the completion
+event commits one undo transaction and refreshes the listing.

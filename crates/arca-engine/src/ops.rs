@@ -33,29 +33,69 @@ pub fn create_folder(parent: &str) -> io::Result<PathBuf> {
 }
 
 /// Rename (move) a file or directory. `to` must not exist.
+///
+/// Existence is probed with [`std::fs::symlink_metadata`]: `Path::exists`
+/// follows links and therefore reports `false` for a dangling symlink, which
+/// would let `rename` silently replace it.
 pub fn rename_path(from: &Path, to: &Path) -> io::Result<()> {
-    if to.exists() {
-        return Err(io::Error::new(
+    match std::fs::symlink_metadata(to) {
+        Ok(_) => Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             format!("{} already exists", to.display()),
-        ));
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => std::fs::rename(from, to),
+        Err(error) => Err(error),
     }
-    std::fs::rename(from, to)
 }
 
-/// Permanently delete a file or directory.
+/// Permanently delete a file, directory, or symlink.
+///
+/// The type check uses [`std::fs::symlink_metadata`] so a symlink is always
+/// unlinked as a link: following it would delete the *target* tree instead of
+/// the entry the user selected.
 pub fn delete_path(path: &Path) -> io::Result<()> {
-    if path.is_dir() {
+    let meta = std::fs::symlink_metadata(path)?;
+    if meta.is_dir() {
         std::fs::remove_dir_all(path)
     } else {
         std::fs::remove_file(path)
     }
 }
 
+/// Reject `src` → `dst_dir` transfers that would place a directory inside
+/// itself (or "into" itself under another name).
+///
+/// Without this guard a recursive copy descends into the copy it is still
+/// writing: the tree grows until the kernel rejects the path with
+/// `ENAMETOOLONG`, leaving hundreds of nested directories on disk. Both
+/// endpoints are canonicalized so symlinked routes (and `..` segments) are
+/// caught as well. Only directories can contain themselves, so files skip
+/// the check entirely.
+pub(crate) fn ensure_transfer_allowed(src: &Path, dst_dir: &Path) -> io::Result<()> {
+    ensure_not_within(src, dst_dir)
+}
+
+fn ensure_not_within(src: &Path, dst_dir: &Path) -> io::Result<()> {
+    if !src.is_dir() {
+        return Ok(());
+    }
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let src = canonical(src);
+    let dst = canonical(dst_dir);
+    if dst == src || dst.starts_with(&src) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("cannot copy or move '{}' inside itself", src.display()),
+        ));
+    }
+    Ok(())
+}
+
 /// Copy `src` (file or directory, recursively) into `dst_dir`, choosing a
 /// non-clobbering name ("name (copy)", "name (copy 2)", …) on collision.
 /// Returns the created path.
 pub fn copy_into(src: &Path, dst_dir: &Path) -> io::Result<PathBuf> {
+    ensure_not_within(src, dst_dir)?;
     let name = src
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "source has no file name"))?;
@@ -70,6 +110,7 @@ pub fn copy_into(src: &Path, dst_dir: &Path) -> io::Result<PathBuf> {
 
 /// Move `src` into `dst_dir`. Falls back to copy+delete across filesystems.
 pub fn move_into(src: &Path, dst_dir: &Path) -> io::Result<PathBuf> {
+    ensure_not_within(src, dst_dir)?;
     let name = src
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "source has no file name"))?;
@@ -201,6 +242,87 @@ mod tests {
         let dst = move_into(&src, &dst_dir).unwrap();
         assert!(!src.exists());
         assert_eq!(std::fs::read(dst).unwrap(), b"m");
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// Copying or moving a directory into itself used to recurse until the
+    /// kernel returned `ENAMETOOLONG`, leaving hundreds of nested copies on
+    /// disk. The guard must reject it before any I/O happens.
+    #[test]
+    fn copy_and_move_reject_self_descendant_targets() {
+        let tmp = temp_fixture();
+        let src = tmp.join("outer");
+        std::fs::create_dir_all(src.join("inner")).unwrap();
+        std::fs::write(src.join("f.txt"), b"x").unwrap();
+
+        for target in [src.clone(), src.join("inner")] {
+            let copy = copy_into(&src, &target);
+            assert!(
+                copy.is_err(),
+                "copy into {target:?} must be rejected, got {copy:?}"
+            );
+            let moved = move_into(&src, &target);
+            assert!(
+                moved.is_err(),
+                "move into {target:?} must be rejected, got {moved:?}"
+            );
+        }
+
+        // Nothing was created and the source is untouched.
+        assert!(src.join("f.txt").exists());
+        assert_eq!(
+            std::fs::read_dir(src.join("inner")).unwrap().count(),
+            0,
+            "no nested copies may be created"
+        );
+
+        // A sibling directory is still a legal target.
+        let sibling = tmp.join("sibling");
+        std::fs::create_dir(&sibling).unwrap();
+        assert!(copy_into(&src, &sibling).is_ok());
+
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// `delete_path` must unlink a symlink rather than recursively deleting
+    /// the directory it points at.
+    #[test]
+    fn delete_path_unlinks_symlink_not_its_target() {
+        let tmp = temp_fixture();
+        let target = tmp.join("real");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("keep.txt"), b"keep").unwrap();
+        let link = tmp.join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        delete_path(&link).unwrap();
+
+        assert!(!link.exists(), "the link itself must be gone");
+        assert!(
+            target.join("keep.txt").exists(),
+            "the symlink target must survive"
+        );
+
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// A dangling symlink occupies the destination name, so renaming onto it
+    /// must fail instead of silently replacing it.
+    #[test]
+    fn rename_refuses_dangling_symlink_destination() {
+        let tmp = temp_fixture();
+        let src = tmp.join("src.txt");
+        std::fs::write(&src, b"s").unwrap();
+        let dangling = tmp.join("dangling");
+        std::os::unix::fs::symlink(tmp.join("nowhere"), &dangling).unwrap();
+
+        assert!(
+            rename_path(&src, &dangling).is_err(),
+            "a dangling symlink still occupies the name"
+        );
+        assert!(src.exists(), "the source must be untouched");
+        assert!(std::fs::symlink_metadata(&dangling).is_ok());
+
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 }

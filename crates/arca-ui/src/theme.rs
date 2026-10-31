@@ -22,6 +22,10 @@ pub struct Tones {
     pub popover_border: Color,
     pub scrim: Color,
     pub input_bg: Color,
+    /// File-name text on a content surface at rest.
+    pub file_label: Color,
+    /// File-name text on a hovered card (must stay legible on `content`).
+    pub file_label_hover: Color,
 }
 
 impl Tones {
@@ -66,6 +70,10 @@ impl Tones {
                 } else {
                     Color::rgba(21, 24, 35, 255)
                 },
+                // ~12.6:1 and ~15.5:1 against `content`: both far above the
+                // 4.5:1 floor, hover only slightly brighter.
+                file_label: Color::rgba(215, 222, 235, 255),
+                file_label_hover: Color::rgba(255, 255, 255, 255),
             }
         } else {
             Tones {
@@ -96,6 +104,12 @@ impl Tones {
                 } else {
                     Color::rgba(233, 236, 244, 255)
                 },
+                // The grid label used to be hard-coded near-white, which is
+                // 1.3:1 on the light content surface (invisible at rest,
+                // 1.04:1 on hover — literally the background colour). These
+                // are ~13.9:1 and ~17.5:1, and hover now darkens.
+                file_label: Color::rgba(38, 43, 56, 255),
+                file_label_hover: Color::rgba(12, 16, 26, 255),
             }
         }
     }
@@ -162,6 +176,7 @@ pub fn branded_theme_with_accent(
         .with_scrollbar_width(SCROLLBAR_W)
         .with_scrollbar_radius(2.5)
         .with_font_size(14.0)
+        .with_icon_size(18.0)
 }
 
 pub fn label_colored(frame: &mut Frame, text: &str, color: Color) {
@@ -181,30 +196,6 @@ pub fn label_colored_sized(frame: &mut Frame, text: &str, size: f32, color: Colo
     frame.set_theme(theme);
 }
 
-/// Wrapped label with every line centred and the block clamped to
-/// `max_lines`, ellipsizing the last visible line. Tiled cards read ragged
-/// with left-aligned text, and unbounded wrapping overflowed the fixed card
-/// height on long names.
-#[allow(dead_code)]
-pub(crate) fn label_centered(
-    frame: &mut Frame,
-    text: &str,
-    size: f32,
-    max_width: f32,
-    max_lines: usize,
-) {
-    let fg = frame.theme().fg();
-    label_centered_styled(
-        frame,
-        text,
-        size,
-        max_width,
-        max_lines,
-        fg,
-        Color::TRANSPARENT,
-    );
-}
-
 /// Wrapped label with custom text color and optional pill background.
 pub(crate) fn label_centered_styled(
     frame: &mut Frame,
@@ -222,7 +213,7 @@ pub(crate) fn label_centered_styled(
     frame.column_ex(
         &LayoutOpts {
             gap: 2.0,
-            pad: if has_bg { 2.0 } else { 0.0 },
+            pad: if has_bg { 2.5 } else { 0.0 },
             bg,
             radius: 4.0,
             cross: Align::Center,
@@ -305,4 +296,162 @@ fn fitting_prefix(frame: &Frame, text: &str, size: f32, max_width: f32) -> usize
         }
     }
     bounds[lo]
+}
+
+#[cfg(test)]
+mod contrast_tests {
+    //! WCAG 2.1 relative-luminance contrast floors for body text.
+    //!
+    //! These exist because the grid label was once a hard-coded near-white:
+    //! it read at 1.04:1 against the light content surface (i.e. invisible)
+    //! and no test noticed, because the only theme test asserted "does not
+    //! panic".
+
+    use super::*;
+
+    fn channel(value: u8) -> f32 {
+        let v = value as f32 / 255.0;
+        if v <= 0.039_28 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn luminance(color: Color) -> f32 {
+        let (r, g, b, _) = color.components();
+        0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    }
+
+    fn contrast(foreground: Color, background: Color) -> f32 {
+        let (a, b) = (luminance(foreground), luminance(background));
+        let (hi, lo) = if a > b { (a, b) } else { (b, a) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    /// WCAG AA for normal-size text.
+    const AA_NORMAL: f32 = 4.5;
+
+    fn schemes() -> [(&'static str, Tones); 2] {
+        [
+            ("dark", Tones::from_theme(&branded_theme(true))),
+            ("light", Tones::from_theme(&branded_theme(false))),
+        ]
+    }
+
+    #[test]
+    fn file_labels_meet_wcag_aa_on_the_content_surface() {
+        for (name, tones) in schemes() {
+            for (label, color) in [
+                ("file_label", tones.file_label),
+                ("file_label_hover", tones.file_label_hover),
+            ] {
+                let ratio = contrast(color, tones.content);
+                assert!(
+                    ratio >= AA_NORMAL,
+                    "{name} {label} on content is {ratio:.2}:1, below the {AA_NORMAL}:1 floor"
+                );
+            }
+        }
+    }
+
+    /// Hover must not reduce legibility — the historical failure was a hover
+    /// colour *closer* to the background than the resting colour.
+    #[test]
+    fn hovered_labels_stay_at_least_as_legible_as_resting() {
+        for (name, tones) in schemes() {
+            let resting = contrast(tones.file_label, tones.content);
+            let hovered = contrast(tones.file_label_hover, tones.content);
+            assert!(
+                hovered >= resting,
+                "{name}: hover contrast {hovered:.2}:1 is worse than resting {resting:.2}:1"
+            );
+        }
+    }
+
+    /// Muted status/label text must remain readable too.
+    #[test]
+    fn muted_text_meets_a_relaxed_floor() {
+        // Muted text is used for secondary metadata at ~11.5px; 4.5:1 is the
+        // requirement, and these tokens clear it.
+        for (name, tones) in schemes() {
+            for surface in [tones.content, tones.toolbar, tones.status_bar] {
+                let ratio = contrast(tones.muted, surface);
+                assert!(
+                    ratio >= AA_NORMAL,
+                    "{name} muted text is {ratio:.2}:1 on its surface"
+                );
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod theme_behaviour_tests {
+        //! Layout and metric behaviour that the visual tokens alone cannot express.
+
+        use super::*;
+        use crate::test_support::fixture;
+
+        #[test]
+        fn centered_label_breaks_and_ellipsizes() {
+            let (_dir, mut app) = fixture();
+            let mut ui = lens::Ui::headless().expect("headless ui");
+            let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+            ui.frame(&input, |f| {
+                app.build(f, &input);
+                // A short name stays one line.
+                let lines = break_lines(f, "a.txt", 12.5, 114.0, 2);
+                assert_eq!(lines, ["a.txt"]);
+                // A long CJK name clamps to two lines; the last is ellipsized
+                // and every line fits the card's text width.
+                let long = "龍猛寺寛度 - 武家坡2021 (Official Music Video) extra long suffix.flac";
+                let lines = break_lines(f, long, 12.5, 114.0, 2);
+                assert_eq!(lines.len(), 2, "clamped to two lines: {lines:?}");
+                assert!(lines[1].ends_with('…'), "second line ellipsized: {lines:?}");
+                for line in &lines {
+                    assert!(
+                        f.measure_text(line, 12.5).width <= 114.0,
+                        "line fits: {line:?}"
+                    );
+                }
+                // A single unbreakable token hard-cuts without panicking.
+                let token = "supercalifragilisticexpialidocious-supercalifragilisticexpialidocious";
+                let lines = break_lines(f, token, 12.5, 114.0, 2);
+                assert_eq!(lines.len(), 2);
+            });
+        }
+
+        #[test]
+        fn theme_orthogonal_icon_size_and_selectable_geometry() {
+            let dark_theme = crate::theme::branded_theme(true);
+            let light_theme = crate::theme::branded_theme(false);
+            assert_eq!(dark_theme.icon_size(), 18.0);
+            assert_eq!(light_theme.icon_size(), 18.0);
+            assert_eq!(dark_theme.font_size(), 14.0);
+            assert_eq!(light_theme.font_size(), 14.0);
+
+            let mut ui = lens::Ui::headless().expect("headless ui");
+            let input = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+            let mut row_height = 0.0;
+            let mut clicked = false;
+            for _ in 0..2 {
+                ui.frame(&input, |f| {
+                    f.push_id("test-selectable");
+                    clicked = crate::icons::selectable_icon(
+                        f,
+                        crate::icons::ids::Folder,
+                        "Documents",
+                        false,
+                    );
+                    row_height = f.response().rect.h;
+                    f.pop_id();
+                });
+                if let Ok(snap) = ui.snapshot() {
+                    let _ = ui.activate(&snap);
+                }
+            }
+            assert!(!clicked);
+            assert_eq!(row_height, 30.0);
+        }
+    }
 }
