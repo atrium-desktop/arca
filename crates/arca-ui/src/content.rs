@@ -7,7 +7,7 @@ use arca_engine::{Entry, ViewMode};
 use iris::{Align, Color, Frame, LayoutOpts};
 use std::path::PathBuf;
 
-use crate::app::UiApp;
+use crate::app::{focus_any, FocusTarget, UiApp};
 use crate::icons::{self, ids};
 use crate::theme::{self, Tones};
 
@@ -391,8 +391,8 @@ fn build_grid_card(
                 frame.size_next(0.0, 2.0);
                 frame.spacer(2.0);
                 frame.size_next(text_width, 0.0);
-                let resp = frame.textfield_ex("##grid-rename", &mut app.rename, false);
-                capture_rename(app, frame);
+                let resp = frame.textedit_ex("##grid-rename", &mut app.rename, false, false, false);
+                capture_rename(app, frame, "##grid-rename");
                 if resp.submitted {
                     app.commit_rename(frame);
                 }
@@ -658,8 +658,8 @@ fn build_list_row(
         frame.row_ex(&options, |frame| {
             row_icon(frame, &entry);
             frame.flex(1.0);
-            let resp = frame.textfield_ex("##list-rename", &mut app.rename, false);
-            capture_rename(app, frame);
+            let resp = frame.textedit_ex("##list-rename", &mut app.rename, false, false, false);
+            capture_rename(app, frame, "##list-rename");
             if resp.submitted {
                 app.commit_rename(frame);
             }
@@ -1074,10 +1074,25 @@ fn sort_cell(
     }
 }
 
-fn capture_rename(app: &mut UiApp, frame: &mut Frame) {
-    let response = frame.response();
-    app.rename_id = response.id;
-    app.rename_focused_now = response.focused;
+fn capture_rename(app: &mut UiApp, frame: &mut Frame, label: &str) {
+    app.rename_focused_now = frame.response().focused;
+    if app.pending_focus == Some(FocusTarget::Rename) {
+        if let Some(name) = &app.renaming {
+            let stem_len = if let Some(dot_idx) = name.rfind('.') {
+                if dot_idx > 0 {
+                    dot_idx
+                } else {
+                    name.len()
+                }
+            } else {
+                name.len()
+            };
+            frame.textedit_set_selection(label, 0, stem_len as u32);
+            if focus_any(frame, &[label]) {
+                app.pending_focus = None;
+            }
+        }
+    }
 }
 
 fn placeholder(
@@ -1547,7 +1562,13 @@ mod tests {
         assert_eq!(
             app.next_hovered_grid_index,
             Some(vault_idx),
-            "hovering inside card hit zone must capture hovered grid index"
+            "hovering inside card hit zone must capture hovered grid index (entries: {:?}, target: {:?})",
+            app.state
+                .entries()
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            target.rect
         );
         assert!(
             !ui.overflowed(),
@@ -1588,5 +1609,31 @@ mod tests {
         assert!(app.renaming.is_none());
         assert!(dir.join("renamed_file.txt").exists());
         assert!(!dir.join("test_file.txt").exists());
+    }
+
+    #[test]
+    fn inline_rename_preselects_stem_so_backspace_removes_stem_only() {
+        let (dir, mut app) = fixture();
+        let file_path = dir.join("report.pdf");
+        std::fs::write(&file_path, "pdf data").unwrap();
+        app.state.refresh();
+
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        frame(&mut app, &mut ui, &input);
+
+        // Initiate rename: "report.pdf", stem is "report" (len 6)
+        app.begin_rename("report.pdf".to_string());
+        assert_eq!(app.renaming.as_deref(), Some("report.pdf"));
+
+        // Frame 1: rename textfield is activated and pre-selects the stem (0..6)
+        frame(&mut app, &mut ui, &input);
+
+        // Frame 2: Backspace with selection active deletes "report", leaving ".pdf"
+        let mut bs_input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        bs_input.push_key(lens::key::BACKSPACE, true, false);
+        frame(&mut app, &mut ui, &bs_input);
+
+        assert_eq!(app.rename.as_str(), ".pdf");
     }
 }

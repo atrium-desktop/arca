@@ -769,7 +769,8 @@ pub fn run_chooser(
                 }
             }
         },
-        None::<fn(iris::PaintHost)>,
+        // Pure Lens chrome: no host canvas recording (Optics ADR-0127).
+        None::<fn(iris::RecordHost)>,
     )?;
 
     let res = result_holder

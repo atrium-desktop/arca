@@ -51,7 +51,10 @@ pub fn run(state: AppState) -> Result<(), iris::RunError> {
             device::clear_device();
         }),
         move |frame, input| app_build.borrow_mut().build(frame, input),
-        None::<fn(iris::PaintHost)>,
+        // Arca is pure Lens chrome: it records no host canvas content, so the
+        // optional recorder stays empty and the frame has no host display
+        // list to composite under the widgets (Optics ADR-0127).
+        None::<fn(iris::RecordHost)>,
     );
     result
 }

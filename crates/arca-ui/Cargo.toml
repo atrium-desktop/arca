@@ -13,3 +13,8 @@ lens.workspace = true
 lens-sys.workspace = true
 flux-sys.workspace = true
 transit.workspace = true
+# Direct dependency so Cargo publishes `DEP_TRANSIT_RPATHS` to build.rs.
+# `transit` is a wrapper around the `links = "transit"` sys crate, and Cargo
+# only exposes links metadata to direct dependents; without this the test
+# binaries cannot find libtransit.so.0.0.78 in a local optics build tree.
+transit-sys.workspace = true

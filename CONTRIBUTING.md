@@ -11,7 +11,7 @@ Before starting work, please review the authoritative contributor and architectu
 1. **Engineering Standards & Architecture**: Read [Arca Engineering Standards](docs/dev/standards/README.md), [System Architecture Governance](docs/dev/standards/architecture.md), and the living [Subsystem Blueprint](docs/dev/subsystems.md) for workspace topology, subsystem red-lines, and invariant policies.
 2. **Development Environment & Setup**: See [AGENTS.md](AGENTS.md), [Setup Guide](docs/dev/setup.md), and [Optics Development Worktree](docs/dev/optics-dev-worktree.md) for setting up canonical builds or a linked development worktree against sibling Optics checkouts.
 3. **Automated Testing**: Review [Testing Guide](docs/dev/testing.md) for running unit and headless UI frame test suites across the workspace (`cargo test --workspace`).
-4. **Manual Testing & Acceptance**: Review [Manual Testing Runbook](docs/dev/manual-testing.md) and [Acceptance Guide](docs/dev/acceptance.md) for sandbox-isolated exploratory testing and outside-in user journey verification.
+4. **Build, Run & Acceptance**: Review [Build & Run Guide](docs/dev/build-and-run.md) and [Acceptance Guide](docs/dev/acceptance.md) for sandbox-isolated exploratory testing and outside-in user journey verification.
 5. **Distribution Packaging**: See [Distribution Packaging](docs/dev/packaging.md) for packaging requirements, dependencies, and system manifests.
 
 ---

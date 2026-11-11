@@ -34,10 +34,11 @@ bar) and icon mapping were ported deliberately.
   `LD_LIBRARY_PATH`.
 - Where the safe `lens` surface is intentionally narrow, `arca-ui`
   drops to `lens_sys` via `frame.as_raw()` inside dedicated helpers:
-  the full feather icon set (`icons.rs`), focusing a widget by id
-  (Ctrl+L / Ctrl+F / inline rename), and clipboard copy (`menus.rs`).
-  Widget ids are captured from `lens_get_response().id` right after the
-  widget is built, so no id-stack assumptions are made.
+  the full feather icon set (`icons.rs`), label-scoped focus
+  (Ctrl+L / F3 / inline rename), and clipboard copy (`menus.rs`).
+  Focus labels are resolved by `lens_current_id` immediately after the
+  target widget is built, while that widget's id scope is current; no
+  numeric widget id is cached across frames.
 
 ## State and input flow
 
@@ -66,3 +67,6 @@ Following the initial 0.2.0 release:
 1. **Workspace Modularization (v0.2.2)**: `arca-core` was formally split into `crates/arca-xdg` (pure-std Freedesktop specifications: Base Dirs, User Dirs, RFC 8089 URIs, MIME sniffing, `.desktop`, and FreeDesktop Trash v1.0) and `crates/arca-engine` (application state machine, navigation, file operations, configuration, thumbnail caching).
 2. **Viewport Virtualization**: All directory listing views (**Grid**, **List**, and **Miller columns**) were virtualized to guarantee execution within Lens's 1 MiB immediate-mode frame arena budget (`tests::large_directory_does_not_overflow_frame_arena`).
 3. **Motion Dynamics & Optics v0.0.60 Alignment (ADR-0004)**: Adopted Optics `transit` for centralized cubic easing and spring dynamics in Quick Look modal transitions, and hardware-accelerated premultiplied thumbnail uploads via `flux_image_update_region_premultiply`.
+4. **Regional Damage & Quiescence (Optics v0.0.74, ADR-0008)**: Adopted the bounded regional damage rect list, departure damage for removed rows, host-controlled caret/selection placement, and zero-damage idle presentation.
+5. **Native Frame Damage & Caret Phases (Optics v0.0.76, ADR-0009)**: Delegated the per-image damage epoch ledger to Iris/Flux, moved focus to build-site label resolution, disabled the caret blink under reduced motion, and verified scrolling viewport damage and caret-flip-only repaints.
+6. **Record-Only Host Canvas (Optics v0.0.78, ADR-0010)**: Retired the deleted `PaintHost`/live-paint contract, kept both entry points on the pure-chrome record seam with an empty `RecordHost`, and audited the Flux snapshot, dynamic-slot, and DisplayList wire contracts against Arca's write-once thumbnail ownership.

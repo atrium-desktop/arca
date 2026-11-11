@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Synchronized workspace dependencies with Optics `v0.0.78` and landed ADR-0010.
+- Adopted the record-only host canvas seam (Optics ADR-0127): the live-canvas `paint` callback, `PaintHost`, and `PaintCanvas` are gone, so both Arca entry points pass an empty `RecordHost` and remain pure Lens chrome.
+- Audited the v0.0.78 Flux ownership contracts (RenderPlan, DisplayList wire v1, dynamic image slots, immutable snapshots, dma-buf leases) and kept Arca on owned write-once thumbnail images; no new per-frame ownership or serialization layer was introduced.
+- Synchronized workspace dependencies with Optics `v0.0.76` and landed ADR-0009.
+- Adopted the native frame damage epoch ledger (Optics ADR-0149 / ADR-0155) through Iris: Arca keeps no per-image damage ledger; regional damage and quiescence are verified for virtualized scrolling, row removal, modal preview transitions, and segmented view switches.
+- Adopted label-scoped host focus (Optics v0.0.76): location, filter, and inline rename focus targets resolve at the widget's build site instead of caching numeric ids across frames.
+- Adopted caret phase semantics and reduced-motion policy (Optics ADR-0151): a focused field reports damage only on blink flips, and reduced motion disables the blink clock with a solid caret.
+- Re-validated every shipped SVG icon against the new `libsvg` compiler path; the icon registration suite fails if any glyph stops parsing.
+- Synchronized workspace dependencies with Optics `v0.0.74` and landed ADR-0008.
+- Adopted Optics regional damage rect list contract (`Ui::damage_rects`, Optics ADR-0143 / ADR-0149) with integration verification in `crates/arca-ui/tests/damage_and_quiescence.rs`.
+- Departure damage tracking for departed nodes (`LENS_NODE_LEAVING`): row deletion in directory listings reliably invalidates and clears the vacated area without stale pixels or full-viewport redraws.
+- Demand-driven presentation quiescence: verified zero-damage sleeping and animation termination for idle frames and segmented view switcher transitions (Optics ADR-0151, ADR-0152).
+- Host-controlled selection and caret positioning (`Frame::textedit_set_selection` and `Frame::textfield_set_caret`): location bar focus (`Ctrl+L`) auto-selects all text, and inline file rename (`F2`) automatically pre-selects the filename stem, preserving extensions.
+- Consolidated developer runbook into `docs/dev/build-and-run.md` conforming to Optics ADR-0125 documentation standards.
+
+### Fixed
+- Local-build runpaths now find the full-version `libtransit.so.0.0.78` SONAME by exposing `transit-sys` links metadata to the `arca-ui` and `arca` build scripts.
+- Headless UI tests no longer create their isolated config inside the directory under test, and concurrent fixtures get a unique serial suffix; persisted settings can no longer shift visible entry indices mid-suite.
+
 ## [0.2.12] - 2026-10-31
 
 ### Added

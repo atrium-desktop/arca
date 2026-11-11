@@ -111,6 +111,8 @@ lens = { path = "../optics/bindings/lens-rs/crates/lens" }
 lens-sys = { path = "../optics/bindings/lens-rs/crates/lens-sys" }
 flux = { path = "../optics/bindings/flux-rs/crates/flux" }
 flux-sys = { path = "../optics/bindings/flux-rs/crates/flux-sys" }
+transit = { path = "../optics/bindings/transit-rs/crates/transit" }
+transit-sys = { path = "../optics/bindings/transit-rs/crates/transit-sys" }
 ```
 
 This configuration achieves two things:
@@ -123,6 +125,12 @@ This configuration achieves two things:
    `../optics/build/meson-uninstalled/`, prepend it to `PKG_CONFIG_PATH`,
    and inject `-Wl,-rpath` so that uninstalled local C libraries take
    absolute precedence over any system-installed versions.
+
+   Cargo publishes `links` metadata (`DEP_*_RPATHS`) only to direct
+   dependents, so `arca-ui` and `arca` depend on `transit-sys` directly to
+   relay the full-version `libtransit.so.0.0.78` directory into their
+   runpaths. Optics `v0.0.76` and later carry the full version in every
+   pre-1.0 SONAME, so a stale system library cannot satisfy the loader.
 
 ### 3. Resolve the Local Dependency Graph
 

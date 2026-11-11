@@ -87,18 +87,15 @@ pub struct UiApp {
     pub(crate) ipc: Option<crate::ipc::IpcServer>,
 
     pub(crate) location: TextBuf,
-    pub(crate) location_id: lens_sys::lens_id,
     pub(crate) location_focused: bool,
     pub(crate) location_focused_now: bool,
 
     pub(crate) filter: TextBuf,
-    pub(crate) filter_id: lens_sys::lens_id,
     pub(crate) filter_focused: bool,
     pub(crate) filter_focused_now: bool,
 
     pub(crate) renaming: Option<String>,
     pub(crate) rename: TextBuf,
-    pub(crate) rename_id: lens_sys::lens_id,
     pub(crate) rename_focused: bool,
     pub(crate) rename_focused_now: bool,
 
@@ -121,6 +118,9 @@ pub struct UiApp {
     pub(crate) bookmark_drop_rect: Option<Rect>,
     pub(crate) sub_row_rect: Option<Rect>,
     pub(crate) pending_paste: bool,
+    /// The reduced-motion policy last applied to lens's caret blink clock.
+    /// `None` forces one application after context creation.
+    pub(crate) caret_blink_reduced: Option<bool>,
     pub(crate) mods: u32,
     pub(crate) fullscreen: bool,
     /// Set when the user asks to close the window (last tab closed). The host
@@ -132,9 +132,38 @@ pub struct UiApp {
     pub(crate) current_grid_columns: usize,
 }
 
-pub(crate) fn set_focus(frame: &mut Frame, id: u64) {
-    // SAFETY: the frame is live inside the build callback.
-    unsafe { lens_sys::lens_set_focus(frame.as_raw(), id) };
+/// Move keyboard focus to the first widget built under one of `labels`.
+///
+/// Lens resolves the label against the current id scope, so this must run
+/// immediately after the widget inside the container that built it; a label
+/// resolved from the root scope cannot address a nested field. Storing a
+/// label instead of a numeric widget id keeps focus independent of the id
+/// that an earlier build happened to assign. Returns `false` when none of the
+/// labels has been built, which leaves `pending_focus` armed for the next
+/// frame.
+pub(crate) fn focus_any(frame: &mut Frame, labels: &[&str]) -> bool {
+    for label in labels {
+        let name = *label;
+        let Ok(label) = std::ffi::CString::new(name) else {
+            continue;
+        };
+        // SAFETY: the frame is live inside the build callback and `label` is
+        // NUL-terminated. `lens_current_id` only reads the context's id map.
+        let id = unsafe { lens_sys::lens_current_id(frame.as_raw(), label.as_ptr()) };
+        if id == 0 {
+            continue;
+        }
+        // SAFETY: the frame is live and `id` was resolved against this context.
+        unsafe { lens_sys::lens_set_focus(frame.as_raw(), id) };
+        return true;
+    }
+    false
+}
+
+/// Release keyboard focus from whatever widget holds it.
+pub(crate) fn clear_focus(frame: &mut Frame) {
+    // SAFETY: the frame is live inside the build callback; 0 is "no widget".
+    unsafe { lens_sys::lens_set_focus(frame.as_raw(), 0) };
 }
 
 impl UiApp {
@@ -155,7 +184,6 @@ impl UiApp {
             state,
             ipc,
             location,
-            location_id: 0,
             location_focused: false,
             location_focused_now: false,
             location_completion: None,
@@ -165,6 +193,7 @@ impl UiApp {
             bookmark_drop_rect: None,
             sub_row_rect: None,
             pending_paste: false,
+            caret_blink_reduced: None,
             mods: 0,
             fullscreen: false,
             close_requested: false,
@@ -172,12 +201,10 @@ impl UiApp {
             next_hovered_grid_index: None,
             current_grid_columns: 0,
             filter,
-            filter_id: 0,
             filter_focused: false,
             filter_focused_now: false,
             renaming: None,
             rename: TextBuf::new(1024, ""),
-            rename_id: 0,
             rename_focused: false,
             rename_focused_now: false,
             pending_focus: None,
@@ -245,6 +272,7 @@ impl UiApp {
         }
         self.drop_targets.clear();
 
+        self.sync_caret_blink(frame);
         self.apply_theme(frame);
         if self.pending_paste {
             if let Some(text) = frame.take_paste() {
@@ -318,7 +346,7 @@ impl UiApp {
             preview::build_preview(&mut self.preview, &mut self.thumbs, frame, input, &tones);
         }
         self.build_drag_preview(frame, &tones);
-        self.finish_frame(frame);
+        self.finish_frame();
     }
 
     /// The transfer action a drop should perform.
@@ -406,6 +434,25 @@ impl UiApp {
         );
     }
 
+    /// Mirror the host's reduced-motion policy into lens's caret blink clock
+    /// (Optics ADR-0151). A reduced-motion session keeps the caret solid and
+    /// silent; leaving it restores the library default through the exported
+    /// constant, never a hard-coded period.
+    fn sync_caret_blink(&mut self, frame: &mut Frame) {
+        let reduced = preview::frame_reduced_motion(frame);
+        if self.caret_blink_reduced == Some(reduced) {
+            return;
+        }
+        self.caret_blink_reduced = Some(reduced);
+        let period = if reduced {
+            0.0
+        } else {
+            lens::DEFAULT_CARET_BLINK_PERIOD_S
+        };
+        // SAFETY: the frame is live inside the build callback.
+        unsafe { lens_sys::lens_set_caret_blink(frame.as_raw(), period) };
+    }
+
     fn apply_theme(&mut self, frame: &mut Frame) {
         if let Some(chooser) = &self.chooser {
             if let Some(appr) = &chooser.appearance {
@@ -426,7 +473,7 @@ impl UiApp {
         frame.set_theme(theme::branded_theme(dark));
     }
 
-    fn finish_frame(&mut self, frame: &mut Frame) {
+    fn finish_frame(&mut self) {
         if self.close_requested {
             iris::window_close();
         }
@@ -440,18 +487,6 @@ impl UiApp {
 
         if let Some(chooser) = &mut self.chooser {
             chooser.save_name_focused = chooser.save_name_focused_now;
-        }
-
-        if let Some(target) = self.pending_focus {
-            let id = match target {
-                FocusTarget::Location => self.location_id,
-                FocusTarget::Filter => self.filter_id,
-                FocusTarget::Rename => self.rename_id,
-            };
-            if id != 0 {
-                set_focus(frame, id);
-                self.pending_focus = None;
-            }
         }
     }
 
@@ -552,7 +587,6 @@ impl UiApp {
     pub(crate) fn begin_rename(&mut self, name: String) {
         self.rename.set(&name);
         self.renaming = Some(name);
-        self.rename_id = 0;
         self.rename_focused = false;
         self.rename_focused_now = false;
         self.pending_focus = Some(FocusTarget::Rename);
@@ -563,7 +597,7 @@ impl UiApp {
             let new_name = self.rename.as_str().into_owned();
             self.state.rename(&original, &new_name);
         }
-        frame.clear_focus();
+        clear_focus(frame);
     }
 
     pub(crate) fn submit_location(&mut self, frame: &mut Frame) {
@@ -575,7 +609,7 @@ impl UiApp {
             self.location.set(self.state.cwd());
             self.location_focused = false;
             self.location_focused_now = false;
-            frame.clear_focus();
+            clear_focus(frame);
         }
     }
 
@@ -782,6 +816,7 @@ impl UiApp {
         let text_editing = self.location_focused
             || self.filter_focused
             || self.rename_focused
+            || self.renaming.is_some()
             || chooser_save_focused;
 
         for ev in &raw.keys[..raw.key_count as usize] {
@@ -798,7 +833,7 @@ impl UiApp {
                 if self.renaming.is_some() {
                     frame.consume_key(lens::key::ESCAPE);
                     self.renaming = None;
-                    frame.clear_focus();
+                    clear_focus(frame);
                     continue;
                 }
                 if self.location_focused {
@@ -809,7 +844,7 @@ impl UiApp {
                         self.state.set_status(String::new());
                     } else {
                         self.location.set(self.state.cwd());
-                        frame.clear_focus();
+                        clear_focus(frame);
                         self.location_focused = false;
                         self.location_focused_now = false;
                     }
@@ -817,7 +852,7 @@ impl UiApp {
                 }
                 if self.filter_focused {
                     frame.consume_key(lens::key::ESCAPE);
-                    frame.clear_focus();
+                    clear_focus(frame);
                     self.filter_focused = false;
                     self.filter_focused_now = false;
                     continue;
@@ -1292,6 +1327,53 @@ mod tests {
             frame(&mut app, &mut ui, &settle);
         }
         assert!(app.preview.progress > 0.5);
+    }
+
+    /// Focus targets are stored as stable widget labels, not numeric ids
+    /// captured from an earlier build (Optics v0.0.76 host focus contract).
+    /// The label must resolve after the rebuild that creates the widget and
+    /// release cleanly when the field is dismissed.
+    #[test]
+    fn focus_targets_resolve_by_label_across_rebuilds() {
+        let (_dir, mut app) = fixture();
+        let mut ui = lens::Ui::headless().expect("headless ui");
+        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..4 {
+            frame(&mut app, &mut ui, &settle);
+        }
+
+        // Ctrl+L focuses the location field.
+        press(&mut app, &mut ui, 'l' as i32, lens::mods::CTRL);
+        frame(&mut app, &mut ui, &settle);
+        assert!(app.location_focused, "location must take focus");
+        assert!(!app.filter_focused);
+        assert_eq!(app.pending_focus, None, "the label must resolve in-frame");
+
+        // Escape releases it; no stale id may pull focus back on the next build.
+        press(&mut app, &mut ui, lens::key::ESCAPE, 0);
+        frame(&mut app, &mut ui, &settle);
+        assert!(
+            !app.location_focused,
+            "dismissed location field must not retain focus"
+        );
+
+        // F3 focuses the filter field by its own stable label.
+        press(&mut app, &mut ui, lens::key::F3, 0);
+        frame(&mut app, &mut ui, &settle);
+        assert!(app.filter_focused, "filter must take focus");
+        press(&mut app, &mut ui, lens::key::ESCAPE, 0);
+        frame(&mut app, &mut ui, &settle);
+        assert!(!app.filter_focused);
+
+        // F2 focuses the inline rename field of the selected List row.
+        app.state.select_visible(1);
+        press(&mut app, &mut ui, lens::key::F2, 0);
+        frame(&mut app, &mut ui, &settle);
+        assert!(
+            app.rename_focused,
+            "inline rename must take focus through its view-specific label"
+        );
+        assert_eq!(app.pending_focus, None, "the rename label must resolve");
     }
 
     #[test]

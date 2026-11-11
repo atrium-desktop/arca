@@ -76,7 +76,7 @@ It is organized as an uncompromising, modern Cargo workspace containing four spe
 ### 2.3 `crates/arca-ui` (Presentation & Viewport Subsystem)
 - **Role**: Presentation and interaction layer built on the Optics stack (`lens` immediate-mode UI, `iris` application runtime, `flux` Vulkan renderer, `transit` motion dynamics).
 - **Owned Domains**:
-  - *Immediate-Mode Render Loop*: Builds the complete frame UI from `AppState` every frame without retaining parallel widget state trees.
+  - *Immediate-Mode Render Loop*: Builds the complete frame UI from `AppState` every frame without retaining parallel widget state trees. Arca is pure Lens chrome: it installs no host canvas recorder (`RecordHost`) and would record an immutable DisplayList rather than touch a live canvas if a custom surface were ever added.
   - *Arena Memory Budget & Virtualization*: Enforces the 1 MiB per-frame widget arena budget of Lens. All listing views (**Grid**, **List**, **Miller columns**) slice the visible viewport window; only in-view items generate layout nodes and draw commands.
   - *Three View Modalities*:
     - **Grid View**: Responsive multi-column layout with icon/thumbnail tiles and centered text labels.
@@ -94,7 +94,7 @@ It is organized as an uncompromising, modern Cargo workspace containing four spe
 ### 2.4 `crates/arca` (Unified Executable Entry Point)
 - **Role**: Unified binary entrypoint, CLI argument parser, and runtime posture selector.
 - **Owned Domains**:
-  - *Interactive Desktop Mode*: Initializes logging, loads config, instantiates `AppState`, registers icons, and launches the Wayland event loop via `iris::Application::run_with_lifecycle`.
+  - *Interactive Desktop Mode*: Initializes logging, loads config, instantiates `AppState`, registers icons, and launches the event loop via `iris::Application::run_with_lifecycle` with no host canvas recorder (pure Lens chrome).
   - *Portal Chooser Prompter Mode (`--chooser-prompt`)*: Standalone prompter process invoked by desktop portal daemons over stdio. Reads JSON request envelope from `stdin`, displays focused modal picker window, emits a single JSON response envelope to `stdout`, and terminates cleanly.
   - *Standalone CLI Picker Modes*: `--choose-file`, `--choose-files`, `--choose-dir`, `--save-file` returning selected path(s) to stdout for shell scripts.
 - **Subsystem Boundary & Anti-Inversions**:
@@ -117,17 +117,18 @@ arca (binary)
   │     ├── iris
   │     ├── lens, lens-sys
   │     ├── flux-sys
-  │     └── transit
+  │     └── transit, transit-sys
   ├── arca-engine
-  └── iris
+  ├── iris
+  └── transit-sys
 ```
 
 | Source Crate | Permitted Dependencies | Forbidden Dependencies |
 | :--- | :--- | :--- |
 | **`arca-xdg`** | Rust `std` only | `arca-engine`, `arca-ui`, `arca`, external crates |
 | **`arca-engine`** | `arca-xdg`, `image`, `serde`, `serde_json` | `arca-ui`, `arca`, `lens`, `iris`, `flux` |
-| **`arca-ui`** | `arca-engine`, `arca-xdg`, Optics (`lens`, `iris`, `flux`, `transit`) | `arca` (entrypoint) |
-| **`arca`** | `arca-ui`, `arca-engine`, `iris` | Direct internal UI view modules |
+| **`arca-ui`** | `arca-engine`, `arca-xdg`, Optics (`lens`, `lens-sys`, `iris`, `flux-sys`, `transit`, `transit-sys` for runpath metadata) | `arca` (entrypoint) |
+| **`arca`** | `arca-ui`, `arca-engine`, `iris`, `transit-sys` (runpath metadata) | Direct internal UI view modules |
 
 ---
 

@@ -21,7 +21,7 @@ All engineering standards reside flatly in `docs/dev/standards/`:
 | **[`workflow.md`](workflow.md)** | **Engineering Workflow**: PR review gates, code-to-doc synchronization, release hygiene, and zero-legacy-drag standards. |
 | **[`postmortems.md`](postmortems.md)** | **Blameless Incident Postmortems**: Root-cause analysis, timeline reconstruction, detection gap mitigation, and defense-in-depth principles. |
 
-For hands-on testing execution and QA runbooks, see [`docs/dev/testing.md`](../testing.md), [`docs/dev/manual-testing.md`](../manual-testing.md), and [`docs/dev/subsystems.md`](../subsystems.md).
+For hands-on testing execution and QA runbooks, see [`docs/dev/testing.md`](../testing.md), [`docs/dev/build-and-run.md`](../build-and-run.md), and [`docs/dev/subsystems.md`](../subsystems.md).
 
 ---
 

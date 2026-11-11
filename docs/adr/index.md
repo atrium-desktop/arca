@@ -20,3 +20,6 @@ For the record template and guidelines, see [ADR Template](template.md).
 | [0005](0005-fluid-adaptive-grid-and-typographic-metrics.md) | Fluid Adaptive Grid Architecture and Derived Typographic Metrics | Accepted | 2026-10-18 |
 | [0006](0006-optics-v0.0.64-segmented-controls-and-orthogonal-icon-metrics.md) | Optics v0.0.64 Segmented Controls, Orthogonal Icon Sizing, and Presentation Pacing Alignment | Accepted | 2026-10-31 |
 | [0007](0007-optics-v0.0.66-compound-patterns-and-textedit-interaction-alignment.md) | Optics v0.0.66 Compound Patterns, TextEdit Interaction, and Desktop Cursor Alignment | Accepted | 2026-10-31 |
+| [0008](0008-synchronize-with-optics-v0.0.74-and-damage-quiescence.md) | Synchronize with Optics v0.0.74, Regional Damage Tracking, and Quiescent Presentation | Accepted | 2026-11-06 |
+| [0009](0009-synchronize-with-optics-v0.0.76-and-native-frame-damage.md) | Synchronize with Optics v0.0.76, Native Frame Damage, and Caret Phase Semantics | Accepted | 2026-11-10 |
+| [0010](0010-synchronize-with-optics-v0.0.78-and-record-only-host-canvas.md) | Synchronize with Optics v0.0.78 and Retire the Live-Canvas Host Path | Accepted | 2026-11-12 |

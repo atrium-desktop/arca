@@ -8,31 +8,56 @@
 use crate::app::UiApp;
 use arca_engine::config::Config;
 use arca_engine::AppState;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Distinguishes scratch directories created in the same clock tick. The
+/// test harness runs suites concurrently, and a nanosecond timestamp alone
+/// can collide when two tests start together.
+static NEXT_SCRATCH: AtomicU64 = AtomicU64::new(0);
 
 /// A scratch directory removed when dropped.
-pub(crate) struct ScratchDir(pub std::path::PathBuf);
+///
+/// The isolated config file is a sibling of the listing, never a child:
+/// a test that persists a setting would otherwise create a `cfg/` directory
+/// inside the directory it is inspecting, changing the entry set and every
+/// visible index.
+pub(crate) struct ScratchDir {
+    listing: std::path::PathBuf,
+    config: std::path::PathBuf,
+}
 
 impl ScratchDir {
-    /// Create `prefix-<pid>-<nanos>/` under the system temp dir.
+    /// Create `prefix-<pid>-<nanos>-<serial>/` under the system temp dir.
     pub(crate) fn new(prefix: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "{prefix}-{}-{}",
+        let serial = NEXT_SCRATCH.fetch_add(1, Ordering::Relaxed);
+        let listing = std::env::temp_dir().join(format!(
+            "{prefix}-{}-{}-{serial}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        std::fs::create_dir_all(&dir).expect("create scratch dir");
-        Self(dir)
+        std::fs::create_dir_all(&listing).expect("create scratch listing");
+        let mut config_name = listing.as_os_str().to_owned();
+        config_name.push(".conf");
+        Self {
+            listing,
+            config: std::path::PathBuf::from(config_name),
+        }
     }
 
     pub(crate) fn path(&self) -> &std::path::Path {
-        &self.0
+        &self.listing
     }
 
     pub(crate) fn str(&self) -> &str {
-        self.0.to_str().expect("utf-8 scratch path")
+        self.listing.to_str().expect("utf-8 scratch path")
+    }
+
+    /// Config file outside the listed directory.
+    pub(crate) fn config_path(&self) -> &std::path::Path {
+        &self.config
     }
 }
 
@@ -40,13 +65,14 @@ impl std::ops::Deref for ScratchDir {
     type Target = std::path::Path;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.listing
     }
 }
 
 impl Drop for ScratchDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        let _ = std::fs::remove_dir_all(&self.listing);
+        let _ = std::fs::remove_file(&self.config);
     }
 }
 
@@ -73,9 +99,8 @@ pub(crate) fn fixture_two_files() -> (ScratchDir, UiApp) {
 
 /// An `AppState` rooted at `dir` with an isolated config file.
 pub(crate) fn state_for(dir: &ScratchDir) -> AppState {
-    let config_file = dir.path().join("cfg").join("arca.conf");
     AppState::with_config(
-        config_file.to_str().unwrap().into(),
+        dir.config_path().to_str().unwrap().into(),
         Config::default(),
         dir.str(),
     )

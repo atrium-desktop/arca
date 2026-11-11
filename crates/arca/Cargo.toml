@@ -9,3 +9,6 @@ rust-version.workspace = true
 arca-engine.workspace = true
 arca-ui.workspace = true
 iris.workspace = true
+# Direct dependency so Cargo publishes `DEP_TRANSIT_RPATHS` to build.rs for
+# the final binary (Cargo exposes `links` metadata only to direct dependents).
+transit-sys.workspace = true

@@ -3,7 +3,7 @@
 use arca_engine::ViewMode;
 use iris::{Align, Frame, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
 
-use crate::app::UiApp;
+use crate::app::{focus_any, FocusTarget, UiApp};
 use crate::icons::{self, ids};
 use crate::theme::Tones;
 
@@ -38,7 +38,7 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             let cwd = app.state.cwd().to_string();
             if !app.location_focused
                 && !app.location_focused_now
-                && app.pending_focus != Some(crate::app::FocusTarget::Location)
+                && app.pending_focus != Some(FocusTarget::Location)
                 && app.location.as_str() != cwd
             {
                 app.location.set(&cwd);
@@ -58,9 +58,14 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             frame.size_next(0.0, 32.0);
             frame.set_theme(input_theme);
             let loc_resp = frame.textfield_ex("##location", &mut app.location, true);
-            app.location_id = loc_resp.id;
             app.location_focused = loc_resp.focused;
             app.location_focused_now = loc_resp.focused;
+            if app.pending_focus == Some(FocusTarget::Location) {
+                frame.textedit_set_selection("##location", 0, u32::MAX);
+                if focus_any(frame, &["##location"]) {
+                    app.pending_focus = None;
+                }
+            }
             frame.set_theme(prev_theme);
             if loc_resp.changed {
                 app.location_completion = None;
@@ -79,7 +84,10 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             frame.set_theme(input_theme);
             let changed =
                 frame.textfield_placeholder("##filter", &mut app.filter, "Search / Filter...");
-            capture(frame, &mut app.filter_id, &mut app.filter_focused_now);
+            capture_focus(frame, &mut app.filter_focused_now);
+            if app.pending_focus == Some(FocusTarget::Filter) && focus_any(frame, &["##filter"]) {
+                app.pending_focus = None;
+            }
             frame.set_theme(prev_theme);
             if changed {
                 app.state.set_filter(app.filter.as_str().into_owned());
@@ -145,10 +153,8 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
     );
 }
 
-fn capture(frame: &mut Frame, id: &mut lens_sys::lens_id, focused: &mut bool) {
-    let response = frame.response();
-    *id = response.id;
-    *focused = response.focused;
+fn capture_focus(frame: &mut Frame, focused: &mut bool) {
+    *focused = frame.response().focused;
 }
 
 #[cfg(test)]
