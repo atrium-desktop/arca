@@ -23,3 +23,4 @@ For the record template and guidelines, see [ADR Template](template.md).
 | [0008](0008-synchronize-with-optics-v0.0.74-and-damage-quiescence.md) | Synchronize with Optics v0.0.74, Regional Damage Tracking, and Quiescent Presentation | Accepted | 2026-11-06 |
 | [0009](0009-synchronize-with-optics-v0.0.76-and-native-frame-damage.md) | Synchronize with Optics v0.0.76, Native Frame Damage, and Caret Phase Semantics | Accepted | 2026-11-10 |
 | [0010](0010-synchronize-with-optics-v0.0.78-and-record-only-host-canvas.md) | Synchronize with Optics v0.0.78 and Retire the Live-Canvas Host Path | Accepted | 2026-11-12 |
+| [0011](0011-synchronize-with-optics-v0.0.79-and-unified-bindings.md) | Synchronize with Optics v0.0.79, Unified Bindings, and Pure-Rust Motion | Accepted | 2026-11-12 |

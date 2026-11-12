@@ -24,7 +24,6 @@ dependencies = [
  "arca-engine",
  "arca-ui",
  "iris",
- "transit-sys",
 ]
 
 [[package]]
@@ -48,7 +47,6 @@ dependencies = [
  "lens",
  "lens-sys",
  "transit",
- "transit-sys",
 ]
 
 [[package]]
@@ -162,16 +160,16 @@ dependencies = [
 
 [[package]]
 name = "flux"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "flux-sys",
 ]
 
 [[package]]
 name = "flux-sys"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -200,8 +198,8 @@ dependencies = [
 
 [[package]]
 name = "iris"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "flux",
  "iris-sys",
@@ -211,8 +209,8 @@ dependencies = [
 
 [[package]]
 name = "iris-sys"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -237,8 +235,8 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "lens"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "flux",
  "lens-sys",
@@ -246,8 +244,8 @@ dependencies = [
 
 [[package]]
 name = "lens-sys"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 dependencies = [
  "bindgen",
  "flux-sys",
@@ -504,20 +502,8 @@ dependencies = [
 
 [[package]]
 name = "transit"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
-dependencies = [
- "transit-sys",
-]
-
-[[package]]
-name = "transit-sys"
-version = "0.0.78"
-source = "git+https://github.com/ming2k/optics?tag=v0.0.78#eaa66e6a85094bca901d5857776c2360cf9cdbf7"
-dependencies = [
- "bindgen",
- "pkg-config",
-]
+version = "0.0.79"
+source = "git+https://github.com/ming2k/optics?tag=v0.0.79#63a92ba1aad53dfcef42c9d6e31a96b9d9de4a46"
 
 [[package]]
 name = "unicode-ident"

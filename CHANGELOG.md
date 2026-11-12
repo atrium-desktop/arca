@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Synchronized workspace dependencies with Optics `v0.0.79` and landed ADR-0011.
+- Adopted the unified `bindings/crates/` workspace (Optics ADR-0159) in the canonical manifests and the local `[patch]` template.
+- Adopted the header-only, pure-Rust `transit` motion vocabulary (Optics ADR-0158); springs and easing now compile directly into Arca.
+
+### Changed
+- Removed the retired `transit-sys` crate and the `DEP_TRANSIT_*_RPATHS` handling from `arca-ui` and `arca`; only the Iris native rpath relay remains.
+- Icon registration stays on `lens::register_svg_icon`, which now parses every shipped glyph through the shared `reticle` compiler (Optics ADR-0161); no application-side SVG parser or direct `reticle` dependency was added.
+
+---
+
 ## [0.2.13] - 2026-11-12
 
 ### Added

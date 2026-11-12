@@ -27,7 +27,7 @@ This separation allows both modes to coexist cleanly:
 
 | Concern | Canonical workflow | Local workflow |
 |---------|--------------------|----------------|
-| Rust bindings | Tagged Optics Git sources (`Cargo.toml`) | `[patch]` entries to `../optics/bindings` |
+| Rust bindings | Tagged Optics Git sources (`Cargo.toml`) | `[patch]` entries to `../optics/bindings/crates` |
 | Native libraries | System-installed via `pkg-config` | Sibling `../optics/build` via rpath-relay |
 | `.cargo/config.toml` | Absent | Local patch enabled (`.cargo/optics-local.toml`) |
 | `Cargo.lock` | Canonical and committed | Worktree-local resolution, unstaged by git hook |

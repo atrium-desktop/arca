@@ -21,7 +21,7 @@ bar) and icon mapping were ported deliberately.
 ## How the binding works
 
 - The workspace declares path dependencies on
-  `../optics/bindings/{iris,lens,lens-sys}`. `iris-sys`'s `build.rs` walks
+  `../optics/bindings/crates/{iris,lens,lens-sys}`. `iris-sys`'s `build.rs` walks
   up from its manifest, finds the optics checkout (presence of
   `libs/iris/include` + `build/meson-uninstalled`), and links the meson
   build tree through the `*-uninstalled.pc` pkg-config files — no
@@ -31,7 +31,8 @@ bar) and icon mapping were ported deliberately.
   a small `build.rs` relaying `DEP_IRIS_RS_RPATHS` into
   `-Wl,-rpath` arguments (with `--disable-new-dtags` so transitive deps
   resolve), which lets binaries and test executables run without
-  `LD_LIBRARY_PATH`.
+  `LD_LIBRARY_PATH`. `transit` is pure Safe Rust since Optics `v0.0.79`
+  (Optics ADR-0158), so it has no native library and no rpath relay.
 - Where the safe `lens` surface is intentionally narrow, `arca-ui`
   drops to `lens_sys` via `frame.as_raw()` inside dedicated helpers:
   the full feather icon set (`icons.rs`), label-scoped focus
@@ -70,3 +71,4 @@ Following the initial 0.2.0 release:
 4. **Regional Damage & Quiescence (Optics v0.0.74, ADR-0008)**: Adopted the bounded regional damage rect list, departure damage for removed rows, host-controlled caret/selection placement, and zero-damage idle presentation.
 5. **Native Frame Damage & Caret Phases (Optics v0.0.76, ADR-0009)**: Delegated the per-image damage epoch ledger to Iris/Flux, moved focus to build-site label resolution, disabled the caret blink under reduced motion, and verified scrolling viewport damage and caret-flip-only repaints.
 6. **Record-Only Host Canvas (Optics v0.0.78, ADR-0010)**: Retired the deleted `PaintHost`/live-paint contract, kept both entry points on the pure-chrome record seam with an empty `RecordHost`, and audited the Flux snapshot, dynamic-slot, and DisplayList wire contracts against Arca's write-once thumbnail ownership.
+7. **Unified Bindings & Pure-Rust Motion (Optics v0.0.79, ADR-0011)**: Moved the local patch to the unified `bindings/crates/` workspace, retired the `transit-sys` FFI crate and its rpath relay, and kept icon registration on Lens so every shipped SVG compiles through the shared `reticle` parser without an application-side duplicate.

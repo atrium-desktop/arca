@@ -3,7 +3,8 @@
 //! Arca maintains its own icon set in `assets/icons/*.svg` (see the
 //! README there). Each glyph is registered with lens on first use
 //! (`lens_icon_register_svg` — the runtime counterpart of lens's baked-in
-//! table) and drawn through the native icon widgets: vector-crisp at any
+//! table, backed by the shared reticle vector compiler since Optics
+//! v0.0.79) and drawn through the native icon widgets: vector-crisp at any
 //! size, theme-tinted, no raster assets or generator scripts involved.
 
 use std::sync::OnceLock;

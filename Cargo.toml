@@ -21,13 +21,15 @@ rust-version = "1.85"
 # patch these sources to a sibling checkout through .cargo/optics-local.toml
 # without making that checkout mandatory for CI or downstream packagers; see
 # docs/dev/optics-dev-worktree.md.
-iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.78" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.78" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.78" }
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.78" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.78" }
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.78" }
-transit-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.78" }
+iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+# v0.0.79 makes transit a header-only vocabulary on the C side and pure Safe
+# Rust here (Optics ADR-0158), so there is no transit-sys FFI crate and no
+# native library to discover or rpath.
+transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 arca-xdg = { path = "crates/arca-xdg", version = "0.2.13" }

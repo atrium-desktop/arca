@@ -117,18 +117,17 @@ arca (binary)
   │     ├── iris
   │     ├── lens, lens-sys
   │     ├── flux-sys
-  │     └── transit, transit-sys
+  │     └── transit (pure Rust; no transit-sys)
   ├── arca-engine
-  ├── iris
-  └── transit-sys
+  └── iris
 ```
 
 | Source Crate | Permitted Dependencies | Forbidden Dependencies |
 | :--- | :--- | :--- |
 | **`arca-xdg`** | Rust `std` only | `arca-engine`, `arca-ui`, `arca`, external crates |
-| **`arca-engine`** | `arca-xdg`, `image`, `serde`, `serde_json` | `arca-ui`, `arca`, `lens`, `iris`, `flux` |
-| **`arca-ui`** | `arca-engine`, `arca-xdg`, Optics (`lens`, `lens-sys`, `iris`, `flux-sys`, `transit`, `transit-sys` for runpath metadata) | `arca` (entrypoint) |
-| **`arca`** | `arca-ui`, `arca-engine`, `iris`, `transit-sys` (runpath metadata) | Direct internal UI view modules |
+| **`arca-engine`** | `arca-xdg`, `image`, `serde`, `serde_json` | `arca-ui`, `arca`, any Optics crate (`flux`, `lens`, `iris`, `glyph`, `prism`, `reticle`, `vista`, `transit`, `optics`) |
+| **`arca-ui`** | `arca-engine`, `arca-xdg`, Optics (`lens`, `lens-sys`, `iris`, `flux-sys`, `transit`) | `arca` (entrypoint) |
+| **`arca`** | `arca-ui`, `arca-engine`, `iris` | Direct internal UI view modules |
 
 ---
 
@@ -137,7 +136,7 @@ arca (binary)
 | Invariant ID | Name | Architectural Red-Line | Mechanical Enforcement |
 | :--- | :--- | :--- | :--- |
 | **`[INV-ARCH-01]`** | XDG Pure-Std Isolation | `arca-xdg` must have strictly zero external dependencies. | CI job `architecture` parses `crates/arca-xdg/Cargo.toml` and fails on any dependency block |
-| **`[INV-ARCH-02]`** | Engine Headless Purity | `arca-engine` must never link GUI or Wayland libraries. | CI job `architecture` rejects `lens`/`iris`/`flux`/`transit`/`arca-ui` as dependencies |
+| **`[INV-ARCH-02]`** | Engine Headless Purity | `arca-engine` must never link GUI or Wayland libraries. | CI job `architecture` rejects `lens`/`iris`/`flux`/`glyph`/`prism`/`reticle`/`vista`/`transit`/`optics`/`arca-ui` as dependencies |
 | **`[INV-ARCH-03]`** | Concentric Dependency Direction | Outer layers may depend inward only; no cycles. | CI job `architecture` checks each crate's internal edges against an allow-list |
 | **`[INV-UI-01]`** | 1 MiB Frame Arena Budget | Viewport rendering must never exceed Lens 1 MiB arena memory limit. | `tests::large_directory_does_not_overflow_frame_arena` (CI job `invariants`) |
 | **`[INV-UI-02]`** | Motion Math Centralization | Easing curves and spring dynamics must delegate to Optics `transit`. | Elimination of private approach/clamping math; ADR-0004 |

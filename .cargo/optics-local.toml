@@ -1,14 +1,3 @@
-[build]
-rustc-wrapper = "sccache"
-
-[target.x86_64-unknown-linux-gnu]
-linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
-
-[target.aarch64-unknown-linux-gnu]
-linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
-
 # Local-only source patches for cross-repository development.
 #
 # Enable this file only in a linked Arca worktree:
@@ -18,12 +7,16 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 # The generated .cargo/config.toml is ignored by Git. Cargo resolves a local
 # lockfile in that worktree; the repository hook keeps the local lockfile out
 # of commits. Remove the generated file before promoting an Optics release.
+#
+# Optics v0.0.79 collapses the per-module binding trees into one Cargo
+# workspace (Optics ADR-0159), so every patch points at bindings/crates/.
+# `transit` is pure Safe Rust in that release and has no `transit-sys` crate
+# (Optics ADR-0158); there is no native motion library to patch or rpath.
 [patch."https://github.com/ming2k/optics"]
-flux = { path = "../optics/bindings/flux-rs/crates/flux" }
-flux-sys = { path = "../optics/bindings/flux-rs/crates/flux-sys" }
-lens = { path = "../optics/bindings/lens-rs/crates/lens" }
-lens-sys = { path = "../optics/bindings/lens-rs/crates/lens-sys" }
-iris = { path = "../optics/bindings/iris-rs/crates/iris" }
-iris-sys = { path = "../optics/bindings/iris-rs/crates/iris-sys" }
-transit = { path = "../optics/bindings/transit-rs/crates/transit" }
-transit-sys = { path = "../optics/bindings/transit-rs/crates/transit-sys" }
+flux = { path = "../optics/bindings/crates/flux" }
+flux-sys = { path = "../optics/bindings/crates/flux-sys" }
+lens = { path = "../optics/bindings/crates/lens" }
+lens-sys = { path = "../optics/bindings/crates/lens-sys" }
+iris = { path = "../optics/bindings/crates/iris" }
+iris-sys = { path = "../optics/bindings/crates/iris-sys" }
+transit = { path = "../optics/bindings/crates/transit" }

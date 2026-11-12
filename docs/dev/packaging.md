@@ -19,11 +19,13 @@ Arca links against the **Optics** C libraries via their official Rust bindings:
 - `iris` — Wayland windowing and application lifecycle.
 - `lens` and `lens-sys` — Immediate-mode UI layout and primitives.
 - `flux` — GPU Vulkan rendering backend.
+- `reticle` — Vector-document compiler used by Lens to parse runtime SVG
+  icons (including Arca's own icon set).
 
 Verify that the native development files are installed on the packaging host:
 
 ```bash
-pkg-config --modversion iris lens flux
+pkg-config --modversion iris lens flux reticle
 ```
 
 The system package must also provide:
@@ -240,6 +242,7 @@ BuildRequires:  rust >= 1.85
 BuildRequires:  pkgconfig(flux)
 BuildRequires:  pkgconfig(lens)
 BuildRequires:  pkgconfig(iris)
+BuildRequires:  pkgconfig(reticle)
 BuildRequires:  pkgconfig(wayland-client)
 BuildRequires:  pkgconfig(vulkan)
 BuildRequires:  pkgconfig(xkbcommon)
@@ -342,8 +345,9 @@ Before distributing packages:
    ```bash
    ldd /usr/bin/arca
    ```
-   Ensure `libflux.so`, `liblens.so`, `libiris.so`, `libvulkan.so.1`, and `libwayland-client.so.0`
-   resolve without `not found` errors.
+   Ensure `libflux.so`, `liblens.so`, `libiris.so`, `libreticle.so`,
+   `libvulkan.so.1`, and `libwayland-client.so.0` resolve without `not found`
+   errors.
 
 2. **Verify Desktop File Syntax**:
    ```bash
