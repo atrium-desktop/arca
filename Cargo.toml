@@ -15,21 +15,29 @@ edition = "2021"
 rust-version = "1.85"
 
 [workspace.dependencies]
-# Optics stack (flux/lens/iris) official Rust bindings. The canonical build
-# resolves the binding sources from the tagged optics monorepo and links the
-# C libraries discovered by pkg-config. A linked development worktree can
+# Optics stack (aperture/flux/lens/iris) official Rust bindings. The canonical
+# build resolves the binding sources from the tagged optics monorepo and links
+# the C libraries discovered by pkg-config. A linked development worktree can
 # patch these sources to a sibling checkout through .cargo/optics-local.toml
 # without making that checkout mandatory for CI or downstream packagers; see
 # docs/dev/optics-dev-worktree.md.
-iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-flux = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
-# v0.0.79 makes transit a header-only vocabulary on the C side and pure Safe
-# Rust here (Optics ADR-0158), so there is no transit-sys FFI crate and no
-# native library to discover or rpath.
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.79" }
+#
+# v0.0.80 splits the application shell out of iris into aperture (Optics
+# ADR-0166): `aperture::Application` runs a lens UI in an iris window, while
+# `iris` keeps the window/cursor/dialog/theme surface and no longer depends on
+# lens. Arca imports widget and input types from `lens`, never through iris.
+aperture = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+# flux-sys is the direct FFI surface Arca uses for thumbnail images. The safe
+# `flux` crate arrives transitively through aperture/lens; it is not a direct
+# workspace dependency.
+flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+# transit stayed a header-only vocabulary on the C side and pure Safe Rust
+# here (Optics ADR-0158), so there is no transit-sys FFI crate and no native
+# library to discover or rpath.
+transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 arca-xdg = { path = "crates/arca-xdg", version = "0.2.14" }

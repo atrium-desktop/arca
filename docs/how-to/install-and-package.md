@@ -11,7 +11,7 @@ Arca requires:
 - A running Wayland compositor (Tessera, Sway, Hyprland, GNOME on Wayland, etc.)
 - A GPU with Vulkan support and installed Vulkan drivers (e.g. Mesa RADV, Mesa ANV,
   or NVIDIA proprietary)
-- The **Optics** shared runtime libraries (`libflux.so`, `liblens.so`, `libiris.so`)
+- The **Optics** shared runtime libraries (`libaperture.so`, `libflux.so`, `liblens.so`, `libiris.so`)
 
 ---
 
@@ -50,7 +50,7 @@ sudo meson install -C build
 Verify that `pkg-config` locates the Optics libraries:
 
 ```bash
-pkg-config --modversion flux lens iris
+pkg-config --modversion aperture flux lens iris
 ```
 
 ### Step 2: Build Arca

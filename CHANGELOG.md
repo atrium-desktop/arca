@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Synchronized workspace dependencies with Optics `v0.0.80` and landed ADR-0012.
+- Adopted the `aperture` application shell (Optics ADR-0166): `Application`, `Config`, `RunError`, and the start/stop/record hosts now come from aperture, while Lens owns UI/input types and Iris keeps window, cursor, dialog, and theme control.
+
+### Changed
+- Moved every `iris::{Frame, Input, Color, Pattern}` import to its owning Lens crate; only genuine platform calls (`window_close`, `request_animation_frame`, `post_to_main_thread`, `system_prefers_dark`) remain on Iris.
+- Adopted the single-option descriptors of Optics ADR-0165 in the remaining direct FFI calls: `lens_scroll_offset` / `lens_scroll_to` and `flux_image_update_region`.
+- Thumbnail uploads now initialize `flux_image_desc.usage` explicitly and premultiply through `flux_image_update_region_opts`, replacing the retired `flux_image_update_region_premultiply` entry point.
+- Native rpath relay now merges aperture and iris metadata so both lifecycle hosts find the uninstalled Optics libraries without `LD_LIBRARY_PATH`.
+- Audited the removed Flux canvas creation paths (CPU anti-aliasing, supersampling, MSAA, no-stencil passes, tessellator); Arca never called them and remains on sampled thumbnail images only.
+- Dropped the unused direct `flux` workspace entry; `aperture`/`lens` still pull it transitively, while Arca continues to call `flux-sys` for image uploads.
+
+---
+
 ## [0.2.14] - 2026-11-12
 
 ### Added

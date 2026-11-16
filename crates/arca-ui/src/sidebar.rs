@@ -1,8 +1,8 @@
 //! Persistent places sidebar with interactive split dragging.
 
 use arca_engine::bookmarks::BookmarkKind;
-use iris::{Align, Frame, LayoutOpts};
 use lens::patterns::{split_handle_v, SplitOpts};
+use lens::{Align, Frame, LayoutOpts};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -138,7 +138,7 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                 bg: if is_target_hovered {
                                     tones.selected
                                 } else {
-                                    iris::Color::TRANSPARENT
+                                    lens::Color::TRANSPARENT
                                 },
                                 radius: 6.0,
                                 ..Default::default()

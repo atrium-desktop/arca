@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 use arca_engine::bookmarks::BookmarkKind;
 use arca_engine::entry::{Entry, FileType};
-use iris::Frame;
+use lens::Frame;
 
 /// One glyph of arca's icon set; the variant name is the PascalCase of
 /// the SVG file name in `assets/icons/`.

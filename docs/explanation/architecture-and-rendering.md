@@ -51,7 +51,8 @@ Arca organizes domain business logic, UI rendering, and specification conformanc
 ## The Immediate-Mode Frame Budget
 
 Arca is built on the Optics graphics engine (`flux` for Vulkan drawing, `lens` for
-immediate-mode layout, and `iris` for Wayland event handling).
+immediate-mode layout, `iris` for Wayland event handling, and `aperture` for the
+application shell that binds the Lens UI to the Iris window).
 
 Lens allocates per-frame widget layouts, text shapes, and vertex draw calls inside
 a pre-allocated linear memory arena sized at 1 MiB. If an application attempts to

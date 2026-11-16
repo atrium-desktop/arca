@@ -16,7 +16,7 @@ Arca organizes its Cargo workspace into four concentric layers. Dependencies flo
 │  - Wayland application lifecycle & XDG portal prompt loop    │
 ├──────────────────────────────────────────────────────────────┤
 │  Layer 3: Presentation & Viewport (`crates/arca-ui`)         │
-│  - Optics immediate-mode UI (`lens`) & Wayland runtime (`iris`)│
+│  - Optics shell (`aperture`) · UI (`lens`) · platform (`iris`)  │
 │  - Hardware rendering (`flux`) & motion dynamics (`transit`) │
 │  - Virtualized directory listing views (Grid, List, Miller)  │
 │  - Animated Quick Look preview & borderless floating chrome  │
@@ -43,7 +43,7 @@ Arca organizes its Cargo workspace into four concentric layers. Dependencies flo
 ## 2. Architectural Red-Lines
 
 ### 2.1 Engine-UI Anti-Inversion
-- **Red-Line**: `arca-engine` must NEVER depend directly or indirectly on `arca-ui`, `lens`, `iris`, `flux`, or any graphical/Wayland windowing runtime.
+- **Red-Line**: `arca-engine` must NEVER depend directly or indirectly on `arca-ui`, `aperture`, `lens`, `iris`, `flux`, or any graphical/Wayland windowing runtime.
 - **Enforcement**: Domain business logic, directory models, sorting algorithms, and file operations must remain 100% headless-testable without requiring a Wayland compositor or GPU rendering context.
 
 ### 2.2 XDG Specification Purity

@@ -15,7 +15,7 @@ interfaces on Wayland?**
   and deliverable criteria for production releases.
 - **Prerequisites**:
   - A running Wayland compositor (e.g., Tessera, Sway, GNOME Wayland).
-  - Optics runtime libraries installed or linked (`flux`, `lens`, `iris`).
+  - Optics runtime libraries installed or linked (`aperture`, `flux`, `lens`, `iris`).
   - Vulkan-capable graphics drivers and device permissions.
   - A test directory with standard files (text files, images, music files with embedded
     artwork, subdirectories).

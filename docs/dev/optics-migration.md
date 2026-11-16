@@ -1,14 +1,15 @@
 # Optics migration
 
 Record of Arca's port from the legacy flux/flux-ui stack to the
-[optics](../../../optics) monorepo (flux / lens / iris), and of the
-resulting workspace architecture.
+[optics](../../../optics) monorepo (aperture / flux / lens / iris), and of
+the resulting workspace architecture.
 
 ## Before → after
 
 | Concern | Legacy (pre-0.2) | Now |
 |---------|------------------|-----|
-| Window, Wayland, event loop | Hand-written C shim (`c_src/platform.c`) generating xdg-shell / xdg-decoration / text-input protocol code in `build.rs` | `iris` (official Rust binding) owns window, GPU device and event loop |
+| Window, Wayland, event loop | Hand-written C shim (`c_src/platform.c`) generating xdg-shell / xdg-decoration / text-input protocol code in `build.rs` | `iris` owns the window, GPU device and event loop; the `aperture` shell runs the Lens UI inside it |
+| Application shell | Hand-wired `Ui::run` loop | `aperture::Application` with start/stop lifecycle and an optional host recorder |
 | UI toolkit | `flux-ui` via hand-written FFI (`src/ffi.rs`, icon ids as raw integers) | `lens` safe bindings, plus narrow `lens_sys` helpers for the full icon set / focus / clipboard |
 | Layout | single crate, `app.rs` + `fs.rs` | workspace: `arca-core` (logic) · `arca-ui` (view) · `arca` (bin) |
 | Theme | manual dark toggle only | follows the system colour scheme live; System → Light → Dark override, persisted |
@@ -20,19 +21,25 @@ bar) and icon mapping were ported deliberately.
 
 ## How the binding works
 
-- The workspace declares path dependencies on
-  `../optics/bindings/crates/{iris,lens,lens-sys}`. `iris-sys`'s `build.rs` walks
-  up from its manifest, finds the optics checkout (presence of
-  `libs/iris/include` + `build/meson-uninstalled`), and links the meson
-  build tree through the `*-uninstalled.pc` pkg-config files — no
-  `meson install` required.
-- The `iris` crate re-publishes the resulting library directories as
-  `links = "iris_rs"` rpath metadata. Both `arca-ui` and `arca` carry
-  a small `build.rs` relaying `DEP_IRIS_RS_RPATHS` into
-  `-Wl,-rpath` arguments (with `--disable-new-dtags` so transitive deps
-  resolve), which lets binaries and test executables run without
-  `LD_LIBRARY_PATH`. `transit` is pure Safe Rust since Optics `v0.0.79`
-  (Optics ADR-0158), so it has no native library and no rpath relay.
+- The workspace declares tagged Git dependencies on `aperture`, `iris`,
+  `lens`, `lens-sys`, `flux-sys`, and `transit`; the local patch template
+  redirects them to
+  `../optics/bindings/crates/{aperture,iris,lens,lens-sys,flux-sys,transit}`.
+  The safe `flux` crate is not declared directly: it arrives transitively
+  through aperture and lens, while Arca calls `flux-sys` only for thumbnail
+  image uploads.
+  Each `*-sys` `build.rs` walks up from its manifest, finds the optics
+  checkout (presence of `libs/<component>/include` +
+  `build/meson-uninstalled`), and links the meson build tree through the
+  `*-uninstalled.pc` pkg-config files — no `meson install` required.
+- `aperture` re-publishes its library directories as
+  `links = "aperture_rs"` rpath metadata, and `iris` keeps
+  `links = "iris_rs"`. Both `arca-ui` and `arca` carry a small `build.rs`
+  relaying the aperture/iris rpath lists into `-Wl,-rpath` arguments (with
+  `--disable-new-dtags` so transitive deps resolve), which lets binaries
+  and test executables run without `LD_LIBRARY_PATH`. `transit` is pure
+  Safe Rust since Optics `v0.0.79` (Optics ADR-0158), so it has no native
+  library and no rpath relay.
 - Where the safe `lens` surface is intentionally narrow, `arca-ui`
   drops to `lens_sys` via `frame.as_raw()` inside dedicated helpers:
   the full feather icon set (`icons.rs`), label-scoped focus
@@ -72,3 +79,4 @@ Following the initial 0.2.0 release:
 5. **Native Frame Damage & Caret Phases (Optics v0.0.76, ADR-0009)**: Delegated the per-image damage epoch ledger to Iris/Flux, moved focus to build-site label resolution, disabled the caret blink under reduced motion, and verified scrolling viewport damage and caret-flip-only repaints.
 6. **Record-Only Host Canvas (Optics v0.0.78, ADR-0010)**: Retired the deleted `PaintHost`/live-paint contract, kept both entry points on the pure-chrome record seam with an empty `RecordHost`, and audited the Flux snapshot, dynamic-slot, and DisplayList wire contracts against Arca's write-once thumbnail ownership.
 7. **Unified Bindings & Pure-Rust Motion (Optics v0.0.79, ADR-0011)**: Moved the local patch to the unified `bindings/crates/` workspace, retired the `transit-sys` FFI crate and its rpath relay, and kept icon registration on Lens so every shipped SVG compiles through the shared `reticle` parser without an application-side duplicate.
+8. **Aperture Shell & Descriptor-Only Operations (Optics v0.0.80, ADR-0012)**: Moved the application lifecycle from `iris::Application` to `aperture::Application`, split UI imports onto `lens` and platform control onto `iris`, and adopted the final `lens_scroll_*` and `flux_image_update_region` descriptors. The removed Flux CPU/MSAA/supersampling paths had no Arca call sites.

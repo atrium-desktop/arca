@@ -3,7 +3,7 @@
 
 use arca_engine::config::{Config, ViewMode};
 use arca_engine::AppState;
-use iris::{Align, Frame, Input, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
+use lens::{Align, Frame, Input, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
 
 fn run_frame(app: &mut arca_ui::UiApp, ui: &mut lens::Ui, input: &Input) {
     ui.frame(input, |f: &mut Frame| app.build(f, input));
@@ -143,7 +143,7 @@ fn test_quick_look_modal_preview_damage_and_settling() {
 
     // Dismiss preview with Escape
     let mut esc_input = Input::new((1040.0, 700.0), 1.0 / 60.0);
-    esc_input.push_key(iris::key::ESCAPE, true, false);
+    esc_input.push_key(lens::key::ESCAPE, true, false);
     run_frame(&mut app, &mut ui, &esc_input);
 
     // Advance frames during closing animation

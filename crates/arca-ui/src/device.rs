@@ -1,4 +1,4 @@
-//! The iris-owned flux device, captured from the lifecycle start callback.
+//! The iris-owned flux device, captured from the aperture lifecycle start callback.
 //!
 //! Both the icon glyph store and the thumbnail store upload textures through
 //! it. `None` in headless tests or after shutdown, where upload paths are skipped
@@ -8,12 +8,12 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 
 static DEVICE: AtomicPtr<flux_sys::flux_device> = AtomicPtr::new(std::ptr::null_mut());
 
-/// Called from the iris lifecycle start callback (see `lib.rs::run`).
+/// Called from the aperture lifecycle start callback (see `lib.rs::run`).
 pub(crate) fn set_device(device: *mut flux_sys::flux_device) {
     DEVICE.store(device, Ordering::Release);
 }
 
-/// Called from the iris lifecycle stop callback during teardown.
+/// Called from the aperture lifecycle stop callback during teardown.
 pub(crate) fn clear_device() {
     DEVICE.store(std::ptr::null_mut(), Ordering::Release);
 }
@@ -31,8 +31,8 @@ pub(crate) fn device() -> Option<*mut flux_sys::flux_device> {
 mod tests {
     use super::*;
 
-    /// The device slot is process-global and shared by two threads (the iris
-    /// lifecycle callback and the UI thread), swapped during startup and
+    /// The device slot is process-global and shared by two threads (the
+    /// aperture lifecycle callback and the UI thread), swapped during startup and
     /// teardown. Its contract is narrow but load-bearing: until a start
     /// callback runs there is no device, and after a stop callback there must
     /// not be one — a stale pointer would be dereferenced for a texture

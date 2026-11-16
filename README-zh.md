@@ -8,7 +8,7 @@
 
 > 项目名 **Arca** 取自拉丁语「*arca*」——在历史上指用于保管贵重文献、账目与珍宝的宝匣、金库或方舟。在现代计算中，Arca 作为 Wayland 桌面环境中轻快、安全且以键盘操作为核心的现代文件容器而设计。
 
-Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 桌面生态系统的核心原生组件。其视觉语言严格契合 Tessera 设计系统，同时完全支持在任何标准 Wayland 混成器（Compositor）上独立运行。Arca 原生基于 Optics 图形与 UI 技术栈构建（**flux** Vulkan 渲染器 · **lens** 即时模式 UI · **iris** 应用运行时 · **transit** 动力学动效）。
+Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 桌面生态系统的核心原生组件。其视觉语言严格契合 Tessera 设计系统，同时完全支持在任何标准 Wayland 混成器（Compositor）上独立运行。Arca 原生基于 Optics 图形与 UI 技术栈构建（**aperture** 应用外壳 · **flux** Vulkan 渲染器 · **lens** 即时模式 UI · **iris** 平台运行时 · **transit** 动力学动效）。
 
 ![Rust](https://img.shields.io/badge/rust-1.85%2B-informational)
 
@@ -32,7 +32,7 @@ Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 
 
 ### 1. 编译构建
 
-Arca 通过官方 Rust 绑定链接至 Optics C 库（`iris` / `lens` / `flux`）。请确保系统已安装相应版本的 Optics 开发库以便 `pkg-config` 发现：
+Arca 通过官方 Rust 绑定链接至 Optics C 库（`aperture` / `iris` / `lens` / `flux`）。请确保系统已安装相应版本的 Optics 开发库以便 `pkg-config` 发现：
 
 ```bash
 cargo build --release
@@ -120,7 +120,7 @@ Arca 按照向心架构（Concentric Architecture）组织为四个层次分明�
 | Crate | 层次 | 职责与子系统边界 |
 | :--- | :--- | :--- |
 | **`crates/arca`** | 宿主入口层 | 轻量宿主二进制：CLI 参数解析、独立选择器分发、Wayland 事件循环、Portal Prompter 生命周期管理。 |
-| **`crates/arca-ui`** | 视口表现层 | 基于 Optics（`lens`/`iris`/`flux`/`transit`）的渲染与交互层：视口虚拟化列表/网格/Miller视图、标签页、Quick Look 动效、1 MiB Frame Arena 内存预算管控。 |
+| **`crates/arca-ui`** | 视口表现层 | 基于 Optics（`aperture`/`lens`/`iris`/`flux`/`transit`）的渲染与交互层：视口虚拟化列表/网格/Miller视图、标签页、Quick Look 动效、1 MiB Frame Arena 内存预算管控。 |
 | **`crates/arca-engine`** | 领域引擎层 | 核心业务逻辑：目录模型、导航历史栈、书签、安全文件操作（防覆盖重命名/新建）、配置文件序列化、缩略图缓存计算。纯无头设计，零 GUI 依赖。 |
 | **`crates/arca-xdg`** | 标准协议层 | 纯标准库实现（纯 `std`，零外部依赖）：XDG 基础目录、用户目录、RFC 8089 文件 URI、共享 MIME 类型嗅探、桌面入口项（.desktop）与 `mimeapps.list` 解析、FreeDesktop 回收站 v1.0 规范、RFC 1321 MD5 摘要。 |
 

@@ -108,7 +108,7 @@ cargo clippy --workspace --all-targets
 
 | Symptom | Likely Cause | First Inspection |
 | :--- | :--- | :--- |
-| `missing flux/lens/iris pkg-config` | Optics C libraries not found | Ensure `pkg-config --modversion iris lens flux` succeeds or check meson build tree |
+| `missing aperture/flux/lens/iris pkg-config` | Optics C libraries not found | Ensure `pkg-config --modversion aperture iris lens flux` succeeds or check meson build tree |
 | `large_directory_does_not_overflow_frame_arena` fails | Unbounded loop added to row builder | Verify viewport height and row range slicing in `crates/arca-ui/src/views/` |
 | `flac_with_picture_decodes` fails | Corrupted test fixture or image decoder feature disabled | Check `image` crate features in `crates/arca-engine/Cargo.toml` |
 | `chooser_save_overwrite_modal_triggers` fails | Modal state flag not cleared or rendered | Check `chooser.rs` prompt state handling in `arca-engine` |

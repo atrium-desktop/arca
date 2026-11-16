@@ -1,7 +1,7 @@
 //! Animated Space-bar Quick Look overlay.
 
 use arca_engine::{AppState, Preview, PreviewKind};
-use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
+use lens::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 use transit::{Spring, SpringParams};
 
 use crate::icons::{self, ids};

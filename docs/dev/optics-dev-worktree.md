@@ -105,6 +105,8 @@ without dirtying version control:
 
 ```toml
 [patch."https://github.com/ming2k/optics"]
+aperture = { path = "../optics/bindings/crates/aperture" }
+aperture-sys = { path = "../optics/bindings/crates/aperture-sys" }
 iris = { path = "../optics/bindings/crates/iris" }
 iris-sys = { path = "../optics/bindings/crates/iris-sys" }
 lens = { path = "../optics/bindings/crates/lens" }
@@ -118,9 +120,11 @@ This configuration achieves two things:
 
 1. **Cargo Source Replacement**: It instructs Cargo to intercept every
    dependency on the remote `ming2k/optics` repository and redirect it to
-   the local sibling directory `../optics/`. Optics `v0.0.79` keeps all
-   bindings in one workspace under `bindings/crates/` (Optics ADR-0159);
-   the older `bindings/*-rs` trees no longer exist.
+   the local sibling directory `../optics/`. Optics `v0.0.80` keeps the
+   Cargo workspace at the repository root (Optics ADR-0163) with all
+   bindings under `bindings/crates/`; `aperture` is the application shell
+   split out of Iris (Optics ADR-0166). The older `bindings/*-rs` trees no
+   longer exist.
 2. **Native Discovery and Precedence**: Loading `*-sys` crates locally
    causes their `build.rs` scripts to run from disk. These scripts detect
    `../optics/build/meson-uninstalled/`, prepend it to `PKG_CONFIG_PATH`,
@@ -128,14 +132,14 @@ This configuration achieves two things:
    absolute precedence over any system-installed versions.
 
    Cargo publishes `links` metadata (`DEP_*_RPATHS`) only to direct
-   dependents, so `arca-ui` and `arca` relay the Iris rpaths into their
-   runpaths. Optics `v0.0.76` and later carry the full version in every
-   pre-1.0 native SONAME, so a stale system flux/lens/iris library cannot
-   satisfy the loader.
+   dependents, so `arca-ui` and `arca` relay the aperture and Iris rpaths
+   into their runpaths. Optics `v0.0.76` and later carry the full version
+   in every pre-1.0 native SONAME, so a stale system
+   aperture/flux/lens/iris library cannot satisfy the loader.
 
-   `transit` is not part of this native relay. Optics `v0.0.79` implements
-   motion as header-only C and pure Safe Rust (Optics ADR-0158), so there
-   is no `libtransit.so` and no `transit-sys` crate to patch or rpath.
+   `transit` is not part of this native relay. Optics implements motion as
+   header-only C and pure Safe Rust since `v0.0.79` (Optics ADR-0158), so
+   there is no `libtransit.so` and no `transit-sys` crate to patch or rpath.
 
 ### 3. Resolve the Local Dependency Graph
 
@@ -151,6 +155,7 @@ Verify that Cargo resolves the sibling paths instead of Git tags:
 
 ```bash
 # In projects/arca-dev/ (branch dev):
+cargo tree -i aperture
 cargo tree -i flux
 cargo tree -i lens
 cargo tree -i iris
@@ -274,8 +279,9 @@ GitHub and pins the authoritative remote Git SHA:
 cargo check --workspace
 ```
 
-Confirm that `cargo tree -i flux` and `cargo tree -i iris` report the tagged
-Git source instead of local filesystem paths.
+Confirm that `cargo tree -i aperture`, `cargo tree -i flux`, and
+`cargo tree -i iris` report the tagged Git source instead of local
+filesystem paths.
 
 ### Step 4: Validate and Commit Canonical State on Main
 

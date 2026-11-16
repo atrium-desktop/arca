@@ -8,11 +8,14 @@
 # lockfile in that worktree; the repository hook keeps the local lockfile out
 # of commits. Remove the generated file before promoting an Optics release.
 #
-# Optics v0.0.79 collapses the per-module binding trees into one Cargo
-# workspace (Optics ADR-0159), so every patch points at bindings/crates/.
-# `transit` is pure Safe Rust in that release and has no `transit-sys` crate
-# (Optics ADR-0158); there is no native motion library to patch or rpath.
+# Optics v0.0.80 keeps the per-module binding trees in one Cargo workspace
+# rooted at the repository root (Optics ADR-0163), with every crate under
+# bindings/crates/. `aperture` is the new application shell (Optics ADR-0166).
+# `transit` remains pure Safe Rust and has no `transit-sys` crate (Optics
+# ADR-0158); there is no native motion library to patch or rpath.
 [patch."https://github.com/ming2k/optics"]
+aperture = { path = "../optics/bindings/crates/aperture" }
+aperture-sys = { path = "../optics/bindings/crates/aperture-sys" }
 flux = { path = "../optics/bindings/crates/flux" }
 flux-sys = { path = "../optics/bindings/crates/flux-sys" }
 lens = { path = "../optics/bindings/crates/lens" }

@@ -114,7 +114,7 @@ impl ThumbStore {
         }
     }
 
-    /// Explicitly release all uploaded GPU textures. Called on shutdown via iris
+    /// Explicitly release all uploaded GPU textures. Called on shutdown via aperture
     /// lifecycle stop hook before device teardown (ADR-0045).
     pub fn release_all(&mut self) {
         for (_, image) in self.images.drain() {
@@ -143,6 +143,7 @@ fn upload(thumb: &Thumb) -> Option<*mut flux_sys::flux_image> {
         height: thumb.height,
         format: flux_sys::flux_format::FLUX_FORMAT_RGBA8_UNORM,
         initial_data: std::ptr::null(),
+        usage: flux_sys::flux_image_usage::FLUX_IMAGE_USAGE_SAMPLED,
     };
     let mut out = std::ptr::null_mut();
     // SAFETY: device is iris's live device.
@@ -150,19 +151,18 @@ fn upload(thumb: &Thumb) -> Option<*mut flux_sys::flux_image> {
     if rc != flux_sys::flux_result::FLUX_OK || out.is_null() {
         return None;
     }
-    // SAFETY: out is valid and newly allocated; thumb.rgba holds straight RGBA8 pixels.
-    let rc = unsafe {
-        flux_sys::flux_image_update_region_premultiply(
-            out,
-            0,
-            0,
-            thumb.width,
-            thumb.height,
-            thumb.rgba.as_ptr().cast(),
-            0,
-            thumb.rgba.len(),
-        )
+    let update = flux_sys::flux_image_update_region_opts {
+        x: 0,
+        y: 0,
+        width: thumb.width,
+        height: thumb.height,
+        data: thumb.rgba.as_ptr().cast(),
+        row_bytes: 0,
+        bytes: thumb.rgba.len(),
+        premultiply: true,
     };
+    // SAFETY: out is valid and newly allocated; thumb.rgba holds straight RGBA8 pixels.
+    let rc = unsafe { flux_sys::flux_image_update_region(out, &update) };
     if rc != flux_sys::flux_result::FLUX_OK {
         // SAFETY: device is alive during the run.
         unsafe { flux_sys::flux_image_release(out) };

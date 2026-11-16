@@ -3,8 +3,9 @@
 Arca is a fast file manager for Wayland, companion application for the
 [Tessera](https://github.com/aegis-shell/tessera) desktop, and standalone file
 dialog prompter. It is built on the
-[Optics](https://github.com/aegis-shell/optics) graphics stack (**flux** Vulkan
-renderer · **lens** immediate-mode UI · **iris** application runtime).
+[Optics](https://github.com/aegis-shell/optics) graphics stack (**aperture**
+application shell · **flux** Vulkan renderer · **lens** immediate-mode UI ·
+**iris** platform runtime).
 
 For project introduction, feature summary, and quick build steps, see the root
 [README](../README.md).

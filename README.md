@@ -8,7 +8,7 @@
 
 > The project name **Arca** derives from the Latin *arca* — historically a chest, coffer, box, or ark for safekeeping precious documents and treasures. In modern computing, Arca serves as a fast, secure, and keyboard-first vessel for navigating and managing files across the Wayland desktop.
 
-Arca is a fast file manager for Wayland and a companion application for the Tessera desktop ecosystem. While its visual language aligns with the Tessera design system, it operates standalone on any standard Wayland compositor. It is built on the Optics graphics and UI stack (**flux** Vulkan renderer · **lens** immediate-mode UI · **iris** application runtime · **transit** motion dynamics).
+Arca is a fast file manager for Wayland and a companion application for the Tessera desktop ecosystem. While its visual language aligns with the Tessera design system, it operates standalone on any standard Wayland compositor. It is built on the Optics graphics and UI stack (**aperture** application shell · **flux** Vulkan renderer · **lens** immediate-mode UI · **iris** platform runtime · **transit** motion dynamics).
 
 ![Rust](https://img.shields.io/badge/rust-1.85%2B-informational)
 
@@ -32,7 +32,7 @@ Arca is a fast file manager for Wayland and a companion application for the Tess
 
 ### 1. Build
 
-Arca links against the Optics C libraries (`iris` / `lens` / `flux`) via their official Rust bindings. Ensure the matching Optics release is installed so `pkg-config` can locate them:
+Arca links against the Optics C libraries (`aperture` / `iris` / `lens` / `flux`) via their official Rust bindings. Ensure the matching Optics release is installed so `pkg-config` can locate them:
 
 ```bash
 cargo build --release
@@ -120,7 +120,7 @@ Arca is organized as a concentric Cargo workspace across four distinct layers:
 | Crate | Layer | Role & Subsystem Boundaries |
 | :--- | :--- | :--- |
 | **`crates/arca`** | Entrypoint | Thin host binary: CLI argument parsing, standalone picker dispatch, Wayland event loop, portal prompter lifecycle. |
-| **`crates/arca-ui`** | Presentation | View/presentation layer on Optics (`lens`/`iris`/`flux`/`transit`): virtualized listing views, tabs, animated Quick Look, 1 MiB frame arena budget. |
+| **`crates/arca-ui`** | Presentation | View/presentation layer on Optics (`aperture`/`lens`/`iris`/`flux`/`transit`): virtualized listing views, tabs, animated Quick Look, 1 MiB frame arena budget. |
 | **`crates/arca-engine`** | Domain Engine | Domain business logic: directory model, navigation history, bookmarks, safe file ops, configuration, thumbnail cache. Headless & zero GUI dependencies. |
 | **`crates/arca-xdg`** | Specifications | Pure standard library (`std` only): Base Dirs, User Dirs, RFC 8089 URIs, Shared MIME-info, Desktop Entries, `mimeapps.list`, Trash v1.0, RFC 1321 MD5. |
 

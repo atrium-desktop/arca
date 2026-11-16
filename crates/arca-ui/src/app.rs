@@ -5,7 +5,7 @@ use std::time::Instant;
 use arca_engine::chooser::{FileChooserMode, PromptColorScheme};
 use arca_engine::config::{ThemeMode, ViewMode};
 use arca_engine::state::AppState;
-use iris::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
+use lens::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
 
 use crate::chooser::{self, ChooserState};
 use crate::icons::ids;
@@ -222,7 +222,7 @@ impl UiApp {
         }
     }
 
-    /// Shutdown callback invoked from iris lifecycle stop hook (ADR-0045).
+    /// Shutdown callback invoked from the aperture lifecycle stop hook (ADR-0045).
     /// Releases GPU-backed thumbnail textures cleanly before device teardown.
     pub fn shutdown(&mut self) {
         self.thumbs.release_all();
@@ -408,7 +408,7 @@ impl UiApp {
                     gap: 6.0,
                     pad: 6.0,
                     cross: Align::Center,
-                    bg: iris::Color::rgba(22, 27, 40, 225),
+                    bg: lens::Color::rgba(22, 27, 40, 225),
                     border: tones.selected,
                     border_width: 1.0,
                     radius: 7.0,
@@ -1717,9 +1717,9 @@ mod tests {
         let input = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
 
         let mut cols = vec![
-            iris::patterns::DataGridCol::new("Name").width(200.0),
-            iris::patterns::DataGridCol::new("Size").width(100.0),
-            iris::patterns::DataGridCol::new("Modified").width(150.0),
+            lens::patterns::DataGridCol::new("Name").width(200.0),
+            lens::patterns::DataGridCol::new("Size").width(100.0),
+            lens::patterns::DataGridCol::new("Modified").width(150.0),
         ];
         let cells = [
             "file1.txt",
@@ -1732,26 +1732,26 @@ mod tests {
         let mut selected_row = 0;
 
         let mut tree_items = vec![
-            iris::patterns::TreeItem::new("Root Folder").expanded(true),
-            iris::patterns::TreeItem::new("Documents")
+            lens::patterns::TreeItem::new("Root Folder").expanded(true),
+            lens::patterns::TreeItem::new("Documents")
                 .depth(1)
                 .expanded(false),
-            iris::patterns::TreeItem::new("file.txt")
+            lens::patterns::TreeItem::new("file.txt")
                 .depth(2)
                 .leaf(true),
         ];
 
         ui.frame(&input, |f| {
             // DataGrid pattern
-            let grid_act = iris::patterns::DataGrid::new("test_files_grid")
+            let grid_act = lens::patterns::DataGrid::new("test_files_grid")
                 .striped(true)
                 .show(f, &mut cols, &cells, 2, &mut selected_row);
-            assert_eq!(grid_act, iris::patterns::DataGridAction::None);
+            assert_eq!(grid_act, lens::patterns::DataGridAction::None);
 
             // TreeView pattern
             let tree_act =
-                iris::patterns::TreeView::new("test_files_tree").show(f, &mut tree_items);
-            assert_eq!(tree_act, iris::patterns::TreeAction::None);
+                lens::patterns::TreeView::new("test_files_tree").show(f, &mut tree_items);
+            assert_eq!(tree_act, lens::patterns::TreeAction::None);
         });
 
         assert!(!ui.overflowed());

@@ -1,7 +1,7 @@
 //! Browser tab strip using the lens TabStrip pattern.
 
-use iris::{Align, Frame, LayoutOpts};
 use lens::patterns::{TabAction, TabItem, TabStrip};
+use lens::{Align, Frame, LayoutOpts};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -16,7 +16,7 @@ fn tab_title(cwd: &str) -> String {
     name
 }
 
-pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &iris::Input, _tones: &Tones) {
+pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &lens::Input, _tones: &Tones) {
     frame.size_next(0.0, 38.0);
     frame.row_ex(
         &LayoutOpts {

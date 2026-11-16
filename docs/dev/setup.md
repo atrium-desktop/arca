@@ -8,7 +8,7 @@ How to build, test, and run Arca for development.
 |-------------|-------|
 | Rust toolchain | `rustc` and `cargo`, edition 2021 workspace (1.85+) |
 | Optics stack | Sibling `../optics` checkout for cross-repository development or installed native libraries for the canonical build |
-| Meson and a C23 compiler | Required to build the native Optics libraries (`flux`, `lens`, `iris`) |
+| Meson and a C23 compiler | Required to build the native Optics libraries (`aperture`, `flux`, `lens`, `iris`) |
 | Vulkan 1.3 runtime and loader | `flux` is Vulkan-first; requires a Vulkan-capable GPU driver |
 | Wayland compositor | Runtime environment (`iris` creates Wayland xdg-shell surfaces) |
 | pkg-config | Required by build scripts to locate native dependencies |
@@ -157,7 +157,7 @@ cargo test -p arca-ui
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| `pkg-config` cannot find `iris`, `lens`, or `flux` | Optics C libraries not installed and not built in sibling tree | In local mode, build `../optics/build` with Meson. In canonical mode, install matching Optics packages. |
+| `pkg-config` cannot find `aperture`, `iris`, `lens`, or `flux` | Optics C libraries not installed and not built in sibling tree | In local mode, build `../optics/build` with Meson. In canonical mode, install matching Optics packages. |
 | `Cargo.lock` unstaged during `git commit` | Pre-commit hook active in local patch mode | Normal behavior. The hook keeps worktree-local lockfile diffs out of commits. |
 | Wayland surface creation fails | No active Wayland compositor | Run within a Wayland session (e.g. Aegis, Sway, Hyprland, or GNOME Wayland). |
 | Vulkan device initialization fails | Missing GPU drivers or loader | Ensure Vulkan ICD loader and drivers (Mesa / proprietary) are installed and `vulkaninfo` succeeds. |

@@ -1,6 +1,6 @@
 //! Compact status and keyboard-discovery bar.
 
-use iris::{Align, Frame, LayoutOpts};
+use lens::{Align, Frame, LayoutOpts};
 
 use arca_engine::AppState;
 

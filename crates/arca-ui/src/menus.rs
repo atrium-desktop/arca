@@ -9,8 +9,8 @@
 //! for the opening click), which these builders mirror back into app state.
 
 use arca_engine::config::ThemeMode;
-use iris::patterns::{popup_menu, MenuItem};
-use iris::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
+use lens::patterns::{popup_menu, MenuItem};
+use lens::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
 use crate::app::{UiApp, CTX_MENU_ID, SETTINGS_MENU_ID, SIDEBAR_MENU_ID};
 use crate::icons::{self, ids};

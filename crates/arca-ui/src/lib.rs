@@ -1,6 +1,7 @@
-//! UI layer for Arca, built on the optics stack (`lens` widgets inside
-//! an `iris` window). The business logic lives in `arca-engine`; this crate
-//! renders [`AppState`] and forwards input events to it.
+//! UI layer for Arca, built on the optics stack (`lens` widgets in an
+//! `iris` window, driven by the `aperture` application shell). The business
+//! logic lives in `arca-engine`; this crate renders [`AppState`] and forwards
+//! input events to it.
 
 mod app;
 pub mod chooser;
@@ -26,7 +27,7 @@ pub use chooser::run_chooser;
 use arca_engine::state::AppState;
 
 /// Open the Arca window and run the event loop until it closes.
-pub fn run(state: AppState) -> Result<(), iris::RunError> {
+pub fn run(state: AppState) -> Result<(), aperture::RunError> {
     // The socket must outlive the event loop and be removed on every exit
     // path (window close, Ctrl+W on the last tab, Ctrl+Q). Holding it in
     // `run`'s frame does exactly that: `IpcServer::drop` unlinks the socket
@@ -35,18 +36,18 @@ pub fn run(state: AppState) -> Result<(), iris::RunError> {
     let app = std::rc::Rc::new(std::cell::RefCell::new(UiApp::with_ipc(state, ipc_server)));
     let app_build = app.clone();
     let app_stop = app.clone();
-    let config = iris::Config::new("Arca")?
+    let config = aperture::Config::new("Arca")?
         .app_id("io.arca.Arca")?
         .size(1040, 700);
-    let result = iris::Application::run_with_lifecycle(
+    let result = aperture::Application::run_with_lifecycle(
         config,
-        // Borrow iris's device for texture uploads (icon glyphs and thumbnails).
-        Some(|host: iris::StartHost| {
+        // Borrow the iris-owned device for texture uploads (icon glyphs and thumbnails).
+        Some(|host: aperture::StartHost| {
             device::set_device(host.flux_device().as_raw());
             true
         }),
-        // Cleanly release all GPU textures before iris tears down device (ADR-0045).
-        Some(move |_host: iris::StopHost| {
+        // Cleanly release GPU textures before the shell tears down the device (ADR-0045).
+        Some(move |_host: aperture::StopHost| {
             app_stop.borrow_mut().shutdown();
             device::clear_device();
         }),
@@ -54,7 +55,7 @@ pub fn run(state: AppState) -> Result<(), iris::RunError> {
         // Arca is pure Lens chrome: it records no host canvas content, so the
         // optional recorder stays empty and the frame has no host display
         // list to composite under the widgets (Optics ADR-0127).
-        None::<fn(iris::RecordHost)>,
+        None::<fn(aperture::RecordHost)>,
     );
     result
 }

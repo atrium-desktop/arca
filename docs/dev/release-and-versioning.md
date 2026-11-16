@@ -21,7 +21,7 @@ All four crates in the repository inherit their version from the root `Cargo.tom
 | Crate | Layer | Role | Version Source |
 | :--- | :--- | :--- | :--- |
 | **`arca`** | Entrypoint | Primary Wayland application executable & portal prompter | `version.workspace = true` |
-| **`arca-ui`** | Presentation | Optics immediate-mode UI, viewport virtualization, views | `version.workspace = true` |
+| **`arca-ui`** | Presentation | Optics aperture shell, lens UI, viewport virtualization, views | `version.workspace = true` |
 | **`arca-engine`** | Domain Engine | Directory traversal, session state, safe operations, config | `version.workspace = true` |
 | **`arca-xdg`** | Specification | Pure-std Freedesktop.org specifications and protocols | `version.workspace = true` |
 

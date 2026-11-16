@@ -3,7 +3,7 @@
 //! companion application for the tessera desktop, so both colour schemes read
 //! as the same product while remaining contrast-safe.
 
-use iris::{Align, Color, Frame, LayoutOpts, Theme};
+use lens::{Align, Color, Frame, LayoutOpts, Theme};
 
 #[derive(Clone, Copy)]
 pub struct Tones {

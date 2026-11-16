@@ -4,7 +4,7 @@
 use arca_engine::entry::{FileType, SortKey};
 use arca_engine::format::{format_size, format_time};
 use arca_engine::{Entry, ViewMode};
-use iris::{Align, Color, Frame, LayoutOpts};
+use lens::{Align, Color, Frame, LayoutOpts};
 use std::path::PathBuf;
 
 use crate::app::{focus_any, FocusTarget, UiApp};
@@ -99,13 +99,23 @@ fn scroll_offset(frame: &mut Frame, id: &str) -> Option<(f32, f32)> {
     let c = std::ffi::CString::new(id).ok()?;
     let mut x = 0.0f32;
     let mut y = 0.0f32;
-    let ok = unsafe { lens_sys::lens_scroll_offset(frame.as_raw(), c.as_ptr(), &mut x, &mut y) };
+    let opts = lens_sys::lens_scroll_offset_opts {
+        id: c.as_ptr(),
+        out_x: &mut x,
+        out_y: &mut y,
+    };
+    let ok = unsafe { lens_sys::lens_scroll_offset(frame.as_raw(), &opts) };
     ok.then_some((x, y))
 }
 
 fn scroll_to(frame: &mut Frame, id: &str, x: f32, y: f32) {
     if let Ok(c) = std::ffi::CString::new(id) {
-        unsafe { lens_sys::lens_scroll_to(frame.as_raw(), c.as_ptr(), x, y) };
+        let opts = lens_sys::lens_scroll_to_opts {
+            id: c.as_ptr(),
+            x,
+            y,
+        };
+        unsafe { lens_sys::lens_scroll_to(frame.as_raw(), &opts) };
     }
 }
 

@@ -1,11 +1,12 @@
 [package]
 name = "arca-ui"
-description = "Arca file manager UI layer, built on the optics stack (lens/iris)"
+description = "Arca file manager UI layer, built on the optics stack (aperture/lens/iris)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+aperture.workspace = true
 arca-engine.workspace = true
 arca-xdg.workspace = true
 iris.workspace = true

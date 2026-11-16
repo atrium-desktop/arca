@@ -1,7 +1,7 @@
 //! Primary command bar: navigation, location/search and view controls.
 
 use arca_engine::ViewMode;
-use iris::{Align, Frame, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
+use lens::{Align, Frame, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
 
 use crate::app::{focus_any, FocusTarget, UiApp};
 use crate::icons::{self, ids};
@@ -48,7 +48,7 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             let input_theme = prev_theme
                 .with_bg(tones.input_bg)
                 .with_surface_sunken(tones.input_bg)
-                .with_border(iris::Color::TRANSPARENT)
+                .with_border(lens::Color::TRANSPARENT)
                 .with_border_width(1.0)
                 .with_corner_radius(8.0)
                 .with_padding(10.0);

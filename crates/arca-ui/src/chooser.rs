@@ -12,7 +12,7 @@ use arca_engine::chooser::{
     PromptAppearance, PromptColorScheme,
 };
 use arca_engine::state::AppState;
-use iris::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf};
+use lens::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -692,7 +692,7 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
 pub fn run_chooser(
     request: FileChooserRequest,
     appearance: Option<PromptAppearance>,
-) -> Result<FileChooserResponse, iris::RunError> {
+) -> Result<FileChooserResponse, aperture::RunError> {
     let start_dir = if let Some(folder) = &request.current_folder {
         folder.to_path_buf().to_string_lossy().into_owned()
     } else if let Some(file) = &request.current_file {
@@ -742,7 +742,7 @@ pub fn run_chooser(
         "io.arca.Chooser".into()
     };
 
-    let config = iris::Config::new(&window_title)?
+    let config = aperture::Config::new(&window_title)?
         .app_id(&app_id)?
         .size(960, 640);
 
@@ -750,13 +750,13 @@ pub fn run_chooser(
     let app_build = app.clone();
     let app_stop = app.clone();
 
-    iris::Application::run_with_lifecycle(
+    aperture::Application::run_with_lifecycle(
         config,
-        Some(|host: iris::StartHost| {
+        Some(|host: aperture::StartHost| {
             crate::device::set_device(host.flux_device().as_raw());
             true
         }),
-        Some(move |_host: iris::StopHost| {
+        Some(move |_host: aperture::StopHost| {
             app_stop.borrow_mut().shutdown();
             crate::device::clear_device();
         }),
@@ -770,7 +770,7 @@ pub fn run_chooser(
             }
         },
         // Pure Lens chrome: no host canvas recording (Optics ADR-0127).
-        None::<fn(iris::RecordHost)>,
+        None::<fn(aperture::RecordHost)>,
     )?;
 
     let res = result_holder
