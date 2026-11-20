@@ -13,11 +13,11 @@ For the user-facing project overview, see the root [README](../../README.md). Fo
 | **[Setup](setup.md)** | Prerequisites, canonical vs local workflows, building native dependencies, running, and troubleshooting |
 | **[Build & Run Guide](build-and-run.md)** | Compiling, sandbox execution, CLI picker mode, portal prompter, and headless tests |
 | **[Optics Development Worktree](optics-dev-worktree.md)** | Developing against a live sibling `optics` checkout via Cargo `[patch]` and linked worktrees |
-| **[Automated Testing](testing.md)** | Four-tier test pyramid, running unit and headless lens frame tests, and invariant validation |
+| **[Automated Testing](testing.md)** | Four-tier test pyramid, running unit and headless UI frame tests, and invariant validation |
 | **[Acceptance Scenarios](acceptance.md)** | Outside-in deliverable acceptance criteria, end-to-end user journeys, and scenario matrices |
 | **[Release & Versioning](release-and-versioning.md)** | Lockstep workspace SemVer model, pre-release checklists, and Git tagging playbooks |
 | **[Distribution Packaging](packaging.md)** | Packaging guidelines, dependencies, reproducible builds, and system desktop manifests |
-| **[Optics Migration History](optics-migration.md)** | History and mechanics of porting to the Optics monorepo (`aperture` / `flux` / `lens` / `iris`) |
+| **[Optics Migration History](optics-migration.md)** | History and mechanics of porting to the Optics monorepo (`optics-app` / `optics-gfx` / `optics-ui` / `optics-window`) |
 
 ---
 

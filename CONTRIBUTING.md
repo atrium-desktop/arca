@@ -22,7 +22,7 @@ Every pull request must clear the four verification gates codified in [Engineeri
 
 1. **Compilation Gate**: `cargo check --workspace` must pass with zero errors or warnings.
 2. **Automated Test Gate**: `cargo test --workspace` must pass across all crates (`arca-xdg`, `arca-engine`, `arca-ui`, `arca`).
-3. **Architecture Gate**: Strict compliance with subsystem boundaries — `arca-xdg` stays zero-dep pure-std, `arca-engine` stays strictly headless, and `arca-ui` maintains the 1 MiB Lens frame arena budget with full virtualization.
+3. **Architecture Gate**: Strict compliance with subsystem boundaries — `arca-xdg` stays zero-dep pure-std, `arca-engine` stays strictly headless, and `arca-ui` maintains the 1 MiB optics-ui frame arena budget with full virtualization.
 4. **Code-to-Doc Synchronization Gate**: Public CLI changes (`docs/reference/cli.md`), configuration keys (`docs/reference/configuration.md`), shortcuts (`docs/reference/keyboard-shortcuts.md`), or portal protocol updates (`docs/reference/portal-protocol.md`) must be committed in the same atomic change.
 
 ---

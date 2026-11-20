@@ -1,5 +1,5 @@
 //! Arca — a fast file manager for Wayland,
-//! built on the optics stack (aperture/flux/lens/iris).
+//! built on the optics stack (optics-app/optics-gfx/optics-ui/optics-window).
 //!
 //! `main` only performs the side effects that [`cli::Command`] describes;
 //! every argument combination is decided in `cli` and unit-tested there.

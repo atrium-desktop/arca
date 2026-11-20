@@ -136,7 +136,7 @@ def check_keys() -> None:
             if chord not in reference:
                 missing.append(chord)
 
-    # Named keys handled through `lens::key::*` guards.
+    # Named keys handled through `optics_ui::key::*` guards.
     named = {
         "F2": r"key::F2",
         "F3": r"key::F3",

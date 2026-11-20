@@ -4,10 +4,11 @@ Arca maintains its own solid, vibrant icon set designed for Wayland desktop file
 management, inspired by modern Windows 11 (Fluent Design / Files App) and macOS
 visual languages.
 
-Each SVG here is registered with lens at runtime (`lens_icon_register_svg`, via
-the lazy registration table in `crates/arca-ui/src/icons.rs`) and drawn through
-the native lens icon widgets — vector-crisp at any scale (from 12px list glyphs
-to 46px grid cards and 92px preview hero icons).
+Each SVG here is registered with optics-ui at runtime
+(`optics_ui_icon_register_svg`, via the lazy registration table in
+`crates/arca-ui/src/icons.rs`) and drawn through the native optics-ui icon
+widgets — vector-crisp at any scale (from 12px list glyphs to 46px grid cards
+and 92px hero icons).
 
 ## Design Philosophy
 
@@ -30,9 +31,9 @@ to 46px grid cards and 92px preview hero icons).
   - Symlink: vibrant teal (`#0D9488`) interlocking chain links
 - **Light & Dark Mode Support**:
   - Chrome navigation controls (arrows, chevrons, close, plus, eye, search, view modes)
-    use `fill="currentColor"` so lens dynamically tints them according to the live
-    theme (crisp dark charcoal `#1D212C` in light mode, bright off-white `#F4F6FC`
-    in dark mode, active/hover colors when interacted with).
+    use `fill="currentColor"` so optics-ui dynamically tints them according to
+    the live theme (crisp dark charcoal `#1D212C` in light mode, bright off-white
+    `#F4F6FC` in dark mode, active/hover colors when interacted with).
   - Colorful content and file type icons are tuned with high-contrast luminance and
     saturated tones that look radiant against both dark backgrounds (`rgb(25, 28, 40)`)
     and light surfaces (`rgb(243, 245, 249)`).

@@ -2,9 +2,9 @@
 //!
 //! Decoding happens off-thread in `arca_engine::thumbs::ThumbService`; this
 //! store drains finished decodes once per frame, premultiplies the pixels
-//! (flux blends SRC_OVER) and uploads them as `flux_image`s. Only cards that
-//! are actually built (the virtualized visible window) ever request a
-//! thumbnail, so scrolling a large folder decodes lazily.
+//! (optics-gfx blends SRC_OVER) and uploads them as `optics_gfx_image`s. Only
+//! cards that are actually built (the virtualized visible window) ever request
+//! a thumbnail, so scrolling a large folder decodes lazily.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -27,7 +27,7 @@ pub(crate) fn is_thumbable(name: &str) -> bool {
 
 pub(crate) struct ThumbStore {
     service: ThumbService,
-    images: HashMap<String, *mut flux_sys::flux_image>,
+    images: HashMap<String, *mut optics_gfx_sys::optics_gfx_image>,
     order: VecDeque<String>,
     cwd: String,
     /// Mirrors `AppState::show_thumbnails`; when off, no decodes are
@@ -77,7 +77,7 @@ impl ThumbStore {
     /// The uploaded image for `path`, requesting a decode on miss. Returns
     /// None headless, while decoding, for files without artwork, or when
     /// thumbnails are disabled.
-    pub fn image_for(&mut self, path: &str) -> Option<*mut flux_sys::flux_image> {
+    pub fn image_for(&mut self, path: &str) -> Option<*mut optics_gfx_sys::optics_gfx_image> {
         if !self.enabled {
             return None;
         }
@@ -99,7 +99,7 @@ impl ThumbStore {
         None
     }
 
-    fn insert(&mut self, path: String, image: *mut flux_sys::flux_image) {
+    fn insert(&mut self, path: String, image: *mut optics_gfx_sys::optics_gfx_image) {
         if self.images.insert(path.clone(), image).is_some() {
             self.order.retain(|p| p != &path);
         }
@@ -108,18 +108,18 @@ impl ThumbStore {
             if let Some(oldest) = self.order.pop_front() {
                 if let Some(image) = self.images.remove(&oldest) {
                     // SAFETY: the device is alive during the run.
-                    unsafe { flux_sys::flux_image_release(image) };
+                    unsafe { optics_gfx_sys::optics_gfx_image_release(image) };
                 }
             }
         }
     }
 
-    /// Explicitly release all uploaded GPU textures. Called on shutdown via aperture
-    /// lifecycle stop hook before device teardown (ADR-0045).
+    /// Explicitly release all uploaded GPU textures. Called on shutdown via the
+    /// optics-app lifecycle stop hook before device teardown (ADR-0045).
     pub fn release_all(&mut self) {
         for (_, image) in self.images.drain() {
             // SAFETY: called while device is alive.
-            unsafe { flux_sys::flux_image_release(image) };
+            unsafe { optics_gfx_sys::optics_gfx_image_release(image) };
         }
         self.order.clear();
     }
@@ -133,25 +133,25 @@ impl Drop for ThumbStore {
     }
 }
 
-/// Upload one decode using optics flux premultiplied region upload.
-fn upload(thumb: &Thumb) -> Option<*mut flux_sys::flux_image> {
+/// Upload one decode using the optics-gfx premultiplied region upload.
+fn upload(thumb: &Thumb) -> Option<*mut optics_gfx_sys::optics_gfx_image> {
     let device = device::device()?;
-    let desc = flux_sys::flux_image_desc {
-        type_: flux_sys::flux_struct_type::FLUX_TYPE_IMAGE_DESC,
+    let desc = optics_gfx_sys::optics_gfx_image_desc {
+        type_: optics_gfx_sys::optics_gfx_struct_type::OPTICS_GFX_TYPE_IMAGE_DESC,
         next: std::ptr::null(),
         width: thumb.width,
         height: thumb.height,
-        format: flux_sys::flux_format::FLUX_FORMAT_RGBA8_UNORM,
+        format: optics_gfx_sys::optics_gfx_format::OPTICS_GFX_FORMAT_RGBA8_UNORM,
         initial_data: std::ptr::null(),
-        usage: flux_sys::flux_image_usage::FLUX_IMAGE_USAGE_SAMPLED,
+        usage: optics_gfx_sys::optics_gfx_image_usage::OPTICS_GFX_IMAGE_USAGE_SAMPLED,
     };
     let mut out = std::ptr::null_mut();
-    // SAFETY: device is iris's live device.
-    let rc = unsafe { flux_sys::flux_image_create(device, &desc, &mut out) };
-    if rc != flux_sys::flux_result::FLUX_OK || out.is_null() {
+    // SAFETY: device is the live optics-window device.
+    let rc = unsafe { optics_gfx_sys::optics_gfx_image_create(device, &desc, &mut out) };
+    if rc != optics_gfx_sys::optics_gfx_result::OPTICS_GFX_OK || out.is_null() {
         return None;
     }
-    let update = flux_sys::flux_image_update_region_opts {
+    let update = optics_gfx_sys::optics_gfx_image_update_region_opts {
         x: 0,
         y: 0,
         width: thumb.width,
@@ -162,10 +162,10 @@ fn upload(thumb: &Thumb) -> Option<*mut flux_sys::flux_image> {
         premultiply: true,
     };
     // SAFETY: out is valid and newly allocated; thumb.rgba holds straight RGBA8 pixels.
-    let rc = unsafe { flux_sys::flux_image_update_region(out, &update) };
-    if rc != flux_sys::flux_result::FLUX_OK {
+    let rc = unsafe { optics_gfx_sys::optics_gfx_image_update_region(out, &update) };
+    if rc != optics_gfx_sys::optics_gfx_result::OPTICS_GFX_OK {
         // SAFETY: device is alive during the run.
-        unsafe { flux_sys::flux_image_release(out) };
+        unsafe { optics_gfx_sys::optics_gfx_image_release(out) };
         return None;
     }
     Some(out)

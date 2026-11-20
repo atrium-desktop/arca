@@ -4,7 +4,7 @@
 use arca_engine::entry::{FileType, SortKey};
 use arca_engine::format::{format_size, format_time};
 use arca_engine::{Entry, ViewMode};
-use lens::{Align, Color, Frame, LayoutOpts};
+use optics_ui::{Align, Color, Frame, LayoutOpts};
 use std::path::PathBuf;
 
 use crate::app::{focus_any, FocusTarget, UiApp};
@@ -54,7 +54,7 @@ const MILLER_ROW_PITCH: f32 = 36.0 + 2.0;
 const OVERSCAN_ROWS: usize = 2;
 
 /// Drag-and-drop action bitmask advertised to the compositor
-/// (`lens_dnd_source_desc.actions`: 1 = copy, 2 = move).
+/// (`optics_ui_dnd_source_desc.actions`: 1 = copy, 2 = move).
 const DND_ACTIONS: u32 = 1 | 2;
 
 /// The interchange payload for a drag started on `row_path`.
@@ -99,23 +99,23 @@ fn scroll_offset(frame: &mut Frame, id: &str) -> Option<(f32, f32)> {
     let c = std::ffi::CString::new(id).ok()?;
     let mut x = 0.0f32;
     let mut y = 0.0f32;
-    let opts = lens_sys::lens_scroll_offset_opts {
+    let opts = optics_ui_sys::optics_ui_scroll_offset_opts {
         id: c.as_ptr(),
         out_x: &mut x,
         out_y: &mut y,
     };
-    let ok = unsafe { lens_sys::lens_scroll_offset(frame.as_raw(), &opts) };
+    let ok = unsafe { optics_ui_sys::optics_ui_scroll_offset(frame.as_raw(), &opts) };
     ok.then_some((x, y))
 }
 
 fn scroll_to(frame: &mut Frame, id: &str, x: f32, y: f32) {
     if let Ok(c) = std::ffi::CString::new(id) {
-        let opts = lens_sys::lens_scroll_to_opts {
+        let opts = optics_ui_sys::optics_ui_scroll_to_opts {
             id: c.as_ptr(),
             x,
             y,
         };
-        unsafe { lens_sys::lens_scroll_to(frame.as_raw(), &opts) };
+        unsafe { optics_ui_sys::optics_ui_scroll_to(frame.as_raw(), &opts) };
     }
 }
 
@@ -135,7 +135,7 @@ fn scroll_geometry(frame: &mut Frame, scroll_id: &str) -> Option<(f32, f32)> {
 /// back to the first `fallback_rows` rows when no geometry exists yet
 /// (first frame).
 ///
-/// lens's per-frame arena is 1 MiB and draw calls past the limit are dropped
+/// optics-ui's per-frame arena is 1 MiB and draw calls past the limit are dropped
 /// silently (blank icons and labels), so a large listing must only ever
 /// build the rows that are actually visible.
 fn visible_rows(
@@ -154,7 +154,7 @@ fn visible_rows(
     let last = (((offset + viewport_h) / pitch).ceil() as usize + OVERSCAN_ROWS + 1).min(row_count);
     if first >= last {
         // Stale offset right after navigating away from a longer listing:
-        // anchor to the content end — lens clamps the offset during layout,
+        // anchor to the content end — optics-ui clamps the offset during layout,
         // so the next frame is consistent again.
         return (row_count.saturating_sub(fallback_rows), row_count);
     }
@@ -234,7 +234,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
     let available_w = (app.viewport.0 - app.sidebar_width - 20.0).max(120.0);
     let card_height = derive_grid_card_height(frame);
     let row_pitch = derive_grid_row_pitch(frame);
-    let plan = lens::patterns::virtual_grid_calc(
+    let plan = optics_ui::patterns::virtual_grid_calc(
         available_w,
         app.viewport.1,
         0.0,
@@ -415,7 +415,7 @@ fn build_grid_card(
         return;
     }
 
-    // Suppress lens's automatic pressable card hover/active wash and focus border so the
+    // Suppress optics-ui's automatic pressable card hover/active wash and focus border so the
     // grid item follows native desktop canvas conventions (no flashing gray cards, no focus border).
     let prev_theme = frame.theme();
     frame.set_theme(
@@ -499,7 +499,7 @@ fn build_grid_card(
 /// Restore standard desktop arrow cursor over content listing items (ADR desktop conventions:
 /// file manager items are desktop objects, not web hyperlinks, so they use the standard arrow cursor).
 pub(crate) fn suppress_item_pointer_cursor(frame: &mut Frame) {
-    frame.set_cursor_hint(lens::CursorHint::Default);
+    frame.set_cursor_hint(optics_ui::CursorHint::Default);
 }
 
 fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usize]) {
@@ -992,8 +992,8 @@ fn card_art(app: &mut UiApp, frame: &mut Frame, entry: &Entry, size: f32, select
             // outlives the frame. Dimensions of an uploaded image are valid.
             let (w, h) = unsafe {
                 (
-                    flux_sys::flux_image_width(image),
-                    flux_sys::flux_image_height(image),
+                    optics_gfx_sys::optics_gfx_image_width(image),
+                    optics_gfx_sys::optics_gfx_image_height(image),
                 )
             };
             let (dw, dh) = if w >= h {
@@ -1175,8 +1175,8 @@ mod tests {
         ));
         app.state.set_view_mode(ViewMode::List);
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..3 {
             ui.frame(&settle, |f| app.build(f, &settle));
             if let Ok(snap) = ui.snapshot() {
@@ -1186,8 +1186,8 @@ mod tests {
         let before = last_list_window().expect("list window recorded");
         assert_eq!(before.0, 0, "unscrolled list starts at the top");
 
-        // Wheel down over the list area; lens scrolls with negative scroll_y.
-        let mut wheel = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        // Wheel down over the list area; optics-ui scrolls with negative scroll_y.
+        let mut wheel = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         wheel.set_cursor(600.0, 420.0);
         wheel.set_scroll(0.0, -2.0);
         for _ in 0..4 {
@@ -1206,8 +1206,8 @@ mod tests {
     #[test]
     fn all_three_view_modes_build_headless() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1280.0, 760.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1280.0, 760.0), 1.0 / 60.0);
         for mode in [
             arca_engine::ViewMode::Grid,
             arca_engine::ViewMode::List,
@@ -1223,8 +1223,8 @@ mod tests {
     #[test]
     fn compact_window_builds_every_view() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((720.0, 520.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((720.0, 520.0), 1.0 / 60.0);
         for mode in [
             arca_engine::ViewMode::Grid,
             arca_engine::ViewMode::List,
@@ -1235,7 +1235,7 @@ mod tests {
         }
     }
 
-    /// A listing of a few thousand entries once overflowed lens's 1 MiB
+    /// A listing of a few thousand entries once overflowed optics-ui's 1 MiB
     /// per-frame arena: draw calls past the limit are dropped silently, which
     /// blanked every grid icon. The virtualized listings must stay far below
     /// the budget no matter how large the directory.
@@ -1260,8 +1260,8 @@ mod tests {
             dir.to_str().unwrap(),
         );
         let mut app = UiApp::new(state);
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1280.0, 760.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1280.0, 760.0), 1.0 / 60.0);
 
         for mode in [
             arca_engine::ViewMode::Grid,
@@ -1276,7 +1276,7 @@ mod tests {
                 });
                 overflowed |= ui.overflowed();
             }
-            assert!(!overflowed, "{mode:?} overflowed the lens frame arena");
+            assert!(!overflowed, "{mode:?} overflowed the optics-ui frame arena");
         }
     }
 
@@ -1291,8 +1291,8 @@ mod tests {
         std::fs::write(dir.join("build.sh"), b"#!/bin/sh\n").unwrap();
         app.state.navigate(dir.to_str().unwrap());
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
 
         for theme in [arca_engine::ThemeMode::Light, arca_engine::ThemeMode::Dark] {
             app.state.set_theme(theme);
@@ -1324,8 +1324,8 @@ mod tests {
         app.state.navigate(dir.to_str().unwrap());
         app.state.set_view_mode(arca_engine::ViewMode::Grid);
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
 
         ui.frame(&input, |f| {
             app.build(f, &input);
@@ -1392,14 +1392,14 @@ mod tests {
     #[test]
     fn grid_layout_edge_cases_and_interaction_integrity() {
         let (dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         app.state.set_view_mode(arca_engine::ViewMode::Grid);
 
         // 1. Edge Case: Empty Directory
         let empty_dir = dir.join("empty_folder");
         std::fs::create_dir(&empty_dir).unwrap();
         app.state.navigate(empty_dir.to_str().unwrap());
-        let input_std = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        let input_std = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input_std);
         assert!(
             !ui.overflowed(),
@@ -1418,14 +1418,14 @@ mod tests {
         );
 
         // 3. Edge Case: Extreme Viewport Resizing (Very Narrow vs Very Wide)
-        let input_narrow = lens::Input::new((300.0, 400.0), 1.0 / 60.0);
+        let input_narrow = optics_ui::Input::new((300.0, 400.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input_narrow);
         assert_eq!(
             app.current_grid_columns, 1,
             "narrow viewport should clamp to 1 column"
         );
 
-        let input_wide = lens::Input::new((2560.0, 1440.0), 1.0 / 60.0);
+        let input_wide = optics_ui::Input::new((2560.0, 1440.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input_wide);
         assert!(
             app.current_grid_columns >= 15,
@@ -1439,14 +1439,14 @@ mod tests {
             std::fs::write(nav_dir.join(format!("track_{i:02}.flac")), b"audio").unwrap();
         }
         app.state.navigate(nav_dir.to_str().unwrap());
-        let input_nav = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        let input_nav = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input_nav);
         let cols = app.current_grid_columns;
         assert!(cols >= 4);
 
         // Move Down from None selects index 0
-        let mut down = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
-        down.push_key(lens::key::DOWN, true, false);
+        let mut down = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
+        down.push_key(optics_ui::key::DOWN, true, false);
         frame(&mut app, &mut ui, &down);
         assert_eq!(app.state.selected(), Some(0));
 
@@ -1455,20 +1455,20 @@ mod tests {
         assert_eq!(app.state.selected(), Some(cols));
 
         // Move Right moves by +1
-        let mut right = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
-        right.push_key(lens::key::RIGHT, true, false);
+        let mut right = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
+        right.push_key(optics_ui::key::RIGHT, true, false);
         frame(&mut app, &mut ui, &right);
         assert_eq!(app.state.selected(), Some(cols + 1));
 
         // Move Left moves by -1
-        let mut left = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
-        left.push_key(lens::key::LEFT, true, false);
+        let mut left = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
+        left.push_key(optics_ui::key::LEFT, true, false);
         frame(&mut app, &mut ui, &left);
         assert_eq!(app.state.selected(), Some(cols));
 
         // Move Up jumps back by `cols` to 0
-        let mut up = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
-        up.push_key(lens::key::UP, true, false);
+        let mut up = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
+        up.push_key(optics_ui::key::UP, true, false);
         frame(&mut app, &mut ui, &up);
         assert_eq!(app.state.selected(), Some(0));
 
@@ -1483,8 +1483,8 @@ mod tests {
         );
 
         // Cancel rename with Escape
-        let mut esc = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
-        esc.push_key(lens::key::ESCAPE, true, false);
+        let mut esc = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
+        esc.push_key(optics_ui::key::ESCAPE, true, false);
         frame(&mut app, &mut ui, &esc);
         assert!(app.renaming.is_none());
     }
@@ -1498,8 +1498,8 @@ mod tests {
         assert_eq!(GRID_DEFAULT_CARD_HEIGHT + GRID_GAP, 108.0);
 
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &input);
         }
@@ -1530,8 +1530,8 @@ mod tests {
         app.state.navigate(dir.to_str().unwrap());
         app.state.set_view_mode(arca_engine::ViewMode::Grid);
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
 
         // Frame 1: Resting state — build initial geometry and settle
         frame(&mut app, &mut ui, &input);
@@ -1565,7 +1565,7 @@ mod tests {
             .position(|e| e.name == "vault")
             .expect("vault must exist in entries");
 
-        let mut hover_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut hover_in = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         hover_in.set_cursor(target.rect.x + 10.0, target.rect.y + 10.0);
         frame(&mut app, &mut ui, &hover_in);
 
@@ -1588,7 +1588,7 @@ mod tests {
         // Frame 4: Run next frame with the hovered index applied
         frame(&mut app, &mut ui, &hover_in);
         assert_eq!(app.hovered_grid_index, Some(vault_idx));
-        assert_eq!(ui.cursor_hint(), lens::CursorHint::Default);
+        assert_eq!(ui.cursor_hint(), optics_ui::CursorHint::Default);
         assert!(!app.active_drag.as_ref().is_some_and(|d| d.started));
     }
 
@@ -1599,8 +1599,8 @@ mod tests {
         std::fs::write(&file_path, "hello").unwrap();
         app.state.navigate(dir.to_str().unwrap());
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input);
 
         // Start rename
@@ -1612,8 +1612,8 @@ mod tests {
         frame(&mut app, &mut ui, &input);
 
         // Press Return to submit rename
-        let mut enter_input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        enter_input.push_key(lens::key::RETURN, true, false);
+        let mut enter_input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        enter_input.push_key(optics_ui::key::RETURN, true, false);
         frame(&mut app, &mut ui, &enter_input);
 
         assert!(app.renaming.is_none());
@@ -1628,8 +1628,8 @@ mod tests {
         std::fs::write(&file_path, "pdf data").unwrap();
         app.state.refresh();
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input);
 
         // Initiate rename: "report.pdf", stem is "report" (len 6)
@@ -1640,8 +1640,8 @@ mod tests {
         frame(&mut app, &mut ui, &input);
 
         // Frame 2: Backspace with selection active deletes "report", leaving ".pdf"
-        let mut bs_input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        bs_input.push_key(lens::key::BACKSPACE, true, false);
+        let mut bs_input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        bs_input.push_key(optics_ui::key::BACKSPACE, true, false);
         frame(&mut app, &mut ui, &bs_input);
 
         assert_eq!(app.rename.as_str(), ".pdf");

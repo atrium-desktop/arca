@@ -15,29 +15,32 @@ edition = "2021"
 rust-version = "1.85"
 
 [workspace.dependencies]
-# Optics stack (aperture/flux/lens/iris) official Rust bindings. The canonical
-# build resolves the binding sources from the tagged optics monorepo and links
-# the C libraries discovered by pkg-config. A linked development worktree can
-# patch these sources to a sibling checkout through .cargo/optics-local.toml
-# without making that checkout mandatory for CI or downstream packagers; see
+# Optics stack official Rust bindings. The canonical build resolves the
+# binding sources from the tagged optics monorepo and links the C libraries
+# discovered by pkg-config. A linked development worktree can patch these
+# sources to a sibling checkout through .cargo/optics-local.toml without making
+# that checkout mandatory for CI or downstream packagers; see
 # docs/dev/optics-dev-worktree.md.
 #
-# v0.0.80 splits the application shell out of iris into aperture (Optics
-# ADR-0166): `aperture::Application` runs a lens UI in an iris window, while
-# `iris` keeps the window/cursor/dialog/theme surface and no longer depends on
-# lens. Arca imports widget and input types from `lens`, never through iris.
-aperture = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-iris = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-lens = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-lens-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-# flux-sys is the direct FFI surface Arca uses for thumbnail images. The safe
-# `flux` crate arrives transitively through aperture/lens; it is not a direct
-# workspace dependency.
-flux-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
-# transit stayed a header-only vocabulary on the C side and pure Safe Rust
-# here (Optics ADR-0158), so there is no transit-sys FFI crate and no native
+# v0.0.82 adopts the semantic module names and the unified `optics_` namespace
+# (Optics ADR-0169, ADR-0170, ADR-0172): crates live under the optics root
+# `crates/` as `optics-<module>`, every public symbol carries its module
+# prefix, and the application shell (`optics-app`) keeps its one-way boundary
+# above `optics-window` and `optics-ui`. Arca imports widget and input types
+# from `optics-ui`, platform control from `optics-window`, and the lifecycle
+# from `optics-app`.
+optics-app = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-window = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+# optics-gfx-sys is the direct FFI surface Arca uses for thumbnail images. The
+# safe `optics-gfx` crate arrives transitively through optics-app/optics-ui; it
+# is not a direct workspace dependency.
+optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+# Motion stayed a header-only vocabulary on the C side and pure Safe Rust here
+# (Optics ADR-0158), so there is no `optics-motion-sys` FFI crate and no native
 # library to discover or rpath.
-transit = { git = "https://github.com/ming2k/optics", tag = "v0.0.80" }
+optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 arca-xdg = { path = "crates/arca-xdg", version = "0.2.15" }

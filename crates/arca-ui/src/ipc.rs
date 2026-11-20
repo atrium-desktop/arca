@@ -110,7 +110,7 @@ impl IpcServer {
                                     if let Ok(mut queue) = pending_worker.lock() {
                                         queue.push(path.to_string());
                                     }
-                                    iris::post_to_main_thread(|| {});
+                                    optics_window::post_to_main_thread(|| {});
                                     let mut writer = stream;
                                     let _ = writer.write_all(b"OK\n");
                                 }

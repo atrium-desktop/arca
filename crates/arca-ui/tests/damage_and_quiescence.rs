@@ -1,18 +1,18 @@
 //! Integration tests verifying Optics regional damage localization,
-//! LENS_NODE_LEAVING departure damage, and animation quiescence.
+//! OPTICS_UI_NODE_LEAVING departure damage, and animation quiescence.
 
 use arca_engine::config::{Config, ViewMode};
 use arca_engine::AppState;
-use lens::{Align, Frame, Input, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
+use optics_ui::{Align, Frame, Input, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
 
-fn run_frame(app: &mut arca_ui::UiApp, ui: &mut lens::Ui, input: &Input) {
+fn run_frame(app: &mut arca_ui::UiApp, ui: &mut optics_ui::Ui, input: &Input) {
     ui.frame(input, |f: &mut Frame| app.build(f, input));
     if let Ok(s) = ui.snapshot() {
         let _ = ui.activate(&s);
     }
 }
 
-fn query_damage(ui: &mut lens::Ui) -> (usize, f32) {
+fn query_damage(ui: &mut optics_ui::Ui) -> (usize, f32) {
     let mut buf = [Rect {
         x: 0.0,
         y: 0.0,
@@ -40,7 +40,7 @@ fn test_trailing_row_removal_emits_regional_damage_and_settles() {
         dir.to_str().unwrap(),
     );
     let mut app = arca_ui::UiApp::new(state);
-    let mut ui = lens::Ui::headless().expect("headless ui");
+    let mut ui = optics_ui::Ui::headless().expect("headless ui");
     app.state.set_view_mode(ViewMode::List);
 
     let viewport_w = 1040.0;
@@ -110,7 +110,7 @@ fn test_quick_look_modal_preview_damage_and_settling() {
         dir.to_str().unwrap(),
     );
     let mut app = arca_ui::UiApp::new(state);
-    let mut ui = lens::Ui::headless().expect("headless ui");
+    let mut ui = optics_ui::Ui::headless().expect("headless ui");
     let settled_input = Input::new((1040.0, 700.0), 1.0 / 60.0);
 
     for _ in 0..40 {
@@ -143,7 +143,7 @@ fn test_quick_look_modal_preview_damage_and_settling() {
 
     // Dismiss preview with Escape
     let mut esc_input = Input::new((1040.0, 700.0), 1.0 / 60.0);
-    esc_input.push_key(lens::key::ESCAPE, true, false);
+    esc_input.push_key(optics_ui::key::ESCAPE, true, false);
     run_frame(&mut app, &mut ui, &esc_input);
 
     // Advance frames during closing animation
@@ -183,7 +183,7 @@ fn test_scrolling_virtualized_listing_damages_only_the_viewport_then_settles() {
         dir.to_str().unwrap(),
     );
     let mut app = arca_ui::UiApp::new(state);
-    let mut ui = lens::Ui::headless().expect("headless ui");
+    let mut ui = optics_ui::Ui::headless().expect("headless ui");
     app.state.set_view_mode(ViewMode::List);
 
     let viewport_w = 1040.0;
@@ -249,7 +249,7 @@ fn test_focused_location_caret_reports_only_phase_flips() {
         dir.to_str().unwrap(),
     );
     let mut app = arca_ui::UiApp::new(state);
-    let mut ui = lens::Ui::headless().expect("headless ui");
+    let mut ui = optics_ui::Ui::headless().expect("headless ui");
     let viewport_w = 1040.0;
     let viewport_h = 700.0;
     let full_viewport_area = viewport_w * viewport_h;
@@ -262,7 +262,7 @@ fn test_focused_location_caret_reports_only_phase_flips() {
 
     // Ctrl+L focuses the location field and selects all of its text.
     let mut focus_input = Input::new((1040.0, 700.0), 1.0 / 60.0);
-    focus_input.set_mods(lens::mods::CTRL);
+    focus_input.set_mods(optics_ui::mods::CTRL);
     focus_input.push_key('l' as i32, true, false);
     run_frame(&mut app, &mut ui, &focus_input);
     for _ in 0..20 {
@@ -280,7 +280,7 @@ fn test_focused_location_caret_reports_only_phase_flips() {
 
     assert!(
         ui.caret_clock_live(),
-        "a focused widget-owned caret must run lens's blink clock"
+        "a focused widget-owned caret must run optics-ui's blink clock"
     );
 
     // A blink is a phase edge (ADR-0151): within 0.75 s one or two flips are
@@ -368,11 +368,11 @@ fn test_focused_location_caret_reports_only_phase_flips() {
 
 #[test]
 fn test_segmented_control_selection_animates_and_terminates() {
-    let mut ui = lens::Ui::headless().expect("headless ui");
+    let mut ui = optics_ui::Ui::headless().expect("headless ui");
     let mut selected_idx = 0usize;
     let input = Input::new((400.0, 60.0), 1.0 / 60.0);
 
-    let render_seg = |ui: &mut lens::Ui, idx: &mut usize| {
+    let render_seg = |ui: &mut optics_ui::Ui, idx: &mut usize| {
         ui.frame(&input, |f: &mut Frame| {
             f.size_next(400.0, 60.0);
             f.row_ex(

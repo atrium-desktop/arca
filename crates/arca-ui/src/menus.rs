@@ -4,20 +4,20 @@
 //! Overlay ids hash per id-scope, so every `overlay_open`/`overlay`/
 //! `overlay_close` for one menu must run in the same scope — these builders
 //! (called from the root build scope) own all of them; the triggers deeper
-//! in the tree only record anchor state on [`UiApp`]. lens itself dismisses
+//! in the tree only record anchor state on [`UiApp`]. optics-ui itself dismisses
 //! an open overlay on Escape or an outside press (with a same-frame grace
 //! for the opening click), which these builders mirror back into app state.
 
 use arca_engine::config::ThemeMode;
-use lens::patterns::{popup_menu, MenuItem};
-use lens::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
+use optics_ui::patterns::{popup_menu, MenuItem};
+use optics_ui::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
 use crate::app::{UiApp, CTX_MENU_ID, SETTINGS_MENU_ID, SIDEBAR_MENU_ID};
 use crate::icons::{self, ids};
 use crate::theme::Tones;
 
 /// Frosted popover body shared by both menus (tessera `popover` material:
-/// translucent surface with a 1 px hairline — without lensing, the painted
+/// translucent surface with a 1 px hairline — without the lensing material, the painted
 /// edge is what separates the panel from the content beneath it).
 fn popover_opts(tones: &Tones, anchor: Rect) -> PlaceOpts {
     PlaceOpts {
@@ -81,12 +81,12 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
     let mut items = Vec::new();
     let mut actions = Vec::new();
 
-    items.push(MenuItem::new("Open").icon(icons::lens_id(ids::Folder)));
+    items.push(MenuItem::new("Open").icon(icons::icon_id(ids::Folder)));
     actions.push(Action::Open);
 
     items.push(
         MenuItem::new("Quick Look")
-            .icon(icons::lens_id(ids::Eye))
+            .icon(icons::icon_id(ids::Eye))
             .shortcut("Space"),
     );
     actions.push(Action::QuickLook);
@@ -97,7 +97,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
         .filter(|entry| entry.navigable)
         .and_then(|_| app.state.selected_path());
     if let Some(ref path) = selected_directory {
-        items.push(MenuItem::new("Open in New Tab").icon(icons::lens_id(ids::Plus)));
+        items.push(MenuItem::new("Open in New Tab").icon(icons::icon_id(ids::Plus)));
         actions.push(Action::OpenInNewTab(path.clone()));
 
         let is_bookmarked = app.state.is_bookmarked(path);
@@ -106,7 +106,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
         } else {
             "Add to Bookmarks"
         };
-        items.push(MenuItem::new(bookmark_label).icon(icons::lens_id(ids::Folder)));
+        items.push(MenuItem::new(bookmark_label).icon(icons::icon_id(ids::Folder)));
         actions.push(Action::ToggleBookmark(path.clone()));
     }
 
@@ -117,33 +117,33 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
 
     items.push(
         MenuItem::new("Copy")
-            .icon(icons::lens_id(ids::FileText))
+            .icon(icons::icon_id(ids::FileText))
             .shortcut("Ctrl+C"),
     );
     actions.push(Action::Copy);
 
     items.push(
         MenuItem::new("Cut")
-            .icon(icons::lens_id(ids::FileText))
+            .icon(icons::icon_id(ids::FileText))
             .shortcut("Ctrl+X"),
     );
     actions.push(Action::Cut);
 
     items.push(
         MenuItem::new("Paste")
-            .icon(icons::lens_id(ids::FileText))
+            .icon(icons::icon_id(ids::FileText))
             .shortcut("Ctrl+V"),
     );
     actions.push(Action::Paste);
 
     if let Some(path) = app.state.selected_path() {
-        items.push(MenuItem::new("Copy Path").icon(icons::lens_id(ids::Link2)));
+        items.push(MenuItem::new("Copy Path").icon(icons::icon_id(ids::Link2)));
         actions.push(Action::CopyPath(path));
     }
 
     for app_entry in menu.open_with.iter().take(3) {
         let label = format!("Open with {}", app_entry.name);
-        items.push(MenuItem::new(label).icon(icons::lens_id(ids::Terminal)));
+        items.push(MenuItem::new(label).icon(icons::icon_id(ids::Terminal)));
         actions.push(Action::OpenWith(app_entry.clone()));
     }
 
@@ -157,7 +157,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
         } else {
             "Restore".to_string()
         };
-        items.push(MenuItem::new(label).icon(icons::lens_id(ids::RefreshCw)));
+        items.push(MenuItem::new(label).icon(icons::icon_id(ids::RefreshCw)));
         actions.push(Action::Restore);
 
         let purge_label = if names.len() > 1 {
@@ -165,12 +165,12 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
         } else {
             "Delete permanently".to_string()
         };
-        items.push(MenuItem::new(purge_label).icon(icons::lens_id(ids::Trash)));
+        items.push(MenuItem::new(purge_label).icon(icons::icon_id(ids::Trash)));
         actions.push(Action::Purge(names));
     } else {
         items.push(
             MenuItem::new("Move to Trash")
-                .icon(icons::lens_id(ids::Trash))
+                .icon(icons::icon_id(ids::Trash))
                 .shortcut("Delete"),
         );
         actions.push(Action::Trash);
@@ -181,7 +181,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
     if let Some(idx) = activated {
         match actions.get(idx) {
             Some(Action::Open) => {
-                let token = iris::window_create_activation_token(None);
+                let token = optics_window::window_create_activation_token(None);
                 app.state.open_selected_with_token(token.as_deref());
             }
             Some(Action::QuickLook) => {
@@ -226,7 +226,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
             }
             Some(Action::OpenWith(app_entry)) => {
                 if let Some(path_str) = app.state.selected_path() {
-                    let token = iris::window_create_activation_token(Some(&app_entry.id));
+                    let token = optics_window::window_create_activation_token(Some(&app_entry.id));
                     let _ = app_entry
                         .spawn_with_token(&[std::path::Path::new(&path_str)], token.as_deref());
                 }
@@ -271,17 +271,17 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones)
     let mut items = Vec::new();
     let mut actions = Vec::new();
 
-    items.push(MenuItem::new("Open in New Tab").icon(icons::lens_id(ids::Plus)));
+    items.push(MenuItem::new("Open in New Tab").icon(icons::icon_id(ids::Plus)));
     actions.push(Action::OpenInNewTab);
 
-    items.push(MenuItem::new("Copy Path").icon(icons::lens_id(ids::Link2)));
+    items.push(MenuItem::new("Copy Path").icon(icons::icon_id(ids::Link2)));
     actions.push(Action::CopyPath);
 
     if menu.is_folder {
         items.push(MenuItem::separator());
         actions.push(Action::None);
 
-        items.push(MenuItem::new("Remove from Bookmarks").icon(icons::lens_id(ids::Folder)));
+        items.push(MenuItem::new("Remove from Bookmarks").icon(icons::icon_id(ids::Folder)));
         actions.push(Action::RemoveBookmark);
     }
 
@@ -289,7 +289,7 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones)
         items.push(MenuItem::separator());
         actions.push(Action::None);
 
-        items.push(MenuItem::new("Empty Trash").icon(icons::lens_id(ids::Trash)));
+        items.push(MenuItem::new("Empty Trash").icon(icons::icon_id(ids::Trash)));
         actions.push(Action::EmptyTrash);
     }
 
@@ -324,7 +324,7 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones)
 /// Appearance picker hanging off the toolbar settings button.
 pub(crate) fn build_settings_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
     let Some(mut menu) = app.settings_menu.take() else {
-        // Toggled off this frame: keep the lens overlay in sync.
+        // Toggled off this frame: keep the optics-ui overlay in sync.
         if f.place_is_open(SETTINGS_MENU_ID) {
             f.place_close(SETTINGS_MENU_ID);
         }
@@ -377,8 +377,8 @@ mod tests {
         std::fs::create_dir(&sub_dir).unwrap();
         app.state.navigate(dir.to_str().unwrap());
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input);
 
         // Add subfolder to bookmarks
@@ -403,14 +403,14 @@ mod tests {
         std::fs::write(&file_path, "sample text").unwrap();
         app.state.navigate(dir.to_str().unwrap());
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input);
 
         // Right click row 0
         app.row_right_clicked(
             0,
-            lens::Rect {
+            optics_ui::Rect {
                 x: 100.0,
                 y: 100.0,
                 w: 10.0,
@@ -451,14 +451,14 @@ mod tests {
         std::fs::write(&file_path, "sample text").unwrap();
         app.state.navigate(dir.to_str().unwrap());
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input);
 
         // Right click row 0
         app.row_right_clicked(
             0,
-            lens::Rect {
+            optics_ui::Rect {
                 x: 100.0,
                 y: 100.0,
                 w: 10.0,
@@ -472,8 +472,8 @@ mod tests {
         assert!(app.ctx_menu.is_some());
 
         // Press Escape to dismiss
-        let mut esc = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        esc.push_key(lens::key::ESCAPE, true, false);
+        let mut esc = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        esc.push_key(optics_ui::key::ESCAPE, true, false);
         frame(&mut app, &mut ui, &esc);
 
         assert!(app.ctx_menu.is_none());
@@ -482,15 +482,15 @@ mod tests {
     #[test]
     fn sidebar_menu_escape_dismissal() {
         let (dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input);
 
         // Open sidebar menu
         app.open_sidebar_menu(
             dir.to_str().unwrap(),
             true,
-            lens::Rect {
+            optics_ui::Rect {
                 x: 50.0,
                 y: 50.0,
                 w: 10.0,
@@ -504,8 +504,8 @@ mod tests {
         assert!(app.sidebar_menu.is_some());
 
         // Press Escape to dismiss
-        let mut esc = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        esc.push_key(lens::key::ESCAPE, true, false);
+        let mut esc = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        esc.push_key(optics_ui::key::ESCAPE, true, false);
         frame(&mut app, &mut ui, &esc);
 
         assert!(app.sidebar_menu.is_none());

@@ -1,8 +1,8 @@
 //! Animated Space-bar Quick Look overlay.
 
 use arca_engine::{AppState, Preview, PreviewKind};
-use lens::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
-use transit::{Spring, SpringParams};
+use optics_motion::{Spring, SpringParams};
+use optics_ui::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
 use crate::icons::{self, ids};
 use crate::theme::{self, Tones};
@@ -14,7 +14,7 @@ pub(crate) struct PreviewOverlay {
     pub(crate) target_open: bool,
     pub(crate) spring: Spring,
     pub(crate) progress: f32,
-    /// Whether this presentation has already been registered in lens's
+    /// Whether this presentation has already been registered in optics-ui's
     /// transient open-set.
     registered: bool,
 }
@@ -45,7 +45,7 @@ impl PreviewOverlay {
 
     /// Start the close animation.
     ///
-    /// The lens transient entry is closed by the next `build_preview` (it
+    /// The optics-ui transient entry is closed by the next `build_preview` (it
     /// only exists while the node is on screen), so no frame handle is
     /// needed here.
     pub fn close(&mut self) {
@@ -84,7 +84,7 @@ impl PreviewOverlay {
         }
         self.progress = self.spring.value.clamp(0.0, 1.0);
         if !self.spring.settled(target, 0.001, 0.001) {
-            iris::request_animation_frame();
+            optics_window::request_animation_frame();
         } else if self.spring.value <= 0.0 && !self.target_open {
             self.data = None;
         }
@@ -93,7 +93,7 @@ impl PreviewOverlay {
 
 pub(crate) fn frame_reduced_motion(frame: &mut Frame) -> bool {
     // SAFETY: the frame is live inside the build callback.
-    unsafe { lens_sys::lens_reduced_motion(frame.as_raw()) }
+    unsafe { optics_ui_sys::optics_ui_reduced_motion(frame.as_raw()) }
 }
 
 pub(crate) fn build_preview(
@@ -112,10 +112,10 @@ pub(crate) fn build_preview(
         return;
     };
 
-    // Quick Look is a dismissable modal: registering it in lens's transient
+    // Quick Look is a dismissable modal: registering it in optics-ui's transient
     // open-set is what makes Escape and a press outside the card close it.
     // The open must happen exactly once per presentation — it is not a
-    // per-frame "keep alive" — because lens removes the slot on dismissal and
+    // per-frame "keep alive" — because optics-ui removes the slot on dismissal and
     // re-opening here would silently resurrect the overlay.
     if !preview.registered {
         frame.place_open(PREVIEW_OVERLAY_ID);
@@ -203,7 +203,7 @@ pub(crate) fn build_preview(
         },
     );
 
-    // The user pressed Escape or clicked outside: lens removed the transient
+    // The user pressed Escape or clicked outside: optics-ui removed the transient
     // without telling us, so mirror that dismissal into the app state and
     // animate out. `close()` clears `registered`, so the next presentation
     // registers afresh.
@@ -212,7 +212,7 @@ pub(crate) fn build_preview(
     }
 }
 
-/// Transient id of the Quick Look card (see `lens_place_open`).
+/// Transient id of the Quick Look card (see `optics_ui_place_open`).
 const PREVIEW_OVERLAY_ID: &str = "quick-look";
 
 fn build_header(preview: &mut PreviewOverlay, frame: &mut Frame, tones: &Tones, data: &Preview) {
@@ -320,8 +320,8 @@ fn build_body(
                                         // owns the image.
                                         let (w, h) = unsafe {
                                             (
-                                                flux_sys::flux_image_width(image),
-                                                flux_sys::flux_image_height(image),
+                                                optics_gfx_sys::optics_gfx_image_width(image),
+                                                optics_gfx_sys::optics_gfx_image_height(image),
                                             )
                                         };
                                         let scale = (max_w / w.max(1) as f32)
@@ -415,21 +415,21 @@ mod tests {
     use crate::test_support::{fixture, frame, open_preview, press};
 
     #[test]
-    fn preview_transit_reduced_motion_snaps_instantly() {
+    fn preview_motion_reduced_motion_snaps_instantly() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         ui.set_reduced_motion(true);
 
         app.state.move_selection(1);
-        let mut space = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut space = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         space.push_key(' ' as i32, true, false);
         frame(&mut app, &mut ui, &space);
 
-        // Under reduced motion, transit resolves to 1.0 in a single step.
+        // Under reduced motion, optics-motion resolves to 1.0 in a single step.
         assert_eq!(app.preview.progress, 1.0);
 
         // Close preview
-        let mut close_space = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut close_space = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         close_space.push_key(' ' as i32, true, false);
         frame(&mut app, &mut ui, &close_space);
 
@@ -443,12 +443,12 @@ mod tests {
     #[test]
     fn escape_closes_quick_look() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         open_preview(&mut app, &mut ui);
 
-        press(&mut app, &mut ui, lens::key::ESCAPE, 0);
+        press(&mut app, &mut ui, optics_ui::key::ESCAPE, 0);
 
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..90 {
             frame(&mut app, &mut ui, &settle);
         }
@@ -464,20 +464,20 @@ mod tests {
     #[test]
     fn clicking_outside_closes_quick_look() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         open_preview(&mut app, &mut ui);
 
-        let mut click = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut click = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         click.set_cursor(4.0, 4.0);
-        click.set_mouse_down(lens::MouseButton::Left, true);
-        click.set_mouse_pressed(lens::MouseButton::Left, true);
+        click.set_mouse_down(optics_ui::MouseButton::Left, true);
+        click.set_mouse_pressed(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &click);
-        let mut release = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut release = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         release.set_cursor(4.0, 4.0);
-        release.set_mouse_released(lens::MouseButton::Left, true);
+        release.set_mouse_released(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &release);
 
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..90 {
             frame(&mut app, &mut ui, &settle);
         }

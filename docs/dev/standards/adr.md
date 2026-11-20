@@ -78,7 +78,7 @@ Describe the context and motivation in concise, precise terms. What architectura
 
 ## Decision Drivers
 
-- Driver 1: e.g., Guarantee sub-frame allocation within 1 MiB Lens arena budget
+- Driver 1: e.g., Guarantee sub-frame allocation within 1 MiB optics-ui arena budget
 - Driver 2: e.g., Decouple pure-std XDG protocols from application domain logic
 
 ## Architectural Decisions

@@ -388,8 +388,8 @@ impl AppState {
 
     /// Reorder tabs by moving the tab at `from` to the slot `to`, expressed
     /// in post-removal coordinates (remove `from` first, then insert at
-    /// `to`) — the same convention the lens tab strip reports, so the drag
-    /// action applies without index translation. The active tab follows its
+    /// `to`) — the same convention the optics-ui tab strip reports, so the
+    /// drag action applies without index translation. The active tab follows its
     /// document, never its old position.
     pub fn move_tab(&mut self, from: usize, to: usize) -> bool {
         if from >= self.tabs.len() || to >= self.tabs.len() || from == to {
@@ -2081,7 +2081,7 @@ mod tests {
         assert_eq!(s.tabs().len(), 3);
         assert_eq!(s.active_tab_index(), 2);
 
-        // Lens reports `to` in post-removal coordinates.
+        // optics-ui reports `to` in post-removal coordinates.
         assert!(s.move_tab(2, 0));
         assert_eq!(s.active_tab_index(), 0);
         let ids: Vec<u64> = s.tabs().iter().map(|t| t.id).collect();

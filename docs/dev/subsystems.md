@@ -1,8 +1,8 @@
 # Subsystem Architecture: Arca System Blueprint
 
 - Status: Living Blueprint
-- Last Updated: 2026-11-16
-- Scope: workspace/topology, architecture/subsystems, presentation/lens, engine/state, protocols/xdg
+- Last Updated: 2026-11-20
+- Scope: workspace/topology, architecture/subsystems, presentation/optics-ui, engine/state, protocols/xdg
 - Maintainers: Arca Architecture Working Group
 
 ---
@@ -22,7 +22,7 @@ It is organized as an uncompromising, modern Cargo workspace containing four spe
                     ▼                                ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │               Presentation & Viewport Subsystem                        │
-│   crates/arca-ui (Aperture shell, Lens UI, Flux GPU, Transit, Chrome)│
+│   crates/arca-ui (Optics App shell, UI, Gfx GPU, Motion, Chrome)       │
 └───────────────────┬────────────────────────────────────────────────────┘
                     │
                     ▼
@@ -69,32 +69,32 @@ It is organized as an uncompromising, modern Cargo workspace containing four spe
   - *Metadata & Inspection (`preview`)*: Asynchronous, bounded text reading (head snippet inspection), directory size and entry count accumulation, image dimension parsing, audio metadata tags.
   - *Thumbnail Service*: Locates and hashes canonical file URIs according to Freedesktop thumbnail specifications (`~/.cache/thumbnails/normal/`, `~/.cache/thumbnails/large/`).
 - **Subsystem Boundary & Anti-Inversions**:
-  - `arca-engine` must NEVER depend on `arca-ui`, `aperture`, `lens`, `iris`, `flux`, or any GUI/windowing framework.
+  - `arca-engine` must NEVER depend on `arca-ui`, `optics-app`, `optics-ui`, `optics-window`, `optics-gfx`, or any GUI/windowing framework.
   - It depends only on `arca-xdg`, `serde`, `serde_json`, and `image` (minimal png/jpeg features for off-thread image inspection).
   - 100% of its functionality is testable in headless unit test runners without a display server.
 
 ### 2.3 `crates/arca-ui` (Presentation & Viewport Subsystem)
-- **Role**: Presentation and interaction layer built on the Optics stack (`aperture` application shell, `lens` immediate-mode UI, `iris` platform runtime, `flux` Vulkan renderer, `transit` motion dynamics).
+- **Role**: Presentation and interaction layer built on the Optics stack (`optics-app` application shell, `optics-ui` immediate-mode UI, `optics-window` platform runtime, `optics-gfx` Vulkan renderer, `optics-motion` motion dynamics).
 - **Owned Domains**:
-  - *Immediate-Mode Render Loop*: Builds the complete frame UI from `AppState` every frame without retaining parallel widget state trees. Arca is pure Lens chrome: it installs no host canvas recorder (`aperture::RecordHost`) and would record an immutable DisplayList rather than touch a live canvas if a custom surface were ever added.
-  - *Arena Memory Budget & Virtualization*: Enforces the 1 MiB per-frame widget arena budget of Lens. All listing views (**Grid**, **List**, **Miller columns**) slice the visible viewport window; only in-view items generate layout nodes and draw commands.
+  - *Immediate-Mode Render Loop*: Builds the complete frame UI from `AppState` every frame without retaining parallel widget state trees. Arca is pure optics-ui chrome: it installs no host canvas recorder (`optics_app::RecordHost`) and would record an immutable DisplayList rather than touch a live canvas if a custom surface were ever added.
+  - *Arena Memory Budget & Virtualization*: Enforces the 1 MiB per-frame widget arena budget of `optics-ui`. All listing views (**Grid**, **List**, **Miller columns**) slice the visible viewport window; only in-view items generate layout nodes and draw commands.
   - *Three View Modalities*:
     - **Grid View**: Responsive multi-column layout with icon/thumbnail tiles and centered text labels.
     - **List View**: Dense tabular rows with sortable column headers (Name, Size, Modified), selection row highlights, and alternating row styling.
     - **Miller Columns View**: Cascading multi-pane browser tracking ancestor directory breadcrumbs with horizontal keyboard navigation.
   - *Tabs Management*: Multi-tab chrome, tab drag-reordering, active tab switching, tab close buttons, and keyboard shortcuts (`Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, `Ctrl+1..9`).
-  - *Quick Look Preview*: Animated modal inspection overlay triggered by `Space`. Off-thread thumbnail/text rendering, smooth spring and cubic easing via Optics `transit`, bounded memory usage.
+  - *Quick Look Preview*: Animated modal inspection overlay triggered by `Space`. Off-thread thumbnail/text rendering, smooth spring and cubic easing via Optics `optics-motion`, bounded memory usage.
   - *Floating Chrome & Modals*: Borderless surfaces adhering to the Tessera design language (`tessera-design`), subtle titlebar with window controls, appearance settings popup (System/Light/Dark), inline rename editing, batch trash confirmation dialogs.
-  - *Icon Pipeline*: Bundled SVG icons (`assets/icons/*.svg`) registered with Lens at runtime via `lens_icon_register_svg`, GPU texture uploads via `flux_image_update_region` with `premultiply: true`.
-  - *Headless Frame Verification*: Real frame generation tested via `lens::Ui::headless()`, verifying layouts, keyboard actions, and arena budget without a Wayland compositor.
+  - *Icon Pipeline*: Bundled SVG icons (`assets/icons/*.svg`) registered with optics-ui at runtime via `optics_ui_icon_register_svg`, GPU texture uploads via `optics_gfx_image_update_region` with `premultiply: true`.
+  - *Headless Frame Verification*: Real frame generation tested via `optics_ui::Ui::headless()`, verifying layouts, keyboard actions, and arena budget without a Wayland compositor.
 - **Subsystem Boundary & Anti-Inversions**:
   - `arca-ui` consumes domain state from `arca-engine`; it never executes disk mutations directly without delegating to `arca-engine::ops`.
-  - Raw `lens_sys` calls (widget focus, clipboard FFI, icon registration) are isolated inside centralized helper modules (`src/icons.rs`, `src/device.rs`, `src/thumbs.rs`).
+  - Raw `optics_ui_sys` calls (widget focus, clipboard FFI, icon registration) are isolated inside centralized helper modules (`src/icons.rs`, `src/device.rs`, `src/thumbs.rs`).
 
 ### 2.4 `crates/arca` (Unified Executable Entry Point)
 - **Role**: Unified binary entrypoint, CLI argument parser, and runtime posture selector.
 - **Owned Domains**:
-  - *Interactive Desktop Mode*: Initializes logging, loads config, instantiates `AppState`, registers icons, and launches the event loop via `aperture::Application::run_with_lifecycle` with no host canvas recorder (pure Lens chrome).
+  - *Interactive Desktop Mode*: Initializes logging, loads config, instantiates `AppState`, registers icons, and launches the event loop via `optics_app::Application::run_with_lifecycle` with no host canvas recorder (pure optics-ui chrome).
   - *Portal Chooser Prompter Mode (`--chooser-prompt`)*: Standalone prompter process invoked by desktop portal daemons over stdio. Reads JSON request envelope from `stdin`, displays focused modal picker window, emits a single JSON response envelope to `stdout`, and terminates cleanly.
   - *Standalone CLI Picker Modes*: `--choose-file`, `--choose-files`, `--choose-dir`, `--save-file` returning selected path(s) to stdout for shell scripts.
 - **Subsystem Boundary & Anti-Inversions**:
@@ -114,21 +114,21 @@ arca (binary)
   │     │     ├── image (png, jpeg)
   │     │     ├── serde, serde_json
   │     ├── arca-xdg
-  │     ├── aperture (application shell)
-  │     ├── iris (window/platform)
-  │     ├── lens, lens-sys
-  │     ├── flux-sys
-  │     └── transit (pure Rust; no transit-sys)
+  │     ├── optics-app (application shell)
+  │     ├── optics-window (window/platform)
+  │     ├── optics-ui, optics-ui-sys
+  │     ├── optics-gfx-sys
+  │     └── optics-motion (pure Rust; no -sys crate)
   ├── arca-engine
-  └── aperture (rpath relay)
+  └── optics-app (rpath relay)
 ```
 
 | Source Crate | Permitted Dependencies | Forbidden Dependencies |
 | :--- | :--- | :--- |
 | **`arca-xdg`** | Rust `std` only | `arca-engine`, `arca-ui`, `arca`, external crates |
-| **`arca-engine`** | `arca-xdg`, `image`, `serde`, `serde_json` | `arca-ui`, `arca`, any Optics crate (`aperture`, `flux`, `lens`, `iris`, `glyph`, `prism`, `reticle`, `vista`, `transit`, `optics`) |
-| **`arca-ui`** | `arca-engine`, `arca-xdg`, Optics (`aperture`, `lens`, `lens-sys`, `iris`, `flux-sys`, `transit`) | `arca` (entrypoint) |
-| **`arca`** | `arca-ui`, `arca-engine`, `aperture` | Direct internal UI view modules |
+| **`arca-engine`** | `arca-xdg`, `image`, `serde`, `serde_json` | `arca-ui`, `arca`, any Optics crate (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`, `optics-text`, `optics-material`, `optics-svg`, `optics-scene`, `optics-motion`, `optics`) |
+| **`arca-ui`** | `arca-engine`, `arca-xdg`, Optics (`optics-app`, `optics-ui`, `optics-ui-sys`, `optics-window`, `optics-gfx-sys`, `optics-motion`) | `arca` (entrypoint) |
+| **`arca`** | `arca-ui`, `arca-engine`, `optics-app` | Direct internal UI view modules |
 
 ---
 
@@ -137,10 +137,10 @@ arca (binary)
 | Invariant ID | Name | Architectural Red-Line | Mechanical Enforcement |
 | :--- | :--- | :--- | :--- |
 | **`[INV-ARCH-01]`** | XDG Pure-Std Isolation | `arca-xdg` must have strictly zero external dependencies. | CI job `architecture` parses `crates/arca-xdg/Cargo.toml` and fails on any dependency block |
-| **`[INV-ARCH-02]`** | Engine Headless Purity | `arca-engine` must never link GUI or Wayland libraries. | CI job `architecture` rejects `aperture`/`lens`/`iris`/`flux`/`glyph`/`prism`/`reticle`/`vista`/`transit`/`optics`/`arca-ui` as dependencies |
+| **`[INV-ARCH-02]`** | Engine Headless Purity | `arca-engine` must never link GUI or Wayland libraries. | CI job `architecture` rejects `optics-app`/`optics-ui`/`optics-window`/`optics-gfx`/`optics-text`/`optics-material`/`optics-svg`/`optics-scene`/`optics-motion`/`optics`/`arca-ui` as dependencies |
 | **`[INV-ARCH-03]`** | Concentric Dependency Direction | Outer layers may depend inward only; no cycles. | CI job `architecture` checks each crate's internal edges against an allow-list |
-| **`[INV-UI-01]`** | 1 MiB Frame Arena Budget | Viewport rendering must never exceed Lens 1 MiB arena memory limit. | `tests::large_directory_does_not_overflow_frame_arena` (CI job `invariants`) |
-| **`[INV-UI-02]`** | Motion Math Centralization | Easing curves and spring dynamics must delegate to Optics `transit`. | Elimination of private approach/clamping math; ADR-0004 |
+| **`[INV-UI-01]`** | 1 MiB Frame Arena Budget | Viewport rendering must never exceed the optics-ui 1 MiB arena memory limit. | `tests::large_directory_does_not_overflow_frame_arena` (CI job `invariants`) |
+| **`[INV-UI-02]`** | Motion Math Centralization | Easing curves and spring dynamics must delegate to `optics-motion`. | Elimination of private approach/clamping math; ADR-0004 |
 | **`[INV-UI-03]`** | Legible Text | Body text must meet WCAG AA (4.5:1) on its surface in both schemes. | `theme::contrast_tests::*` |
 | **`[INV-OPS-01]`** | Non-Destructive Trash | Deletions must generate compliant FreeDesktop `.trashinfo` metadata, recording the deleted path itself (never a symlink's target). | `trash::tests::test_trash_roundtrip`, `trash::tests::trashing_a_symlink_records_the_link_path` |
 | **`[INV-OPS-02]`** | Anti-Clobber File Creation | Renaming and folder creation must never silently overwrite destinations, including dangling symlinks. | `ops::tests::rename_refuses_to_clobber`, `ops::tests::rename_refuses_dangling_symlink_destination` |

@@ -35,6 +35,6 @@ An effective RFC must address:
 
 1. **Motivation & User Stories**: What real-world user workflow or system bottleneck requires this change?
 2. **Detailed Design**: Precise APIs, data models, IPC messages, and concurrency semantics.
-3. **Performance & Frame Budget Impact**: How does the proposal affect the 1 MiB Lens frame arena budget, memory consumption, or thumbnail extraction throughput?
+3. **Performance & Frame Budget Impact**: How does the proposal affect the 1 MiB optics-ui frame arena budget, memory consumption, or thumbnail extraction throughput?
 4. **Desktop Interoperability & Failure Modes**: How does the design interact with Wayland compositors, XDG portal daemons, or unreadable filesystems?
 5. **Unresolved Questions**: Known unknowns explicitly listed for reviewer input.

@@ -1,8 +1,8 @@
 //! Persistent places sidebar with interactive split dragging.
 
 use arca_engine::bookmarks::BookmarkKind;
-use lens::patterns::{split_handle_v, SplitOpts};
-use lens::{Align, Frame, LayoutOpts};
+use optics_ui::patterns::{split_handle_v, SplitOpts};
+use optics_ui::{Align, Frame, LayoutOpts};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -138,7 +138,7 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                 bg: if is_target_hovered {
                                     tones.selected
                                 } else {
-                                    lens::Color::TRANSPARENT
+                                    optics_ui::Color::TRANSPARENT
                                 },
                                 radius: 6.0,
                                 ..Default::default()
@@ -216,8 +216,8 @@ mod tests {
     #[test]
     fn drag_and_drop_to_bookmark_and_folder() {
         let (dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &input);
         }
@@ -227,25 +227,25 @@ mod tests {
 
         // Test interactive drag: press on "sub" row, move past threshold to show floating preview
         let sub_r = app.sub_row_rect.expect("sub row rect captured");
-        let mut drag_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut drag_in = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         drag_in.set_cursor(sub_r.x + 20.0, sub_r.y + 10.0);
-        drag_in.set_mouse_down(lens::MouseButton::Left, true);
-        drag_in.set_mouse_pressed(lens::MouseButton::Left, true);
+        drag_in.set_mouse_down(optics_ui::MouseButton::Left, true);
+        drag_in.set_mouse_pressed(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &drag_in);
         assert!(app.active_drag.is_some());
 
         // Move cursor by 30px to trigger drag preview
         drag_in.set_cursor(sub_r.x + 50.0, sub_r.y + 10.0);
-        drag_in.set_mouse_pressed(lens::MouseButton::Left, false);
+        drag_in.set_mouse_pressed(optics_ui::MouseButton::Left, false);
         frame(&mut app, &mut ui, &drag_in);
         assert!(app.active_drag.as_ref().unwrap().started);
 
         // Move cursor down-left over the bookmark drop zone and release
         let b_r = app.bookmark_drop_rect.expect("bookmark drop rect captured");
-        let mut release_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut release_in = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         release_in.set_cursor(b_r.x + 10.0, b_r.y + 10.0);
-        release_in.set_mouse_down(lens::MouseButton::Left, false);
-        release_in.set_mouse_released(lens::MouseButton::Left, true);
+        release_in.set_mouse_down(optics_ui::MouseButton::Left, false);
+        release_in.set_mouse_released(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &release_in);
 
         assert!(app.active_drag.is_none());
@@ -270,8 +270,8 @@ mod tests {
     #[test]
     fn sidebar_hover_retains_desktop_arrow_cursor() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &input);
         }
@@ -282,13 +282,13 @@ mod tests {
             .find(|t| !t.is_bookmark_zone && t.rect.x < app.sidebar_width)
             .expect("must have at least one sidebar place");
 
-        let mut hover_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut hover_in = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         hover_in.set_cursor(place.rect.x + 10.0, place.rect.y + 10.0);
         frame(&mut app, &mut ui, &hover_in);
 
         assert_eq!(
             ui.cursor_hint(),
-            lens::CursorHint::Default,
+            optics_ui::CursorHint::Default,
             "hovering sidebar item must preserve standard desktop arrow cursor (not web pointer hand)"
         );
     }
