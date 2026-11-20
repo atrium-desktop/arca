@@ -16,17 +16,18 @@ dependencies.
 ### System Native Libraries (discovered via `pkg-config`)
 
 Arca links against the **Optics** C libraries via their official Rust bindings:
-- `aperture` — Application shell that runs the Lens UI in an Iris window.
-- `iris` — Wayland windowing, platform surface, and frame cadence.
-- `lens` and `lens-sys` — Immediate-mode UI layout and primitives.
-- `flux` — GPU Vulkan rendering backend.
-- `reticle` — Vector-document compiler used by Lens to parse runtime SVG
-  icons (including Arca's own icon set).
+- `optics-app` — Application shell that runs an `optics-ui` interface in an
+  `optics-window` window.
+- `optics-window` — Wayland windowing, platform surface, and frame cadence.
+- `optics-ui` and `optics-ui-sys` — Immediate-mode UI layout and primitives.
+- `optics-gfx` — GPU Vulkan rendering backend.
+- `optics-svg` — Vector-document compiler used by `optics-ui` to parse runtime
+  SVG icons (including Arca's own icon set).
 
 Verify that the native development files are installed on the packaging host:
 
 ```bash
-pkg-config --modversion aperture iris lens flux reticle
+pkg-config --modversion optics-app optics-window optics-ui optics-gfx optics-svg
 ```
 
 The system package must also provide:
@@ -240,11 +241,11 @@ Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  rust >= 1.85
-BuildRequires:  pkgconfig(aperture)
-BuildRequires:  pkgconfig(flux)
-BuildRequires:  pkgconfig(lens)
-BuildRequires:  pkgconfig(iris)
-BuildRequires:  pkgconfig(reticle)
+BuildRequires:  pkgconfig(optics-app)
+BuildRequires:  pkgconfig(optics-gfx)
+BuildRequires:  pkgconfig(optics-ui)
+BuildRequires:  pkgconfig(optics-window)
+BuildRequires:  pkgconfig(optics-svg)
 BuildRequires:  pkgconfig(wayland-client)
 BuildRequires:  pkgconfig(vulkan)
 BuildRequires:  pkgconfig(xkbcommon)
@@ -311,7 +312,7 @@ install -Dm644 assets/icons/folder.svg %{buildroot}%{_datadir}/icons/hicolor/sca
         {
           "type": "git",
           "url": "https://github.com/aegis-shell/optics.git",
-          "tag": "v0.0.33"
+          "tag": "v0.0.82"
         }
       ]
     },
@@ -347,9 +348,9 @@ Before distributing packages:
    ```bash
    ldd /usr/bin/arca
    ```
-   Ensure `libaperture.so`, `libflux.so`, `liblens.so`, `libiris.so`,
-   `libreticle.so`, `libvulkan.so.1`, and `libwayland-client.so.0` resolve
-   without `not found` errors.
+   Ensure `liboptics_app.so`, `liboptics_gfx.so`, `liboptics_ui.so`,
+   `liboptics_window.so`, `liboptics_svg.so`, `libvulkan.so.1`, and
+   `libwayland-client.so.0` resolve without `not found` errors.
 
 2. **Verify Desktop File Syntax**:
    ```bash

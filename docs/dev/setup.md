@@ -8,9 +8,9 @@ How to build, test, and run Arca for development.
 |-------------|-------|
 | Rust toolchain | `rustc` and `cargo`, edition 2021 workspace (1.85+) |
 | Optics stack | Sibling `../optics` checkout for cross-repository development or installed native libraries for the canonical build |
-| Meson and a C23 compiler | Required to build the native Optics libraries (`aperture`, `flux`, `lens`, `iris`) |
-| Vulkan 1.3 runtime and loader | `flux` is Vulkan-first; requires a Vulkan-capable GPU driver |
-| Wayland compositor | Runtime environment (`iris` creates Wayland xdg-shell surfaces) |
+| Meson and a C23 compiler | Required to build the native Optics libraries (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`) |
+| Vulkan 1.3 runtime and loader | `optics-gfx` is Vulkan-first; requires a Vulkan-capable GPU driver |
+| Wayland compositor | Runtime environment (`optics-window` creates Wayland xdg-shell surfaces) |
 | pkg-config | Required by build scripts to locate native dependencies |
 
 ## Choose Your Workflow
@@ -27,7 +27,7 @@ This separation allows both modes to coexist cleanly:
 
 | Concern | Canonical workflow | Local workflow |
 |---------|--------------------|----------------|
-| Rust bindings | Tagged Optics Git sources (`Cargo.toml`) | `[patch]` entries to `../optics/bindings/crates` |
+| Rust bindings | Tagged Optics Git sources (`Cargo.toml`) | `[patch]` entries to `../optics/crates` |
 | Native libraries | System-installed via `pkg-config` | Sibling `../optics/build` via rpath-relay |
 | `.cargo/config.toml` | Absent | Local patch enabled (`.cargo/optics-local.toml`) |
 | `Cargo.lock` | Canonical and committed | Worktree-local resolution, unstaged by git hook |
@@ -124,8 +124,9 @@ cargo run --bin arca
 ```
 
 Runtime dynamic library lookup is handled automatically by the rpath-relay
-build scripts reading `DEP_IRIS_RS_RPATHS`. Never set `LD_LIBRARY_PATH`
-manually.
+build scripts reading `DEP_OPTICS_APP_RS_RPATHS`,
+`DEP_OPTICS_WINDOW_RS_RPATHS`, and `DEP_OPTICS_UI_RS_RPATHS`. Never set
+`LD_LIBRARY_PATH` manually.
 
 For full instructions on committing, synchronizing, and promoting Optics
 releases, see [Optics Development Worktree](optics-dev-worktree.md).
@@ -149,7 +150,7 @@ cargo test -p arca-ui
 ```
 
 `arca-xdg` and `arca-engine` have zero GUI dependencies and can be tested on any system.
-`arca-ui` tests headless frame construction using the safe `lens` API.
+`arca-ui` tests headless frame construction using the safe `optics-ui` API.
 
 ---
 
@@ -157,7 +158,7 @@ cargo test -p arca-ui
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| `pkg-config` cannot find `aperture`, `iris`, `lens`, or `flux` | Optics C libraries not installed and not built in sibling tree | In local mode, build `../optics/build` with Meson. In canonical mode, install matching Optics packages. |
+| `pkg-config` cannot find `optics-app`, `optics-window`, `optics-ui`, or `optics-gfx` | Optics C libraries not installed and not built in sibling tree | In local mode, build `../optics/build` with Meson. In canonical mode, install matching Optics packages. |
 | `Cargo.lock` unstaged during `git commit` | Pre-commit hook active in local patch mode | Normal behavior. The hook keeps worktree-local lockfile diffs out of commits. |
 | Wayland surface creation fails | No active Wayland compositor | Run within a Wayland session (e.g. Aegis, Sway, Hyprland, or GNOME Wayland). |
 | Vulkan device initialization fails | Missing GPU drivers or loader | Ensure Vulkan ICD loader and drivers (Mesa / proprietary) are installed and `vulkaninfo` succeeds. |

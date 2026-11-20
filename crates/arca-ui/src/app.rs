@@ -5,7 +5,7 @@ use std::time::Instant;
 use arca_engine::chooser::{FileChooserMode, PromptColorScheme};
 use arca_engine::config::{ThemeMode, ViewMode};
 use arca_engine::state::AppState;
-use lens::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
+use optics_ui::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
 
 use crate::chooser::{self, ChooserState};
 use crate::icons::ids;
@@ -118,7 +118,7 @@ pub struct UiApp {
     pub(crate) bookmark_drop_rect: Option<Rect>,
     pub(crate) sub_row_rect: Option<Rect>,
     pub(crate) pending_paste: bool,
-    /// The reduced-motion policy last applied to lens's caret blink clock.
+    /// The reduced-motion policy last applied to optics-ui's caret blink clock.
     /// `None` forces one application after context creation.
     pub(crate) caret_blink_reduced: Option<bool>,
     pub(crate) mods: u32,
@@ -134,7 +134,7 @@ pub struct UiApp {
 
 /// Move keyboard focus to the first widget built under one of `labels`.
 ///
-/// Lens resolves the label against the current id scope, so this must run
+/// optics-ui resolves the label against the current id scope, so this must run
 /// immediately after the widget inside the container that built it; a label
 /// resolved from the root scope cannot address a nested field. Storing a
 /// label instead of a numeric widget id keeps focus independent of the id
@@ -148,13 +148,13 @@ pub(crate) fn focus_any(frame: &mut Frame, labels: &[&str]) -> bool {
             continue;
         };
         // SAFETY: the frame is live inside the build callback and `label` is
-        // NUL-terminated. `lens_current_id` only reads the context's id map.
-        let id = unsafe { lens_sys::lens_current_id(frame.as_raw(), label.as_ptr()) };
+        // NUL-terminated. `optics_ui_current_id` only reads the context's id map.
+        let id = unsafe { optics_ui_sys::optics_ui_current_id(frame.as_raw(), label.as_ptr()) };
         if id == 0 {
             continue;
         }
         // SAFETY: the frame is live and `id` was resolved against this context.
-        unsafe { lens_sys::lens_set_focus(frame.as_raw(), id) };
+        unsafe { optics_ui_sys::optics_ui_set_focus(frame.as_raw(), id) };
         return true;
     }
     false
@@ -163,7 +163,7 @@ pub(crate) fn focus_any(frame: &mut Frame, labels: &[&str]) -> bool {
 /// Release keyboard focus from whatever widget holds it.
 pub(crate) fn clear_focus(frame: &mut Frame) {
     // SAFETY: the frame is live inside the build callback; 0 is "no widget".
-    unsafe { lens_sys::lens_set_focus(frame.as_raw(), 0) };
+    unsafe { optics_ui_sys::optics_ui_set_focus(frame.as_raw(), 0) };
 }
 
 impl UiApp {
@@ -175,7 +175,7 @@ impl UiApp {
 
     pub fn with_ipc(mut state: AppState, ipc: Option<crate::ipc::IpcServer>) -> UiApp {
         state.set_fs_event_listener(Some(std::sync::Arc::new(|| {
-            iris::post_to_main_thread(|| {});
+            optics_window::post_to_main_thread(|| {});
         })));
         let location = TextBuf::new(4096, state.cwd());
         let filter = TextBuf::new(512, state.filter());
@@ -222,7 +222,7 @@ impl UiApp {
         }
     }
 
-    /// Shutdown callback invoked from the aperture lifecycle stop hook (ADR-0045).
+    /// Shutdown callback invoked from the optics-app lifecycle stop hook (ADR-0045).
     /// Releases GPU-backed thumbnail textures cleanly before device teardown.
     pub fn shutdown(&mut self) {
         self.thumbs.release_all();
@@ -288,15 +288,15 @@ impl UiApp {
             .unwrap_or_default();
         for path in forwarded {
             self.new_tab_at(&path);
-            iris::window_restore();
-            iris::window_focus();
+            optics_window::window_restore();
+            optics_window::window_focus();
         }
         let fs_changed = self.state.drain_fs_events();
         let job_changed = self.state.poll_async_jobs();
         // A running transfer must keep painting so progress advances and the
         // completion event is observed without waiting for the next input.
         if fs_changed || job_changed || self.state.is_transferring() {
-            iris::request_animation_frame();
+            optics_window::request_animation_frame();
         }
         self.sync_active_tab();
         self.thumbs.sync_cwd(self.state.cwd());
@@ -352,11 +352,11 @@ impl UiApp {
     /// The transfer action a drop should perform.
     ///
     /// The drag source advertises `COPY | MOVE`, but Wayland's negotiated
-    /// action is not readable back through lens (`dnd_drop_info.action`
+    /// action is not readable back through optics-ui (`DndDropInfo::action`
     /// echoes the *accepted* mask), so the conventional modifier decides:
     /// hold `Ctrl` to copy, drag plainly to move.
     pub(crate) fn drop_action(&self) -> arca_engine::TransferAction {
-        if self.mods & lens::mods::CTRL != 0 {
+        if self.mods & optics_ui::mods::CTRL != 0 {
             arca_engine::TransferAction::Copy
         } else {
             arca_engine::TransferAction::Move
@@ -394,9 +394,9 @@ impl UiApp {
         frame.place_open(preview_id);
         frame.place(
             preview_id,
-            &lens::PlaceOpts {
-                band: lens::Band::Tooltip,
-                mode: lens::PlaceMode::Exact,
+            &optics_ui::PlaceOpts {
+                band: optics_ui::Band::Tooltip,
+                mode: optics_ui::PlaceMode::Exact,
                 rect: Rect {
                     x: self.cursor_pos.0 + 12.0,
                     y: self.cursor_pos.1 + 12.0,
@@ -408,7 +408,7 @@ impl UiApp {
                     gap: 6.0,
                     pad: 6.0,
                     cross: Align::Center,
-                    bg: lens::Color::rgba(22, 27, 40, 225),
+                    bg: optics_ui::Color::rgba(22, 27, 40, 225),
                     border: tones.selected,
                     border_width: 1.0,
                     radius: 7.0,
@@ -434,7 +434,7 @@ impl UiApp {
         );
     }
 
-    /// Mirror the host's reduced-motion policy into lens's caret blink clock
+    /// Mirror the host's reduced-motion policy into optics-ui's caret blink clock
     /// (Optics ADR-0151). A reduced-motion session keeps the caret solid and
     /// silent; leaving it restores the library default through the exported
     /// constant, never a hard-coded period.
@@ -447,17 +447,17 @@ impl UiApp {
         let period = if reduced {
             0.0
         } else {
-            lens::DEFAULT_CARET_BLINK_PERIOD_S
+            optics_ui::DEFAULT_CARET_BLINK_PERIOD_S
         };
         // SAFETY: the frame is live inside the build callback.
-        unsafe { lens_sys::lens_set_caret_blink(frame.as_raw(), period) };
+        unsafe { optics_ui_sys::optics_ui_set_caret_blink(frame.as_raw(), period) };
     }
 
     fn apply_theme(&mut self, frame: &mut Frame) {
         if let Some(chooser) = &self.chooser {
             if let Some(appr) = &chooser.appearance {
                 let dark = match appr.color_scheme {
-                    PromptColorScheme::System => iris::system_prefers_dark(),
+                    PromptColorScheme::System => optics_window::system_prefers_dark(),
                     PromptColorScheme::Light => false,
                     PromptColorScheme::Dark => true,
                 };
@@ -466,7 +466,7 @@ impl UiApp {
             }
         }
         let dark = match self.state.theme {
-            ThemeMode::System => iris::system_prefers_dark(),
+            ThemeMode::System => optics_window::system_prefers_dark(),
             ThemeMode::Light => false,
             ThemeMode::Dark => true,
         };
@@ -475,7 +475,7 @@ impl UiApp {
 
     fn finish_frame(&mut self) {
         if self.close_requested {
-            iris::window_close();
+            optics_window::window_close();
         }
         if self.renaming.is_some() && self.rename_focused && !self.rename_focused_now {
             self.renaming = None;
@@ -561,7 +561,7 @@ impl UiApp {
             return self.current_grid_columns;
         }
         let available = (self.viewport.0 - self.sidebar_width - 20.0).max(120.0);
-        let plan = lens::patterns::virtual_grid_calc(
+        let plan = optics_ui::patterns::virtual_grid_calc(
             available,
             self.viewport.1,
             0.0,
@@ -614,7 +614,7 @@ impl UiApp {
     }
 
     pub(crate) fn complete_location(&mut self, frame: &mut Frame) {
-        frame.consume_key(lens::key::TAB);
+        frame.consume_key(optics_ui::key::TAB);
         self.pending_focus = Some(FocusTarget::Location);
         let current = self.location.as_str().into_owned();
 
@@ -685,8 +685,8 @@ impl UiApp {
 
     pub(crate) fn row_clicked(&mut self, visible_idx: usize, name: &str) {
         let now = Instant::now();
-        let ctrl = self.mods & lens::mods::CTRL != 0;
-        let shift = self.mods & lens::mods::SHIFT != 0;
+        let ctrl = self.mods & optics_ui::mods::CTRL != 0;
+        let shift = self.mods & optics_ui::mods::SHIFT != 0;
 
         if ctrl {
             self.state.toggle_select_visible(visible_idx);
@@ -721,7 +721,7 @@ impl UiApp {
                             let path = std::path::Path::new(self.state.cwd()).join(name);
                             let paths = chooser.accept_selection(Some(path));
                             chooser.accept_paths(paths);
-                            iris::window_close();
+                            optics_window::window_close();
                             return;
                         } else if chooser.request.mode == FileChooserMode::SaveFile {
                             chooser.save_name.set(name);
@@ -730,7 +730,7 @@ impl UiApp {
                         }
                     }
                 }
-                let token = iris::window_create_activation_token(None);
+                let token = optics_window::window_create_activation_token(None);
                 self.state.open_child_with_token(name, token.as_deref());
                 return;
             }
@@ -825,19 +825,19 @@ impl UiApp {
             }
             let key = ev.key;
 
-            if key == lens::key::ESCAPE {
+            if key == optics_ui::key::ESCAPE {
                 // Dismissal order is innermost-first, and every layer that
-                // handles Escape consumes the key so lens's transient pass
+                // handles Escape consumes the key so optics-ui's transient pass
                 // (which runs after the build) cannot dismiss a *different*
                 // overlay in the same keystroke.
                 if self.renaming.is_some() {
-                    frame.consume_key(lens::key::ESCAPE);
+                    frame.consume_key(optics_ui::key::ESCAPE);
                     self.renaming = None;
                     clear_focus(frame);
                     continue;
                 }
                 if self.location_focused {
-                    frame.consume_key(lens::key::ESCAPE);
+                    frame.consume_key(optics_ui::key::ESCAPE);
                     if let Some(comp) = self.location_completion.take() {
                         self.location.set(&comp.original_input);
                         frame.textfield_set_caret("##location", comp.original_input.len() as u32);
@@ -851,7 +851,7 @@ impl UiApp {
                     continue;
                 }
                 if self.filter_focused {
-                    frame.consume_key(lens::key::ESCAPE);
+                    frame.consume_key(optics_ui::key::ESCAPE);
                     clear_focus(frame);
                     self.filter_focused = false;
                     self.filter_focused_now = false;
@@ -860,7 +860,7 @@ impl UiApp {
                 // Quick Look is a modal layer above the listing: Escape
                 // closes it before anything else can react.
                 if self.preview.target_open {
-                    frame.consume_key(lens::key::ESCAPE);
+                    frame.consume_key(optics_ui::key::ESCAPE);
                     self.preview.close();
                     continue;
                 }
@@ -868,69 +868,75 @@ impl UiApp {
                 // remaining dismissal layer because it is the only way to
                 // stop disk work the user started.
                 if self.state.is_transferring() {
-                    frame.consume_key(lens::key::ESCAPE);
+                    frame.consume_key(optics_ui::key::ESCAPE);
                     self.state.cancel_transfer();
                     continue;
                 }
                 if let Some(chooser) = &mut self.chooser {
-                    frame.consume_key(lens::key::ESCAPE);
+                    frame.consume_key(optics_ui::key::ESCAPE);
                     if chooser.overwrite_confirm.is_some() {
                         chooser.overwrite_confirm = None;
                     } else if chooser.filter_menu_open {
                         chooser.filter_menu_open = false;
                     } else {
                         chooser.cancel();
-                        iris::window_close();
+                        optics_window::window_close();
                     }
                     continue;
                 }
             }
 
             if text_editing {
-                if key == lens::key::RETURN {
-                    frame.consume_key(lens::key::RETURN);
+                if key == optics_ui::key::RETURN {
+                    frame.consume_key(optics_ui::key::RETURN);
                     if self.rename_focused {
                         self.commit_rename(frame);
                     } else if chooser_save_focused {
                         chooser::trigger_accept(self);
                     }
-                } else if key == lens::key::TAB && self.location_focused {
-                    frame.consume_key(lens::key::TAB);
+                } else if key == optics_ui::key::TAB && self.location_focused {
+                    frame.consume_key(optics_ui::key::TAB);
                 }
                 continue;
             }
 
-            let ctrl = mods & lens::mods::CTRL != 0;
-            let alt = mods & lens::mods::ALT != 0;
-            let shift = mods & lens::mods::SHIFT != 0;
+            let ctrl = mods & optics_ui::mods::CTRL != 0;
+            let alt = mods & optics_ui::mods::ALT != 0;
+            let shift = mods & optics_ui::mods::SHIFT != 0;
 
             const KEY_SPACE: i32 = b' ' as i32;
 
             match key {
-                lens::key::TAB if ctrl => {
-                    frame.consume_key(lens::key::TAB);
+                optics_ui::key::TAB if ctrl => {
+                    frame.consume_key(optics_ui::key::TAB);
                     self.state.cycle_tab(shift);
                     self.sync_active_tab();
                 }
-                lens::key::LEFT if alt => self.state.go_back(),
-                lens::key::RIGHT if alt => self.state.go_forward(),
-                lens::key::UP if alt => self.state.go_up(),
-                lens::key::BACKSPACE if !ctrl && !alt => self.state.go_up(),
-                lens::key::LEFT if !ctrl && !alt && self.state.view_mode == ViewMode::Grid => {
+                optics_ui::key::LEFT if alt => self.state.go_back(),
+                optics_ui::key::RIGHT if alt => self.state.go_forward(),
+                optics_ui::key::UP if alt => self.state.go_up(),
+                optics_ui::key::BACKSPACE if !ctrl && !alt => self.state.go_up(),
+                optics_ui::key::LEFT if !ctrl && !alt && self.state.view_mode == ViewMode::Grid => {
                     self.state.move_selection(-1)
                 }
-                lens::key::RIGHT if !ctrl && !alt && self.state.view_mode == ViewMode::Grid => {
+                optics_ui::key::RIGHT
+                    if !ctrl && !alt && self.state.view_mode == ViewMode::Grid =>
+                {
                     self.state.move_selection(1)
                 }
-                lens::key::LEFT if !ctrl && !alt && self.state.view_mode == ViewMode::Miller => {
+                optics_ui::key::LEFT
+                    if !ctrl && !alt && self.state.view_mode == ViewMode::Miller =>
+                {
                     self.state.go_up()
                 }
-                lens::key::RIGHT if !ctrl && !alt && self.state.view_mode == ViewMode::Miller => {
+                optics_ui::key::RIGHT
+                    if !ctrl && !alt && self.state.view_mode == ViewMode::Miller =>
+                {
                     self.preview.close();
-                    let token = iris::window_create_activation_token(None);
+                    let token = optics_window::window_create_activation_token(None);
                     self.state.open_selected_with_token(token.as_deref());
                 }
-                lens::key::UP if !ctrl && !alt => {
+                optics_ui::key::UP if !ctrl && !alt => {
                     let step = if self.state.view_mode == ViewMode::Grid {
                         self.grid_columns() as i64
                     } else {
@@ -938,7 +944,7 @@ impl UiApp {
                     };
                     self.state.move_selection_ext(-step, shift);
                 }
-                lens::key::DOWN if !ctrl && !alt => {
+                optics_ui::key::DOWN if !ctrl && !alt => {
                     let step = if self.state.view_mode == ViewMode::Grid {
                         if self.state.selected().is_none() {
                             1
@@ -950,37 +956,37 @@ impl UiApp {
                     };
                     self.state.move_selection_ext(step, shift);
                 }
-                lens::key::RETURN if !ctrl && !alt => {
+                optics_ui::key::RETURN if !ctrl && !alt => {
                     if self.chooser.is_some() {
                         chooser::trigger_accept(self);
                     } else {
                         self.preview.close();
-                        let token = iris::window_create_activation_token(None);
+                        let token = optics_window::window_create_activation_token(None);
                         self.state.open_selected_with_token(token.as_deref());
                     }
                 }
-                lens::key::DELETE if shift && !ctrl && !alt => {
+                optics_ui::key::DELETE if shift && !ctrl && !alt => {
                     self.preview.close();
                     self.state.delete_selected_permanently();
                 }
-                lens::key::DELETE if !ctrl && !alt => {
+                optics_ui::key::DELETE if !ctrl && !alt => {
                     self.preview.close();
                     self.state.trash_selected();
                 }
-                lens::key::F2 if !ctrl && !alt => {
+                optics_ui::key::F2 if !ctrl && !alt => {
                     if let Some(name) = self.state.selected_entry().map(|entry| entry.name.clone())
                     {
                         self.begin_rename(name);
                     }
                 }
-                lens::key::F3 if !ctrl && !alt => self.focus_filter(),
-                lens::key::F5 if !alt => self.state.refresh(),
-                lens::key::F11 if !ctrl && !alt => {
+                optics_ui::key::F3 if !ctrl && !alt => self.focus_filter(),
+                optics_ui::key::F5 if !alt => self.state.refresh(),
+                optics_ui::key::F11 if !ctrl && !alt => {
                     self.fullscreen = !self.fullscreen;
                     if self.fullscreen {
-                        iris::window_fullscreen();
+                        optics_window::window_fullscreen();
                     } else {
-                        iris::window_windowed();
+                        optics_window::window_windowed();
                     }
                 }
                 KEY_SPACE if !ctrl && !alt => self.preview.toggle(&mut self.state),
@@ -1058,8 +1064,8 @@ mod tests {
     #[test]
     fn builds_frames_headless() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         // Several frames so the retained tree reconciles enter/stable/leave.
         for _ in 0..3 {
             frame(&mut app, &mut ui, &input);
@@ -1069,12 +1075,12 @@ mod tests {
     #[test]
     fn ctrl_h_toggles_hidden_files() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         assert!(!app.state.show_hidden);
         assert_eq!(app.state.entries().len(), 2);
 
-        let mut input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        input.set_mods(lens::mods::CTRL);
+        let mut input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        input.set_mods(optics_ui::mods::CTRL);
         input.push_key('h' as i32, true, false);
         frame(&mut app, &mut ui, &input);
 
@@ -1085,10 +1091,10 @@ mod tests {
     #[test]
     fn arrows_select_and_return_enters_directory() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
 
-        let mut down = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        down.push_key(lens::key::DOWN, true, false);
+        let mut down = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        down.push_key(optics_ui::key::DOWN, true, false);
         frame(&mut app, &mut ui, &down);
         assert_eq!(
             app.state.selected_entry().map(|e| e.name.as_str()),
@@ -1096,8 +1102,8 @@ mod tests {
             "first entry is the sub directory (dirs sort first)"
         );
 
-        let mut enter = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        enter.push_key(lens::key::RETURN, true, false);
+        let mut enter = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        enter.push_key(optics_ui::key::RETURN, true, false);
         frame(&mut app, &mut ui, &enter);
         assert!(app.state.cwd().ends_with("/sub"));
     }
@@ -1105,9 +1111,9 @@ mod tests {
     #[test]
     fn filter_field_filters_the_list() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         app.state.set_filter("txt".into());
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input);
         assert_eq!(app.state.visible().len(), 1);
     }
@@ -1115,8 +1121,8 @@ mod tests {
     #[test]
     fn double_click_into_directory_does_not_panic_on_stale_rows() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &settle);
         }
@@ -1129,14 +1135,14 @@ mod tests {
             .map(|r| (r.x + r.w * 0.5, r.y + r.h * 0.5))
             .unwrap_or((500.0, 150.0));
         for _ in 0..2 {
-            let mut press = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+            let mut press = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
             press.set_cursor(row0.0, row0.1);
-            press.set_mouse_down(lens::MouseButton::Left, true);
-            press.set_mouse_pressed(lens::MouseButton::Left, true);
+            press.set_mouse_down(optics_ui::MouseButton::Left, true);
+            press.set_mouse_pressed(optics_ui::MouseButton::Left, true);
             frame(&mut app, &mut ui, &press);
-            let mut release = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+            let mut release = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
             release.set_cursor(row0.0, row0.1);
-            release.set_mouse_released(lens::MouseButton::Left, true);
+            release.set_mouse_released(optics_ui::MouseButton::Left, true);
             frame(&mut app, &mut ui, &release);
         }
         assert!(app.state.cwd().ends_with("/sub"));
@@ -1148,38 +1154,38 @@ mod tests {
     #[test]
     fn keyboard_shortcuts_rename_and_delete_undo() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
 
         // Select first item
-        let mut down = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        down.push_key(lens::key::DOWN, true, false);
+        let mut down = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        down.push_key(optics_ui::key::DOWN, true, false);
         frame(&mut app, &mut ui, &down);
         assert!(app.state.selected().is_some());
 
         // Press Ctrl+E to begin rename
-        let mut rename_in = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        rename_in.set_mods(lens::mods::CTRL);
+        let mut rename_in = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        rename_in.set_mods(optics_ui::mods::CTRL);
         rename_in.push_key('e' as i32, true, false);
         frame(&mut app, &mut ui, &rename_in);
         assert!(app.renaming.is_some());
 
         // Cancel rename with Esc
-        let mut esc = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        esc.push_key(lens::key::ESCAPE, true, false);
+        let mut esc = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        esc.push_key(optics_ui::key::ESCAPE, true, false);
         frame(&mut app, &mut ui, &esc);
         assert!(app.renaming.is_none());
 
         // Delete item to trash
-        let mut del = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        del.push_key(lens::key::DELETE, true, false);
+        let mut del = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        del.push_key(optics_ui::key::DELETE, true, false);
         frame(&mut app, &mut ui, &del);
         assert_eq!(app.state.entries().len(), 1);
 
         // Ctrl+Z to undo trash
-        let mut undo = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        undo.set_mods(lens::mods::CTRL);
+        let mut undo = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        undo.set_mods(optics_ui::mods::CTRL);
         undo.push_key('z' as i32, true, false);
         frame(&mut app, &mut ui, &undo);
         assert_eq!(app.state.entries().len(), 2);
@@ -1188,56 +1194,56 @@ mod tests {
     #[test]
     fn keyboard_shortcuts_function_keys() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
 
         // Select first item
-        let mut down = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        down.push_key(lens::key::DOWN, true, false);
+        let mut down = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        down.push_key(optics_ui::key::DOWN, true, false);
         frame(&mut app, &mut ui, &down);
         assert!(app.state.selected().is_some());
 
         // Press F2 to begin rename
-        let mut f2 = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        f2.push_key(lens::key::F2, true, false);
+        let mut f2 = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f2.push_key(optics_ui::key::F2, true, false);
         frame(&mut app, &mut ui, &f2);
         assert!(app.renaming.is_some());
 
         // Cancel rename with Esc
-        let mut esc = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        esc.push_key(lens::key::ESCAPE, true, false);
+        let mut esc = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        esc.push_key(optics_ui::key::ESCAPE, true, false);
         frame(&mut app, &mut ui, &esc);
         assert!(app.renaming.is_none());
 
         // Press F3 to focus search/filter
-        let mut f3 = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        f3.push_key(lens::key::F3, true, false);
+        let mut f3 = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f3.push_key(optics_ui::key::F3, true, false);
         frame(&mut app, &mut ui, &f3);
         frame(&mut app, &mut ui, &settle);
         assert!(app.filter_focused);
 
         // Escape clears filter focus
-        let mut esc_filter = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        esc_filter.push_key(lens::key::ESCAPE, true, false);
+        let mut esc_filter = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        esc_filter.push_key(optics_ui::key::ESCAPE, true, false);
         frame(&mut app, &mut ui, &esc_filter);
         frame(&mut app, &mut ui, &settle);
         assert!(!app.filter_focused);
 
         // Press F5 to refresh
-        let mut f5 = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        f5.push_key(lens::key::F5, true, false);
+        let mut f5 = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f5.push_key(optics_ui::key::F5, true, false);
         frame(&mut app, &mut ui, &f5);
 
         // Press F11 to toggle fullscreen
         assert!(!app.fullscreen);
-        let mut f11 = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        f11.push_key(lens::key::F11, true, false);
+        let mut f11 = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f11.push_key(optics_ui::key::F11, true, false);
         frame(&mut app, &mut ui, &f11);
         assert!(app.fullscreen);
 
-        let mut f11_off = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        f11_off.push_key(lens::key::F11, true, false);
+        let mut f11_off = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        f11_off.push_key(optics_ui::key::F11, true, false);
         frame(&mut app, &mut ui, &f11_off);
         assert!(!app.fullscreen);
     }
@@ -1245,8 +1251,8 @@ mod tests {
     #[test]
     fn paste_from_external_system_clipboard_uri_list() {
         let (dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
 
         // Create an external file to copy into the sub folder
@@ -1263,8 +1269,8 @@ mod tests {
         let uri_payload = format!("file://{}\r\n", external.display());
         ui.paste(&uri_payload);
 
-        let mut paste_input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        paste_input.set_mods(lens::mods::CTRL);
+        let mut paste_input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        paste_input.set_mods(optics_ui::mods::CTRL);
         paste_input.push_key('v' as i32, true, false);
         frame(&mut app, &mut ui, &paste_input);
         frame(&mut app, &mut ui, &settle);
@@ -1276,13 +1282,13 @@ mod tests {
     #[test]
     fn ui_multi_selection_ctrl_a_and_batch_trash() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
 
         // Select all with Ctrl+A
-        let mut ctrl_a = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        ctrl_a.set_mods(lens::mods::CTRL);
+        let mut ctrl_a = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        ctrl_a.set_mods(optics_ui::mods::CTRL);
         ctrl_a.push_key('a' as i32, true, false);
         frame(&mut app, &mut ui, &ctrl_a);
 
@@ -1290,15 +1296,15 @@ mod tests {
         assert_eq!(app.state.selected_paths().len(), 2);
 
         // Batch delete selected items to trash
-        let mut del = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        del.push_key(lens::key::DELETE, true, false);
+        let mut del = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        del.push_key(optics_ui::key::DELETE, true, false);
         frame(&mut app, &mut ui, &del);
 
         assert_eq!(app.state.entries().len(), 0);
 
         // Ctrl+Z restores all items
-        let mut undo = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        undo.set_mods(lens::mods::CTRL);
+        let mut undo = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        undo.set_mods(optics_ui::mods::CTRL);
         undo.push_key('z' as i32, true, false);
         frame(&mut app, &mut ui, &undo);
 
@@ -1308,21 +1314,21 @@ mod tests {
     #[test]
     fn ctrl_t_opens_tab_and_space_preview_animates() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
 
-        let mut new_tab = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        new_tab.set_mods(lens::mods::CTRL);
+        let mut new_tab = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        new_tab.set_mods(optics_ui::mods::CTRL);
         new_tab.push_key('t' as i32, true, false);
         frame(&mut app, &mut ui, &new_tab);
         assert_eq!(app.state.tabs().len(), 2);
 
         app.state.move_selection(1);
-        let mut space = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut space = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         space.push_key(' ' as i32, true, false);
         frame(&mut app, &mut ui, &space);
         assert!(app.preview.target_open);
 
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..8 {
             frame(&mut app, &mut ui, &settle);
         }
@@ -1336,21 +1342,21 @@ mod tests {
     #[test]
     fn focus_targets_resolve_by_label_across_rebuilds() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..4 {
             frame(&mut app, &mut ui, &settle);
         }
 
         // Ctrl+L focuses the location field.
-        press(&mut app, &mut ui, 'l' as i32, lens::mods::CTRL);
+        press(&mut app, &mut ui, 'l' as i32, optics_ui::mods::CTRL);
         frame(&mut app, &mut ui, &settle);
         assert!(app.location_focused, "location must take focus");
         assert!(!app.filter_focused);
         assert_eq!(app.pending_focus, None, "the label must resolve in-frame");
 
         // Escape releases it; no stale id may pull focus back on the next build.
-        press(&mut app, &mut ui, lens::key::ESCAPE, 0);
+        press(&mut app, &mut ui, optics_ui::key::ESCAPE, 0);
         frame(&mut app, &mut ui, &settle);
         assert!(
             !app.location_focused,
@@ -1358,16 +1364,16 @@ mod tests {
         );
 
         // F3 focuses the filter field by its own stable label.
-        press(&mut app, &mut ui, lens::key::F3, 0);
+        press(&mut app, &mut ui, optics_ui::key::F3, 0);
         frame(&mut app, &mut ui, &settle);
         assert!(app.filter_focused, "filter must take focus");
-        press(&mut app, &mut ui, lens::key::ESCAPE, 0);
+        press(&mut app, &mut ui, optics_ui::key::ESCAPE, 0);
         frame(&mut app, &mut ui, &settle);
         assert!(!app.filter_focused);
 
         // F2 focuses the inline rename field of the selected List row.
         app.state.select_visible(1);
-        press(&mut app, &mut ui, lens::key::F2, 0);
+        press(&mut app, &mut ui, optics_ui::key::F2, 0);
         frame(&mut app, &mut ui, &settle);
         assert!(
             app.rename_focused,
@@ -1379,8 +1385,8 @@ mod tests {
     #[test]
     fn location_bar_tab_completion_works() {
         let (dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &input);
         }
@@ -1393,8 +1399,8 @@ mod tests {
         let partial = format!("{}/s", dir.to_str().unwrap());
         app.location.set(&partial);
 
-        let mut tab = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
-        tab.push_key(lens::key::TAB, true, false);
+        let mut tab = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        tab.push_key(optics_ui::key::TAB, true, false);
         frame(&mut app, &mut ui, &tab);
 
         assert_eq!(
@@ -1445,8 +1451,8 @@ mod tests {
             eprintln!("inotify instances exhausted on host; skipping test");
             return;
         }
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &input);
         assert_eq!(app.state.entries().len(), 2); // sub, a.txt
 
@@ -1486,9 +1492,9 @@ mod tests {
 
     #[test]
     fn filter_textfield_hover_cursor_hint() {
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let mut tf_buf = lens::TextBuf::new(64, "test");
-        let input = lens::Input::new((400.0, 200.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let mut tf_buf = optics_ui::TextBuf::new(64, "test");
+        let input = optics_ui::Input::new((400.0, 200.0), 1.0 / 60.0);
 
         // Frame 1: resolve layout so node has prev_rect
         ui.frame(&input, |f| {
@@ -1500,14 +1506,14 @@ mod tests {
         }
 
         // Frame 2: hover cursor over the textfield at (50, 18)
-        let mut hover_input = lens::Input::new((400.0, 200.0), 1.0 / 60.0);
+        let mut hover_input = optics_ui::Input::new((400.0, 200.0), 1.0 / 60.0);
         hover_input.set_cursor(50.0, 18.0);
         ui.frame(&hover_input, |f| {
             f.size_next(200.0, 36.0);
             f.textfield_placeholder("##tf", &mut tf_buf, "placeholder");
         });
 
-        assert_eq!(ui.cursor_hint(), lens::CursorHint::Text);
+        assert_eq!(ui.cursor_hint(), optics_ui::CursorHint::Text);
     }
 
     /// Deleting the last remaining tab is documented as exiting the app; the
@@ -1516,12 +1522,12 @@ mod tests {
     #[test]
     fn ctrl_w_on_the_last_tab_requests_window_close() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
         assert_eq!(app.state.tabs().len(), 1);
 
-        press(&mut app, &mut ui, 'w' as i32, lens::mods::CTRL);
+        press(&mut app, &mut ui, 'w' as i32, optics_ui::mods::CTRL);
 
         // The engine keeps the final tab (never an invalid no-document
         // state), and the UI asks the host to close the window instead.
@@ -1537,12 +1543,12 @@ mod tests {
     #[test]
     fn ctrl_q_requests_window_close() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
         assert!(!app.close_requested);
 
-        press(&mut app, &mut ui, 'q' as i32, lens::mods::CTRL);
+        press(&mut app, &mut ui, 'q' as i32, optics_ui::mods::CTRL);
         assert!(app.close_requested, "Ctrl+Q must request a window close");
     }
 
@@ -1552,8 +1558,8 @@ mod tests {
     #[test]
     fn refresh_keeps_the_selection_highlight() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
 
         app.state.select_visible(1);
@@ -1579,8 +1585,8 @@ mod tests {
     #[test]
     fn sorting_keeps_the_selection_on_the_same_file() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
 
         app.state.select_visible(1);
@@ -1612,8 +1618,8 @@ mod tests {
     #[test]
     fn in_app_drag_payload_round_trips_through_the_engine() {
         let (dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
 
         let source = dir.join("a.txt");
@@ -1634,8 +1640,8 @@ mod tests {
     #[test]
     fn multi_selection_drag_transfers_every_item() {
         let (dir, mut app) = fixture_two_files();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
 
         app.state.select_visible(1);
@@ -1668,8 +1674,8 @@ mod tests {
     #[test]
     fn large_transfer_runs_off_thread_and_can_be_cancelled() {
         let (dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         frame(&mut app, &mut ui, &settle);
 
         // Larger than the async threshold (8 MiB).
@@ -1713,13 +1719,13 @@ mod tests {
 
     #[test]
     fn patterns_datagrid_and_treeview_headless() {
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
 
         let mut cols = vec![
-            lens::patterns::DataGridCol::new("Name").width(200.0),
-            lens::patterns::DataGridCol::new("Size").width(100.0),
-            lens::patterns::DataGridCol::new("Modified").width(150.0),
+            optics_ui::patterns::DataGridCol::new("Name").width(200.0),
+            optics_ui::patterns::DataGridCol::new("Size").width(100.0),
+            optics_ui::patterns::DataGridCol::new("Modified").width(150.0),
         ];
         let cells = [
             "file1.txt",
@@ -1732,26 +1738,26 @@ mod tests {
         let mut selected_row = 0;
 
         let mut tree_items = vec![
-            lens::patterns::TreeItem::new("Root Folder").expanded(true),
-            lens::patterns::TreeItem::new("Documents")
+            optics_ui::patterns::TreeItem::new("Root Folder").expanded(true),
+            optics_ui::patterns::TreeItem::new("Documents")
                 .depth(1)
                 .expanded(false),
-            lens::patterns::TreeItem::new("file.txt")
+            optics_ui::patterns::TreeItem::new("file.txt")
                 .depth(2)
                 .leaf(true),
         ];
 
         ui.frame(&input, |f| {
             // DataGrid pattern
-            let grid_act = lens::patterns::DataGrid::new("test_files_grid")
+            let grid_act = optics_ui::patterns::DataGrid::new("test_files_grid")
                 .striped(true)
                 .show(f, &mut cols, &cells, 2, &mut selected_row);
-            assert_eq!(grid_act, lens::patterns::DataGridAction::None);
+            assert_eq!(grid_act, optics_ui::patterns::DataGridAction::None);
 
             // TreeView pattern
             let tree_act =
-                lens::patterns::TreeView::new("test_files_tree").show(f, &mut tree_items);
-            assert_eq!(tree_act, lens::patterns::TreeAction::None);
+                optics_ui::patterns::TreeView::new("test_files_tree").show(f, &mut tree_items);
+            assert_eq!(tree_act, optics_ui::patterns::TreeAction::None);
         });
 
         assert!(!ui.overflowed());

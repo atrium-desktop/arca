@@ -3,7 +3,7 @@
 //! companion application for the tessera desktop, so both colour schemes read
 //! as the same product while remaining contrast-safe.
 
-use lens::{Align, Color, Frame, LayoutOpts, Theme};
+use optics_ui::{Align, Color, Frame, LayoutOpts, Theme};
 
 #[derive(Clone, Copy)]
 pub struct Tones {
@@ -169,7 +169,7 @@ pub fn branded_theme_with_accent(
     };
     // Geometry follows the tessera control/hairline/scrollbar tokens. No
     // active_indicator_width: the accent rail is off-language for tessera
-    // applications, and it defaults to 0 in lens.
+    // applications, and it defaults to 0 in optics-ui.
     colored
         .with_corner_radius(8.0)
         .with_border_width(1.0)
@@ -395,8 +395,8 @@ mod contrast_tests {
         #[test]
         fn centered_label_breaks_and_ellipsizes() {
             let (_dir, mut app) = fixture();
-            let mut ui = lens::Ui::headless().expect("headless ui");
-            let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+            let mut ui = optics_ui::Ui::headless().expect("headless ui");
+            let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
             ui.frame(&input, |f| {
                 app.build(f, &input);
                 // A short name stays one line.
@@ -430,8 +430,8 @@ mod contrast_tests {
             assert_eq!(dark_theme.font_size(), 14.0);
             assert_eq!(light_theme.font_size(), 14.0);
 
-            let mut ui = lens::Ui::headless().expect("headless ui");
-            let input = lens::Input::new((800.0, 600.0), 1.0 / 60.0);
+            let mut ui = optics_ui::Ui::headless().expect("headless ui");
+            let input = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
             let mut row_height = 0.0;
             let mut clicked = false;
             for _ in 0..2 {

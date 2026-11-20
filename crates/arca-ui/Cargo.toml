@@ -1,16 +1,16 @@
 [package]
 name = "arca-ui"
-description = "Arca file manager UI layer, built on the optics stack (aperture/lens/iris)"
+description = "Arca file manager UI layer, built on the optics stack (optics-app/optics-ui/optics-window)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-aperture.workspace = true
+optics-app.workspace = true
 arca-engine.workspace = true
 arca-xdg.workspace = true
-iris.workspace = true
-lens.workspace = true
-lens-sys.workspace = true
-flux-sys.workspace = true
-transit.workspace = true
+optics-window.workspace = true
+optics-ui.workspace = true
+optics-ui-sys.workspace = true
+optics-gfx-sys.workspace = true
+optics-motion.workspace = true

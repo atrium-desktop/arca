@@ -41,10 +41,13 @@ jobs:
         run: |
           python3 - <<'PY'
           import tomllib, sys
-          forbidden = {"aperture", "aperture-sys", "lens", "lens-sys", "iris",
-                       "iris-sys", "flux", "flux-sys", "glyph", "glyph-sys",
-                       "prism", "prism-sys", "reticle", "reticle-sys", "vista",
-                       "vista-sys", "transit", "optics", "arca-ui", "arca"}
+          forbidden = {"optics-app", "optics-app-sys", "optics-ui",
+                       "optics-ui-sys", "optics-window", "optics-window-sys",
+                       "optics-gfx", "optics-gfx-sys", "optics-text",
+                       "optics-text-sys", "optics-material",
+                       "optics-material-sys", "optics-svg", "optics-svg-sys",
+                       "optics-scene", "optics-scene-sys", "optics-motion",
+                       "optics", "arca-ui", "arca"}
           with open("crates/arca-engine/Cargo.toml", "rb") as fh:
               manifest = tomllib.load(fh)
           used = set(manifest.get("dependencies", {})) & forbidden

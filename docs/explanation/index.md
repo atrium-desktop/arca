@@ -7,7 +7,7 @@ architectural boundaries, and underlying mechanisms.
 
 - [Architecture and Virtualized Rendering](architecture-and-rendering.md) — How
   Arca isolates the business core from immediate-mode UI and bounds memory usage
-  within the Lens 1 MiB arena.
+  within the optics-ui 1 MiB arena.
 - [Thumbnail Extraction and Caching Pipeline](thumbnail-pipeline.md) — Two-tier
   LRU memory and disk cache architecture, off-thread image decoding, and audio
   metadata extraction.

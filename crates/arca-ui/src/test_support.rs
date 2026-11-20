@@ -107,7 +107,7 @@ pub(crate) fn state_for(dir: &ScratchDir) -> AppState {
 }
 
 /// Run one headless frame and activate its snapshot.
-pub(crate) fn frame(app: &mut UiApp, ui: &mut lens::Ui, input: &lens::Input) {
+pub(crate) fn frame(app: &mut UiApp, ui: &mut optics_ui::Ui, input: &optics_ui::Input) {
     ui.frame(input, |f| app.build(f, input));
     if let Ok(snapshot) = ui.snapshot() {
         let _ = ui.activate(&snapshot);
@@ -115,21 +115,21 @@ pub(crate) fn frame(app: &mut UiApp, ui: &mut lens::Ui, input: &lens::Input) {
 }
 
 /// A settled (no input) frame at the default window size.
-pub(crate) fn settle(app: &mut UiApp, ui: &mut lens::Ui) {
-    let input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+pub(crate) fn settle(app: &mut UiApp, ui: &mut optics_ui::Ui) {
+    let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
     frame(app, ui, &input);
 }
 
 /// Run `count` settled frames.
-pub(crate) fn settle_for(app: &mut UiApp, ui: &mut lens::Ui, count: usize) {
+pub(crate) fn settle_for(app: &mut UiApp, ui: &mut optics_ui::Ui, count: usize) {
     for _ in 0..count {
         settle(app, ui);
     }
 }
 
 /// Press `key` with `mods` in one frame.
-pub(crate) fn press(app: &mut UiApp, ui: &mut lens::Ui, key: i32, mods: u32) {
-    let mut input = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+pub(crate) fn press(app: &mut UiApp, ui: &mut optics_ui::Ui, key: i32, mods: u32) {
+    let mut input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
     input.set_mods(mods);
     input.push_key(key, true, false);
     frame(app, ui, &input);
@@ -137,7 +137,7 @@ pub(crate) fn press(app: &mut UiApp, ui: &mut lens::Ui, key: i32, mods: u32) {
 
 /// Open Quick Look on the second row (`a.txt`; directories sort first) and
 /// assert it is visible.
-pub(crate) fn open_preview(app: &mut UiApp, ui: &mut lens::Ui) {
+pub(crate) fn open_preview(app: &mut UiApp, ui: &mut optics_ui::Ui) {
     app.state.select_visible(1);
     settle(app, ui);
     press(app, ui, ' ' as i32, 0);

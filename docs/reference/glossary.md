@@ -18,9 +18,12 @@ its right while maintaining the ancestor hierarchy in view.
 
 ### Optics Stack
 The native graphics and UI monorepo powering Arca and Tessera:
-- **Flux**: Low-overhead Vulkan renderer and scene graph.
-- **Lens**: Immediate-mode UI layout engine and widget toolkit.
-- **Iris**: Application windowing runtime, Wayland event loop, and device management.
+- **optics-gfx**: Low-overhead Vulkan renderer and scene graph.
+- **optics-ui**: Immediate-mode UI layout engine and widget toolkit.
+- **optics-window**: Native windowing runtime, Wayland event loop, and
+  device management.
+- **optics-app**: Application shell binding an `optics-ui` interface to an
+  `optics-window` window.
 
 ### Portal Prompter
 A standalone user-interface process executed by a desktop portal daemon to handle
@@ -34,5 +37,5 @@ applications.
 ### Virtualized Viewport
 A rendering technique in `arca-ui` where only file rows physically visible within
 the current viewport scroll bounds are generated as immediate-mode UI widgets. This
-guarantees that directories with 10,000+ files never exceed Lens's 1 MiB per-frame
-memory arena budget.
+guarantees that directories with 10,000+ files never exceed the `optics-ui` 1 MiB
+per-frame memory arena budget.

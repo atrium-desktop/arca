@@ -1,6 +1,6 @@
 //! Compact status and keyboard-discovery bar.
 
-use lens::{Align, Frame, LayoutOpts};
+use optics_ui::{Align, Frame, LayoutOpts};
 
 use arca_engine::AppState;
 
@@ -90,11 +90,11 @@ mod tests {
     #[test]
     fn counts_every_entry_when_unfiltered() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         frame(
             &mut app,
             &mut ui,
-            &lens::Input::new((1040.0, 700.0), 1.0 / 60.0),
+            &optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0),
         );
 
         // `sub`, `a.txt` (+ `.hidden`, which is filtered out by default).
@@ -104,11 +104,11 @@ mod tests {
     #[test]
     fn reports_the_filtered_subset() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         frame(
             &mut app,
             &mut ui,
-            &lens::Input::new((1040.0, 700.0), 1.0 / 60.0),
+            &optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0),
         );
 
         app.state.set_filter("txt".into());
@@ -118,11 +118,11 @@ mod tests {
     #[test]
     fn names_a_single_selection() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         frame(
             &mut app,
             &mut ui,
-            &lens::Input::new((1040.0, 700.0), 1.0 / 60.0),
+            &optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0),
         );
 
         app.state.select_visible(1);
@@ -132,11 +132,11 @@ mod tests {
     #[test]
     fn aggregates_a_multi_selection_with_total_size() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         frame(
             &mut app,
             &mut ui,
-            &lens::Input::new((1040.0, 700.0), 1.0 / 60.0),
+            &optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0),
         );
 
         app.state.select_all();
@@ -150,11 +150,11 @@ mod tests {
     #[test]
     fn a_vanished_folder_reports_unavailable() {
         let (dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         frame(
             &mut app,
             &mut ui,
-            &lens::Input::new((1040.0, 700.0), 1.0 / 60.0),
+            &optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0),
         );
 
         app.state.navigate(dir.join("sub").to_str().unwrap());
@@ -177,11 +177,11 @@ mod tests {
             dir.str(),
         );
         let mut app = UiApp::new(state);
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         frame(
             &mut app,
             &mut ui,
-            &lens::Input::new((1040.0, 700.0), 1.0 / 60.0),
+            &optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0),
         );
 
         assert_eq!(summary(&app.state), "0 items");

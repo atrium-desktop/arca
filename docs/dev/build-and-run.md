@@ -7,7 +7,7 @@ verifying Arca across Wayland desktop sessions, portal file pickers, and headles
 
 ## 1. Prerequisites & Toolchain Setup
 
-Arca requires Rust 1.85+ and the native Optics graphics stack (`aperture`, `flux`, `lens`, `iris`):
+Arca requires Rust 1.85+ and the native Optics graphics stack (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`):
 
 ```bash
 rustc --version                  # rustc >= 1.85
@@ -72,7 +72,7 @@ cargo run -p arca -- portal-prompt --kind open-file
 Arca's automated test suite runs completely headlessly without requiring a live Wayland session or GPU:
 
 ```bash
-# Run all unit and headless Lens frame tests
+# Run all unit and headless optics-ui frame tests
 cargo test --workspace
 
 # Lint & static analysis
@@ -85,4 +85,4 @@ cargo clippy --workspace --all-targets -- -D warnings
 ## 5. Runtime Diagnostics
 
 - **Wayland Session**: Arca is a native Wayland client. Ensure `$WAYLAND_DISPLAY` is exported.
-- **Optics Libraries**: If the dynamic linker fails to find `libaperture.so`, `libflux.so`, or `liblens.so`, ensure `LD_LIBRARY_PATH` includes the build tree or Optics is installed.
+- **Optics Libraries**: If the dynamic linker fails to find `liboptics_app.so`, `liboptics_gfx.so`, or `liboptics_ui.so`, ensure `LD_LIBRARY_PATH` includes the build tree or Optics is installed.

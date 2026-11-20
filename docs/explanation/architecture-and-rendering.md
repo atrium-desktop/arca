@@ -22,7 +22,7 @@ Arca organizes domain business logic, UI rendering, and specification conformanc
 │      arca-ui          │             │      arca-engine       │
 │ Immediate-mode UI loop│             │ Filesystem traversal   │
 │ Layout & virtual rows │◄────────────┤ Session state machine  │
-│ Lens / Iris Wayland   │  AppState   │ LRU thumbnail cache    │
+│ Optics UI / Window    │  AppState   │ LRU thumbnail cache    │
 │ GPU texture management│             │ Config persistence     │
 └───────────────────────┘             └───────────┬────────────┘
                                                   │
@@ -50,13 +50,15 @@ Arca organizes domain business logic, UI rendering, and specification conformanc
 
 ## The Immediate-Mode Frame Budget
 
-Arca is built on the Optics graphics engine (`flux` for Vulkan drawing, `lens` for
-immediate-mode layout, `iris` for Wayland event handling, and `aperture` for the
-application shell that binds the Lens UI to the Iris window).
+Arca is built on the Optics graphics engine (`optics-gfx` for Vulkan drawing,
+`optics-ui` for immediate-mode layout, `optics-window` for Wayland event
+handling, and `optics-app` for the application shell that binds the `optics-ui`
+interface to the `optics-window` window).
 
-Lens allocates per-frame widget layouts, text shapes, and vertex draw calls inside
-a pre-allocated linear memory arena sized at 1 MiB. If an application attempts to
-allocate more widgets than the arena can hold in a single frame, Lens drops subsequent
+`optics-ui` allocates per-frame widget layouts, text shapes, and vertex draw calls
+inside a pre-allocated linear memory arena sized at 1 MiB. If an application
+attempts to allocate more widgets than the arena can hold in a single frame,
+`optics-ui` drops subsequent
 draw calls, resulting in blank icons, clipped labels, or missing rows.
 
 In a file manager, directories often contain tens of thousands of items (such as
@@ -79,7 +81,7 @@ Full Directory (10,000 files)
 | row 0142: file-0142.txt            | [ Rendered Window ]
 | row 0143: file-0143.txt            | [ Only ~30 rows   ]
 | row 0144: file-0144.txt            | [ generated into  ]
-| row 0145: file-0145.txt            | [ Lens arena      ]
+| row 0145: file-0145.txt            | [ optics-ui arena ]
 +====================================+ <--- Viewport Bottom Offset
 | ...                                |
 | row 9999: file-9999.txt            | (unrendered - skipped)

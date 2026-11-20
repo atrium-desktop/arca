@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Synchronized workspace dependencies with Optics `v0.0.82` and landed ADR-0013.
+- Adopted the semantic module names and unified `optics_` namespace (Optics ADR-0169, ADR-0170, ADR-0172): the workspace now depends on `optics-app`, `optics-window`, `optics-ui`, `optics-ui-sys`, `optics-gfx-sys`, and `optics-motion`.
+- Local development patches now resolve the repository-root `../optics/crates/` workspace, including the shared `optics-build` helper.
+
+### Changed
+- Renamed every Optics import to the owning module: `optics_ui::*` widgets and patterns, `optics_window::*` platform control, `optics_app::*` lifecycle (`Application`, `Config`, `RunError`, `StartHost`, `StopHost`, `RecordHost`), `optics_motion::*` springs, and `optics_gfx_sys::optics_gfx_*` thumbnail images.
+- Migrated the narrow FFI helpers to the stutter-free C surface: `optics_ui_sys::{optics_ui_scroll_offset, optics_ui_scroll_to, optics_ui_set_focus, optics_ui_current_id, optics_ui_set_caret_blink, optics_ui_reduced_motion, optics_ui_button}`, the `optics_ui_icon_id`/`optics_ui_id` newtypes, and `OPTICS_UI_BUTTON_SUBTLE` / `OPTICS_UI_ICON_COUNT`.
+- `StartHost::flux_device()` became `StartHost::optics_gfx_device()`; the icon adapter's `lens_id` became `icon_id` to match the module vocabulary.
+- Rpath relay now reads the `optics_app_rs` / `optics_window_rs` / `optics_ui_rs` `links` metadata, restoring local test binaries without `LD_LIBRARY_PATH`.
+- Updated the headless-engine firewall, packaging `pkg-config`/`BuildRequires`/`ldd` lists, setup, testing, acceptance, and glossary references to the semantic module names.
+
+---
+
 ## [0.2.15] - 2026-11-16
 
 ### Added

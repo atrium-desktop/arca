@@ -1,17 +1,17 @@
 //! Icon glyphs for files, folders and chrome.
 //!
 //! Arca maintains its own icon set in `assets/icons/*.svg` (see the
-//! README there). Each glyph is registered with lens on first use
-//! (`lens_icon_register_svg` — the runtime counterpart of lens's baked-in
-//! table, backed by the shared reticle vector compiler since Optics
-//! v0.0.79) and drawn through the native icon widgets: vector-crisp at any
-//! size, theme-tinted, no raster assets or generator scripts involved.
+//! README there). Each glyph is registered with optics-ui on first use
+//! (`optics_ui_icon_register_svg` — the runtime counterpart of optics-ui's
+//! baked-in table, backed by the shared optics-svg vector compiler since
+//! Optics v0.0.79) and drawn through the native icon widgets: vector-crisp at
+//! any size, theme-tinted, no raster assets or generator scripts involved.
 
 use std::sync::OnceLock;
 
 use arca_engine::bookmarks::BookmarkKind;
 use arca_engine::entry::{Entry, FileType};
-use lens::Frame;
+use optics_ui::Frame;
 
 /// One glyph of arca's icon set; the variant name is the PascalCase of
 /// the SVG file name in `assets/icons/`.
@@ -146,18 +146,19 @@ impl AssetId {
 }
 
 /// The process-global registration table, built once on first use.
-static REGISTERED: OnceLock<Vec<lens_sys::lens_icon_id>> = OnceLock::new();
+static REGISTERED: OnceLock<Vec<optics_ui_sys::optics_ui_icon_id>> = OnceLock::new();
 
-/// The lens id for an asset, registering the whole set on first call. A
-/// failed parse yields the invalid id (widgets then draw nothing); the
+/// The optics-ui icon id for an asset, registering the whole set on first
+/// call. A failed parse yields the invalid id (widgets then draw nothing); the
 /// `all_icon_assets_register` test keeps that from shipping.
-pub(crate) fn lens_id(id: AssetId) -> lens_sys::lens_icon_id {
+pub(crate) fn icon_id(id: AssetId) -> optics_ui_sys::optics_ui_icon_id {
     let ids = REGISTERED.get_or_init(|| {
         AssetId::ALL
             .iter()
             .map(|asset| {
-                // LENS_ICON_INVALID is (lens_icon_id)-1.
-                lens::register_svg_icon(asset.svg()).unwrap_or(lens_sys::lens_icon_id(u32::MAX))
+                // OPTICS_UI_ICON_INVALID is (optics_ui_icon_id)-1.
+                optics_ui::register_svg_icon(asset.svg())
+                    .unwrap_or(optics_ui_sys::optics_ui_icon_id(u32::MAX))
             })
             .collect()
     });
@@ -165,7 +166,7 @@ pub(crate) fn lens_id(id: AssetId) -> lens_sys::lens_icon_id {
 }
 
 pub fn icon(frame: &mut Frame, id: AssetId, size: f32) {
-    frame.icon_raw(lens_id(id), size);
+    frame.icon_raw(icon_id(id), size);
 }
 
 /// Ghost icon button in a square `box_size` hit target.
@@ -173,18 +174,18 @@ pub fn icon(frame: &mut Frame, id: AssetId, size: f32) {
 pub fn icon_button(frame: &mut Frame, id: AssetId, box_size: f32) -> bool {
     let id_str = format!("##icon-{id:?}");
     let c = std::ffi::CString::new(id_str).unwrap();
-    let opts = lens_sys::lens_button_opts {
-        box_: lens_sys::lens_box {
+    let opts = optics_ui_sys::optics_ui_button_opts {
+        box_: optics_ui_sys::optics_ui_box {
             id: c.as_ptr(),
             width: box_size,
             height: box_size,
             ..Default::default()
         },
-        icon: lens_id(id),
-        variant: lens_sys::lens_button_variant::LENS_BUTTON_SUBTLE,
+        icon: icon_id(id),
+        variant: optics_ui_sys::optics_ui_button_variant::OPTICS_UI_BUTTON_SUBTLE,
         ..Default::default()
     };
-    unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
+    unsafe { optics_ui_sys::optics_ui_button(frame.as_raw(), &opts).clicked }
 }
 
 /// Icon button that swaps glyph with its checked state (eye/eye-off, star…).
@@ -197,22 +198,22 @@ pub fn icon_toggle_button(
     box_size: f32,
     is_checked: bool,
 ) -> bool {
-    let icon_id = if is_checked { checked } else { unchecked };
+    let glyph = if is_checked { checked } else { unchecked };
     let id_str = format!("##icon-toggle-{unchecked:?}-{checked:?}");
     let c = std::ffi::CString::new(id_str).unwrap();
-    let opts = lens_sys::lens_button_opts {
-        box_: lens_sys::lens_box {
+    let opts = optics_ui_sys::optics_ui_button_opts {
+        box_: optics_ui_sys::optics_ui_box {
             id: c.as_ptr(),
             width: box_size,
             height: box_size,
             ..Default::default()
         },
-        icon: lens_id(icon_id),
-        variant: lens_sys::lens_button_variant::LENS_BUTTON_SUBTLE,
+        icon: icon_id(glyph),
+        variant: optics_ui_sys::optics_ui_button_variant::OPTICS_UI_BUTTON_SUBTLE,
         active: is_checked,
         ..Default::default()
     };
-    unsafe { lens_sys::lens_button(frame.as_raw(), &opts).clicked }
+    unsafe { optics_ui_sys::optics_ui_button(frame.as_raw(), &opts).clicked }
 }
 
 /// Full-width sidebar/menu row with a leading icon, compact 30px height, and 18px icon size.
@@ -230,7 +231,7 @@ pub fn selectable_icon_sized(
     icon_size: f32,
 ) -> bool {
     frame.size_next(0.0, height);
-    frame.selectable_icon_sized(label, lens_id(id), selected, icon_size)
+    frame.selectable_icon_sized(label, icon_id(id), selected, icon_size)
 }
 
 /// Icon for a directory entry (type glyph + MIME / extension mapping).
@@ -332,9 +333,9 @@ mod tests {
     #[test]
     fn all_icon_assets_register() {
         for &asset in AssetId::ALL {
-            let id = crate::icons::lens_id(asset);
+            let id = crate::icons::icon_id(asset);
             assert_ne!(id.0, u32::MAX, "{asset:?} failed to parse/register");
-            assert!(id.0 >= lens_sys::lens_icon_id::LENS_ICON_COUNT.0);
+            assert!(id.0 >= optics_ui_sys::optics_ui_icon_id::OPTICS_UI_ICON_COUNT.0);
         }
     }
 }

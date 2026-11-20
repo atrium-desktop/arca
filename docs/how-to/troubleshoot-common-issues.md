@@ -37,11 +37,11 @@ without XWayland, nor can it start without a valid compositor socket.
 ### Symptom: `Vulkan initialization failed` or crash on startup
 
 ```text
-flux: failed to find suitable Vulkan physical device
+optics_gfx: failed to find suitable Vulkan physical device
 ```
 
 ### Cause
-The Optics graphics backend (`flux`) requires Vulkan 1.2+ with swapchain and surface
+The Optics graphics backend (`optics-gfx`) requires Vulkan 1.2+ with swapchain and surface
 extensions.
 
 ### Resolution

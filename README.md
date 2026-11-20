@@ -8,7 +8,7 @@
 
 > The project name **Arca** derives from the Latin *arca* — historically a chest, coffer, box, or ark for safekeeping precious documents and treasures. In modern computing, Arca serves as a fast, secure, and keyboard-first vessel for navigating and managing files across the Wayland desktop.
 
-Arca is a fast file manager for Wayland and a companion application for the Tessera desktop ecosystem. While its visual language aligns with the Tessera design system, it operates standalone on any standard Wayland compositor. It is built on the Optics graphics and UI stack (**aperture** application shell · **flux** Vulkan renderer · **lens** immediate-mode UI · **iris** platform runtime · **transit** motion dynamics).
+Arca is a fast file manager for Wayland and a companion application for the Tessera desktop ecosystem. While its visual language aligns with the Tessera design system, it operates standalone on any standard Wayland compositor. It is built on the Optics graphics and UI stack (**optics-app** application shell · **optics-gfx** Vulkan renderer · **optics-ui** immediate-mode UI · **optics-window** platform runtime · **optics-motion** motion dynamics).
 
 ![Rust](https://img.shields.io/badge/rust-1.85%2B-informational)
 
@@ -20,7 +20,7 @@ Arca is a fast file manager for Wayland and a companion application for the Tess
 - **Three View Modalities** — Responsive icon grid, detailed sortable list, and cascading Miller columns; large folders stay fluid and memory-bounded thanks to strictly virtualized row allocation.
 - **Off-Thread Thumbnails** — High-performance image and album art (FLAC/MP3) thumbnail extraction cached according to the FreeDesktop thumbnail standard; rendered via GPU textures.
 - **Multi-Tab Workspace** — Independent location, history, selection, and filter states across tabs with drag-and-drop reordering (`Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, `Ctrl+1..9`).
-- **Quick Look Inspection** — Press `Space` for an animated preview modal (text excerpts, image dimensions and artwork, embedded album art) with Optics `transit` spring easing; dismiss with `Space`, `Esc`, or a click outside.
+- **Quick Look Inspection** — Press `Space` for an animated preview modal (text excerpts, image dimensions and artwork, embedded album art) with Optics `optics-motion` spring easing; dismiss with `Space`, `Esc`, or a click outside.
 - **Safe File Operations** — Open with default application, new folder creation (`Ctrl+Shift+N`) with automatic collision resolution, safe inline rename (`Ctrl+E`/`F2`) that never clobbers, FreeDesktop-compliant trash/restore/purge (`Del`/`Shift+Del`), copy/cut/paste (`Ctrl+C/X/V`) honouring `text/uri-list` and `x-special/gnome-copied-files`, drag-and-drop within the app and to/from other applications, multi-step undo/redo, and context menus. Large transfers run on a background worker with progress in the status bar.
 - **XDG Desktop Portal File Chooser** — Native portal file chooser prompter (`arca --chooser-prompt`) speaking contract v6, supporting `OpenFile`, `SaveFile`, `SaveFiles`, `OpenDirectory`, multi-select, glob/MIME filters, custom choice controls, and overwrite warnings; the response is validated against the request before it is emitted. Also usable as a standalone CLI picker (`--choose-file`, `--choose-files`, `--choose-dir`, `--save-file`).
 - **Adaptive Theming** — Follows system light/dark preference live, with toolbar appearance settings supporting System / Light / Dark modes.
@@ -32,7 +32,7 @@ Arca is a fast file manager for Wayland and a companion application for the Tess
 
 ### 1. Build
 
-Arca links against the Optics C libraries (`aperture` / `iris` / `lens` / `flux`) via their official Rust bindings. Ensure the matching Optics release is installed so `pkg-config` can locate them:
+Arca links against the Optics C libraries (`optics-app` / `optics-window` / `optics-ui` / `optics-gfx`) via their official Rust bindings. Ensure the matching Optics release is installed so `pkg-config` can locate them:
 
 ```bash
 cargo build --release
@@ -120,7 +120,7 @@ Arca is organized as a concentric Cargo workspace across four distinct layers:
 | Crate | Layer | Role & Subsystem Boundaries |
 | :--- | :--- | :--- |
 | **`crates/arca`** | Entrypoint | Thin host binary: CLI argument parsing, standalone picker dispatch, Wayland event loop, portal prompter lifecycle. |
-| **`crates/arca-ui`** | Presentation | View/presentation layer on Optics (`aperture`/`lens`/`iris`/`flux`/`transit`): virtualized listing views, tabs, animated Quick Look, 1 MiB frame arena budget. |
+| **`crates/arca-ui`** | Presentation | View/presentation layer on Optics (`optics-app`/`optics-ui`/`optics-window`/`optics-gfx`/`optics-motion`): virtualized listing views, tabs, animated Quick Look, 1 MiB frame arena budget. |
 | **`crates/arca-engine`** | Domain Engine | Domain business logic: directory model, navigation history, bookmarks, safe file ops, configuration, thumbnail cache. Headless & zero GUI dependencies. |
 | **`crates/arca-xdg`** | Specifications | Pure standard library (`std` only): Base Dirs, User Dirs, RFC 8089 URIs, Shared MIME-info, Desktop Entries, `mimeapps.list`, Trash v1.0, RFC 1321 MD5. |
 

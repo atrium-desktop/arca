@@ -15,7 +15,7 @@ interfaces on Wayland?**
   and deliverable criteria for production releases.
 - **Prerequisites**:
   - A running Wayland compositor (e.g., Tessera, Sway, GNOME Wayland).
-  - Optics runtime libraries installed or linked (`aperture`, `flux`, `lens`, `iris`).
+  - Optics runtime libraries installed or linked (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`).
   - Vulkan-capable graphics drivers and device permissions.
   - A test directory with standard files (text files, images, music files with embedded
     artwork, subdirectories).
@@ -149,7 +149,7 @@ interfaces on Wayland?**
 ## Final Acceptance Checklist
 
 - [ ] Core journeys execute from cold start without manual intervention or test flags.
-- [ ] Lens 1 MiB per-frame widget arena limit is respected under large directory stress.
+- [ ] optics-ui 1 MiB per-frame widget arena limit is respected under large directory stress.
 - [ ] FreeDesktop specifications (Trash, XDG Base Directory, Portal) pass contract verification.
 - [ ] Light / Dark live theme updates immediately when compositor settings toggle.
 - [ ] All observable deliverables meet production performance and usability criteria.

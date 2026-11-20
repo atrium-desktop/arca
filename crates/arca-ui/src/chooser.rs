@@ -12,7 +12,7 @@ use arca_engine::chooser::{
     PromptAppearance, PromptColorScheme,
 };
 use arca_engine::state::AppState;
-use lens::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf};
+use optics_ui::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -25,7 +25,7 @@ pub struct ChooserState {
     pub request: FileChooserRequest,
     pub appearance: Option<PromptAppearance>,
     pub save_name: TextBuf,
-    pub save_name_id: lens_sys::lens_id,
+    pub save_name_id: optics_ui_sys::optics_ui_id,
     pub save_name_focused: bool,
     pub save_name_focused_now: bool,
     pub filter_index: usize,
@@ -192,7 +192,7 @@ pub(crate) fn build_chooser_header(
         if let Some(chooser) = &mut app.chooser {
             chooser.cancel();
         }
-        iris::window_close();
+        optics_window::window_close();
     } else {
         let raw_in = input.as_raw();
         if raw_in.mouse_pressed[0] {
@@ -200,7 +200,7 @@ pub(crate) fn build_chooser_header(
             let display = raw_in.display_size;
             if cursor.y >= 0.0 && cursor.y <= 42.0 && cursor.x >= 0.0 && cursor.x < display.x - 34.0
             {
-                iris::window_start_move();
+                optics_window::window_start_move();
             }
         }
     }
@@ -344,7 +344,7 @@ pub(crate) fn build_chooser_footer(app: &mut UiApp, frame: &mut Frame, tones: &T
         if let Some(chooser) = &mut app.chooser {
             chooser.cancel();
         }
-        iris::window_close();
+        optics_window::window_close();
     } else if trigger_accepted {
         trigger_accept(app);
     }
@@ -578,7 +578,7 @@ pub(crate) fn build_overwrite_modal(app: &mut UiApp, frame: &mut Frame, tones: &
             };
             chooser.overwrite_confirm = None;
             chooser.accept_paths(vec![target]);
-            iris::window_close();
+            optics_window::window_close();
         }
         Some(false) => {
             frame.place_close(CHOOSER_OVERWRITE_MODAL);
@@ -623,7 +623,7 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
                 return;
             }
             chooser.accept_paths(paths);
-            iris::window_close();
+            optics_window::window_close();
         }
         FileChooserMode::OpenDirectory => {
             let path = if let Some(entry) = app.state.selected_entry() {
@@ -636,7 +636,7 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
                 PathBuf::from(app.state.cwd())
             };
             chooser.accept_paths(vec![path]);
-            iris::window_close();
+            optics_window::window_close();
         }
         FileChooserMode::SaveFile => {
             let mut name = chooser.save_name.as_str().trim().to_string();
@@ -662,7 +662,7 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
                 chooser.overwrite_confirm = Some(target);
             } else {
                 chooser.accept_paths(vec![target]);
-                iris::window_close();
+                optics_window::window_close();
             }
         }
         FileChooserMode::SaveFiles => {
@@ -678,7 +678,7 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
             match chooser.request.finish_paths(vec![folder]) {
                 Ok(paths) => {
                     chooser.accept_paths(paths);
-                    iris::window_close();
+                    optics_window::window_close();
                 }
                 Err(e) => {
                     app.state.set_status(format!("Save error: {e}"));
@@ -692,7 +692,7 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
 pub fn run_chooser(
     request: FileChooserRequest,
     appearance: Option<PromptAppearance>,
-) -> Result<FileChooserResponse, aperture::RunError> {
+) -> Result<FileChooserResponse, optics_app::RunError> {
     let start_dir = if let Some(folder) = &request.current_folder {
         folder.to_path_buf().to_string_lossy().into_owned()
     } else if let Some(file) = &request.current_file {
@@ -742,7 +742,7 @@ pub fn run_chooser(
         "io.arca.Chooser".into()
     };
 
-    let config = aperture::Config::new(&window_title)?
+    let config = optics_app::Config::new(&window_title)?
         .app_id(&app_id)?
         .size(960, 640);
 
@@ -750,13 +750,13 @@ pub fn run_chooser(
     let app_build = app.clone();
     let app_stop = app.clone();
 
-    aperture::Application::run_with_lifecycle(
+    optics_app::Application::run_with_lifecycle(
         config,
-        Some(|host: aperture::StartHost| {
-            crate::device::set_device(host.flux_device().as_raw());
+        Some(|host: optics_app::StartHost| {
+            crate::device::set_device(host.optics_gfx_device().as_raw());
             true
         }),
-        Some(move |_host: aperture::StopHost| {
+        Some(move |_host: optics_app::StopHost| {
             app_stop.borrow_mut().shutdown();
             crate::device::clear_device();
         }),
@@ -769,8 +769,8 @@ pub fn run_chooser(
                 }
             }
         },
-        // Pure Lens chrome: no host canvas recording (Optics ADR-0127).
-        None::<fn(aperture::RecordHost)>,
+        // Pure optics-ui chrome: no host canvas recording (Optics ADR-0127).
+        None::<fn(optics_app::RecordHost)>,
     )?;
 
     let res = result_holder
@@ -822,8 +822,8 @@ mod tests {
             files: Vec::new(),
         };
         app.chooser = Some(ChooserState::new(req, None));
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((960.0, 640.0), 1.0 / 60.0);
         for _ in 0..3 {
             frame(&mut app, &mut ui, &input);
         }
@@ -852,8 +852,8 @@ mod tests {
             files: Vec::new(),
         };
         app.chooser = Some(ChooserState::new(req, None));
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((960.0, 640.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &input);
         }
@@ -864,8 +864,8 @@ mod tests {
         );
 
         // Press Return to accept
-        let mut enter = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
-        enter.push_key(lens::key::RETURN, true, false);
+        let mut enter = optics_ui::Input::new((960.0, 640.0), 1.0 / 60.0);
+        enter.push_key(optics_ui::key::RETURN, true, false);
         frame(&mut app, &mut ui, &enter);
 
         let res = app.chooser.as_ref().unwrap().result.as_ref().unwrap();
@@ -898,15 +898,15 @@ mod tests {
             files: Vec::new(),
         };
         app.chooser = Some(ChooserState::new(req, None));
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let input = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((960.0, 640.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &input);
         }
 
         // Trigger accept (Return key)
-        let mut enter = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
-        enter.push_key(lens::key::RETURN, true, false);
+        let mut enter = optics_ui::Input::new((960.0, 640.0), 1.0 / 60.0);
+        enter.push_key(optics_ui::key::RETURN, true, false);
         frame(&mut app, &mut ui, &enter);
 
         // Since a.txt exists, overwrite_confirm modal should be set
@@ -917,8 +917,8 @@ mod tests {
         assert!(!app.chooser.as_ref().unwrap().done);
 
         // Escape dismisses the overwrite modal without cancelling the chooser
-        let mut esc = lens::Input::new((960.0, 640.0), 1.0 / 60.0);
-        esc.push_key(lens::key::ESCAPE, true, false);
+        let mut esc = optics_ui::Input::new((960.0, 640.0), 1.0 / 60.0);
+        esc.push_key(optics_ui::key::ESCAPE, true, false);
         frame(&mut app, &mut ui, &esc);
 
         assert_eq!(app.chooser.as_ref().unwrap().overwrite_confirm, None);
@@ -939,8 +939,8 @@ mod tests {
     #[test]
     fn chooser_multiple_returns_every_staged_path() {
         let (_dir, mut app) = fixture_two_files();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         let request = arca_engine::chooser::FileChooserRequest {
             mode: arca_engine::chooser::FileChooserMode::OpenFile,
             app_id: "io.arca.Test".into(),
@@ -996,7 +996,7 @@ mod tests {
     #[test]
     fn chooser_double_click_accepts_the_staged_selection() {
         let (_dir, mut app) = fixture_two_files();
-        let mut ui = lens::Ui::headless().expect("headless ui");
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
         let request = arca_engine::chooser::FileChooserRequest {
             mode: arca_engine::chooser::FileChooserMode::OpenFile,
             app_id: "io.arca.Test".into(),
@@ -1017,7 +1017,7 @@ mod tests {
         frame(
             &mut app,
             &mut ui,
-            &lens::Input::new((1040.0, 700.0), 1.0 / 60.0),
+            &optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0),
         );
 
         // Stage both files, then double-click the second one.
@@ -1047,8 +1047,8 @@ mod tests {
     #[test]
     fn chooser_single_returns_only_the_cursor() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         let request = arca_engine::chooser::FileChooserRequest {
             mode: arca_engine::chooser::FileChooserMode::OpenFile,
             app_id: "io.arca.Test".into(),

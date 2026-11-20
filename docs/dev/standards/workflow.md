@@ -18,7 +18,7 @@ Before any pull request is merged into `main`, it must clear the following verif
 ├─────────────────────────────────────────────────────────────┤
 │ 3. Architecture Gate: Subsystem Boundary Compliance         │
 │    Engine headless purity, XDG zero-dependency purity,      │
-│    1 MiB Lens frame arena virtualization maintained         │
+│    1 MiB optics-ui arena virtualization maintained          │
 ├─────────────────────────────────────────────────────────────┤
 │ 4. Code-to-Doc Synchronization Gate                         │
 │    API, CLI, shortcut, or protocol changes matched in docs  │

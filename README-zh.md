@@ -8,7 +8,7 @@
 
 > 项目名 **Arca** 取自拉丁语「*arca*」——在历史上指用于保管贵重文献、账目与珍宝的宝匣、金库或方舟。在现代计算中，Arca 作为 Wayland 桌面环境中轻快、安全且以键盘操作为核心的现代文件容器而设计。
 
-Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 桌面生态系统的核心原生组件。其视觉语言严格契合 Tessera 设计系统，同时完全支持在任何标准 Wayland 混成器（Compositor）上独立运行。Arca 原生基于 Optics 图形与 UI 技术栈构建（**aperture** 应用外壳 · **flux** Vulkan 渲染器 · **lens** 即时模式 UI · **iris** 平台运行时 · **transit** 动力学动效）。
+Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 桌面生态系统的核心原生组件。其视觉语言严格契合 Tessera 设计系统，同时完全支持在任何标准 Wayland 混成器（Compositor）上独立运行。Arca 原生基于 Optics 图形与 UI 技术栈构建（**optics-app** 应用外壳 · **optics-gfx** Vulkan 渲染器 · **optics-ui** 即时模式 UI · **optics-window** 平台运行时 · **optics-motion** 动力学动效）。
 
 ![Rust](https://img.shields.io/badge/rust-1.85%2B-informational)
 
@@ -20,7 +20,7 @@ Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 
 - **三种视图形态**：自适应图标网格视图、详尽可排序列视图以及响应式 Miller 多列视图；借助严格的视口虚拟化渲染（Virtualized Rows），大型文件夹浏览始终保持极速且内存受控。
 - **异步缩略图流水线**：高性能非阻塞图片与音频专辑封面（FLAC/MP3）缩略图提取，严格遵循 FreeDesktop 缩略图缓存规范，并通过 GPU 纹理即时渲染。
 - **多标签页工作区**：每个标签页独立维护浏览路径、历史记录、选中状态与过滤条件，并支持平滑拖拽重排（`Ctrl+T`、`Ctrl+W`、`Ctrl+Tab`、`Ctrl+1..9`）。
-- **Quick Look 快速预览**：按下 `Space`（空格键）即可唤起带 Optics `transit` 弹簧动效的弹窗，支持文本摘录、图片尺寸与预览、音频内嵌专辑封面；`Space`、`Esc` 或点击弹窗外部均可关闭。
+- **Quick Look 快速预览**：按下 `Space`（空格键）即可唤起带 Optics `optics-motion` 弹簧动效的弹窗，支持文本摘录、图片尺寸与预览、音频内嵌专辑封面；`Space`、`Esc` 或点击弹窗外部均可关闭。
 - **安全的文件操作**：双击或 `Enter` 使用默认应用打开文件，新建文件夹（`Ctrl+Shift+N`）自动重名规避，原地安全重命名（`Ctrl+E`/`F2`）绝不覆盖既有文件，遵循 FreeDesktop 规范的回收站/恢复/彻底删除（`Del`/`Shift+Del`），复制/剪切/粘贴（`Ctrl+C/X/V`）完整支持 `text/uri-list` 与 `x-special/gnome-copied-files`，支持应用内及跨应用拖放、多步撤销/重做以及右键上下文菜单；8 MiB 以上的传输在后台线程执行并在状态栏显示进度。
 - **XDG 桌面 Portal 文件选择器**：原生支持桌面 Portal 文件选择器（`arca --chooser-prompt`），遵循契约 v6，支持 `OpenFile`、`SaveFile`、`SaveFiles`、`OpenDirectory`、多选、MIME/Glob 过滤、自定义选项控件以及文件覆盖防误触保护；响应在写出前会依据请求进行校验；同时提供独立的命令行文件选择工具（`--choose-file`、`--choose-files`、`--choose-dir`、`--save-file`）。
 - **自适应主题**：实时跟随系统深色/浅色偏好，工具栏外观设置支持在「跟随系统 / 浅色 / 深色」之间自由切换。
@@ -32,7 +32,7 @@ Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 
 
 ### 1. 编译构建
 
-Arca 通过官方 Rust 绑定链接至 Optics C 库（`aperture` / `iris` / `lens` / `flux`）。请确保系统已安装相应版本的 Optics 开发库以便 `pkg-config` 发现：
+Arca 通过官方 Rust 绑定链接至 Optics C 库（`optics-app` / `optics-window` / `optics-ui` / `optics-gfx`）。请确保系统已安装相应版本的 Optics 开发库以便 `pkg-config` 发现：
 
 ```bash
 cargo build --release
@@ -120,7 +120,7 @@ Arca 按照向心架构（Concentric Architecture）组织为四个层次分明�
 | Crate | 层次 | 职责与子系统边界 |
 | :--- | :--- | :--- |
 | **`crates/arca`** | 宿主入口层 | 轻量宿主二进制：CLI 参数解析、独立选择器分发、Wayland 事件循环、Portal Prompter 生命周期管理。 |
-| **`crates/arca-ui`** | 视口表现层 | 基于 Optics（`aperture`/`lens`/`iris`/`flux`/`transit`）的渲染与交互层：视口虚拟化列表/网格/Miller视图、标签页、Quick Look 动效、1 MiB Frame Arena 内存预算管控。 |
+| **`crates/arca-ui`** | 视口表现层 | 基于 Optics（`optics-app`/`optics-ui`/`optics-window`/`optics-gfx`/`optics-motion`）的渲染与交互层：视口虚拟化列表/网格/Miller视图、标签页、Quick Look 动效、1 MiB Frame Arena 内存预算管控。 |
 | **`crates/arca-engine`** | 领域引擎层 | 核心业务逻辑：目录模型、导航历史栈、书签、安全文件操作（防覆盖重命名/新建）、配置文件序列化、缩略图缓存计算。纯无头设计，零 GUI 依赖。 |
 | **`crates/arca-xdg`** | 标准协议层 | 纯标准库实现（纯 `std`，零外部依赖）：XDG 基础目录、用户目录、RFC 8089 文件 URI、共享 MIME 类型嗅探、桌面入口项（.desktop）与 `mimeapps.list` 解析、FreeDesktop 回收站 v1.0 规范、RFC 1321 MD5 摘要。 |
 

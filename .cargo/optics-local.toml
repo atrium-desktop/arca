@@ -8,18 +8,20 @@
 # lockfile in that worktree; the repository hook keeps the local lockfile out
 # of commits. Remove the generated file before promoting an Optics release.
 #
-# Optics v0.0.80 keeps the per-module binding trees in one Cargo workspace
-# rooted at the repository root (Optics ADR-0163), with every crate under
-# bindings/crates/. `aperture` is the new application shell (Optics ADR-0166).
-# `transit` remains pure Safe Rust and has no `transit-sys` crate (Optics
-# ADR-0158); there is no native motion library to patch or rpath.
+# Optics v0.0.82 keeps the per-module binding trees in one Cargo workspace
+# rooted at the repository root (Optics ADR-0169), with every crate under
+# `crates/optics-<module>`. `optics-app` is the application shell above
+# `optics-window` and `optics-ui` (Optics ADR-0166 / ADR-0172). `optics-motion`
+# remains pure Safe Rust and has no `-sys` crate (Optics ADR-0158); there is no
+# native motion library to patch or rpath.
 [patch."https://github.com/ming2k/optics"]
-aperture = { path = "../optics/bindings/crates/aperture" }
-aperture-sys = { path = "../optics/bindings/crates/aperture-sys" }
-flux = { path = "../optics/bindings/crates/flux" }
-flux-sys = { path = "../optics/bindings/crates/flux-sys" }
-lens = { path = "../optics/bindings/crates/lens" }
-lens-sys = { path = "../optics/bindings/crates/lens-sys" }
-iris = { path = "../optics/bindings/crates/iris" }
-iris-sys = { path = "../optics/bindings/crates/iris-sys" }
-transit = { path = "../optics/bindings/crates/transit" }
+optics-app = { path = "../optics/crates/optics-app" }
+optics-app-sys = { path = "../optics/crates/optics-app-sys" }
+optics-build = { path = "../optics/crates/optics-build" }
+optics-gfx = { path = "../optics/crates/optics-gfx" }
+optics-gfx-sys = { path = "../optics/crates/optics-gfx-sys" }
+optics-ui = { path = "../optics/crates/optics-ui" }
+optics-ui-sys = { path = "../optics/crates/optics-ui-sys" }
+optics-window = { path = "../optics/crates/optics-window" }
+optics-window-sys = { path = "../optics/crates/optics-window-sys" }
+optics-motion = { path = "../optics/crates/optics-motion" }

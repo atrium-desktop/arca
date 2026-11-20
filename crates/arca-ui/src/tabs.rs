@@ -1,7 +1,7 @@
-//! Browser tab strip using the lens TabStrip pattern.
+//! Browser tab strip using the optics-ui TabStrip pattern.
 
-use lens::patterns::{TabAction, TabItem, TabStrip};
-use lens::{Align, Frame, LayoutOpts};
+use optics_ui::patterns::{TabAction, TabItem, TabStrip};
+use optics_ui::{Align, Frame, LayoutOpts};
 
 use crate::app::UiApp;
 use crate::icons::{self, ids};
@@ -16,7 +16,12 @@ fn tab_title(cwd: &str) -> String {
     name
 }
 
-pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &lens::Input, _tones: &Tones) {
+pub(crate) fn build_tabs(
+    app: &mut UiApp,
+    frame: &mut Frame,
+    input: &optics_ui::Input,
+    _tones: &Tones,
+) {
     frame.size_next(0.0, 38.0);
     frame.row_ex(
         &LayoutOpts {
@@ -32,7 +37,7 @@ pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &lens::Input
                 .iter()
                 .map(|tab| {
                     TabItem::new(tab_title(&tab.cwd))
-                        .icon(icons::lens_id(ids::Folder))
+                        .icon(icons::icon_id(ids::Folder))
                         .closable(app.state.tabs().len() > 1)
                 })
                 .collect();
@@ -44,8 +49,8 @@ pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &lens::Input
                 .min_tab_width(100.0)
                 .max_tab_width(180.0)
                 .show_new_button(true)
-                .close_icon(icons::lens_id(ids::X))
-                .new_icon(icons::lens_id(ids::Plus));
+                .close_icon(icons::icon_id(ids::X))
+                .new_icon(icons::icon_id(ids::Plus));
 
             let action = strip.show(frame, &tabs, active_idx);
 
@@ -53,7 +58,7 @@ pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &lens::Input
                 TabAction::Select(index) => app.switch_tab(index),
                 TabAction::Close(index) => app.close_tab(index),
                 TabAction::NewTab => app.new_tab(),
-                // Post-removal coordinates straight from the lens strip;
+                // Post-removal coordinates straight from the optics-ui strip;
                 // engine applies remove-then-insert verbatim.
                 TabAction::Move(from, to) => app.move_tab(from, to),
                 // Press frame inside the strip: no model change; the CSD
@@ -69,7 +74,7 @@ pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &lens::Input
             // Window close button at the far right
             let close_clicked = icons::icon_button(frame, ids::X, 26.0);
             if close_clicked {
-                iris::window_close();
+                optics_window::window_close();
             }
 
             // Window drag behavior (CSD):
@@ -91,7 +96,7 @@ pub(crate) fn build_tabs(app: &mut UiApp, frame: &mut Frame, input: &lens::Input
                     && cursor.x >= 0.0
                     && cursor.x < display.x - 34.0
                 {
-                    iris::window_start_move();
+                    optics_window::window_start_move();
                 }
             }
         },
@@ -121,18 +126,18 @@ mod tests {
         assert_eq!(app.state.tabs().len(), 2);
         let original_ids: Vec<u64> = app.state.tabs().iter().map(|t| t.id).collect();
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &settle);
         }
 
         let mk_input = |x: f32, down: bool, pressed: bool, released: bool| {
-            let mut i = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+            let mut i = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
             i.set_cursor(x, 21.0);
-            i.set_mouse_down(lens::MouseButton::Left, down);
-            i.set_mouse_pressed(lens::MouseButton::Left, pressed);
-            i.set_mouse_released(lens::MouseButton::Left, released);
+            i.set_mouse_down(optics_ui::MouseButton::Left, down);
+            i.set_mouse_pressed(optics_ui::MouseButton::Left, pressed);
+            i.set_mouse_released(optics_ui::MouseButton::Left, released);
             i
         };
 
@@ -165,8 +170,8 @@ mod tests {
         assert_eq!(app.state.tabs().len(), 2);
         let remaining_id = app.state.tabs()[1].id;
 
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &settle);
         }
@@ -174,19 +179,19 @@ mod tests {
         // Tab 0 has cwd "arca-ui-test-..." which maxes out at max_tab_width = 180.
         // It starts at x = 7, so it spans x = 7..187; its close button is at x ≈ 165..181, y ≈ 21.
         let close_pt = (173.0, 21.0);
-        let mut hover = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut hover = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         hover.set_cursor(close_pt.0, close_pt.1);
         frame(&mut app, &mut ui, &hover);
 
-        let mut press = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut press = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         press.set_cursor(close_pt.0, close_pt.1);
-        press.set_mouse_down(lens::MouseButton::Left, true);
-        press.set_mouse_pressed(lens::MouseButton::Left, true);
+        press.set_mouse_down(optics_ui::MouseButton::Left, true);
+        press.set_mouse_pressed(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &press);
 
-        let mut release = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut release = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         release.set_cursor(close_pt.0, close_pt.1);
-        release.set_mouse_released(lens::MouseButton::Left, true);
+        release.set_mouse_released(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &release);
 
         for _ in 0..2 {

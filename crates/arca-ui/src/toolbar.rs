@@ -1,7 +1,7 @@
 //! Primary command bar: navigation, location/search and view controls.
 
 use arca_engine::ViewMode;
-use lens::{Align, Frame, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
+use optics_ui::{Align, Frame, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
 
 use crate::app::{focus_any, FocusTarget, UiApp};
 use crate::icons::{self, ids};
@@ -48,7 +48,7 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             let input_theme = prev_theme
                 .with_bg(tones.input_bg)
                 .with_surface_sunken(tones.input_bg)
-                .with_border(lens::Color::TRANSPARENT)
+                .with_border(optics_ui::Color::TRANSPARENT)
                 .with_border_width(1.0)
                 .with_corner_radius(8.0)
                 .with_padding(10.0);
@@ -106,9 +106,9 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
             };
 
             let items = [
-                SegmentedItem::icon(icons::lens_id(ids::Grid)),
-                SegmentedItem::icon(icons::lens_id(ids::List)),
-                SegmentedItem::icon(icons::lens_id(ids::Columns)),
+                SegmentedItem::icon(icons::icon_id(ids::Grid)),
+                SegmentedItem::icon(icons::icon_id(ids::List)),
+                SegmentedItem::icon(icons::icon_id(ids::Columns)),
             ];
 
             let control = SegmentedControl::new("##view-mode-seg")
@@ -168,24 +168,24 @@ mod tests {
     use crate::test_support::{fixture, frame};
 
     /// The window close button sits at the right edge of the 42px tab
-    /// strip; `iris_window_close` outside an active app run is a no-op.
+    /// strip; `optics_window_close` outside an active app run is a no-op.
     #[test]
     fn window_close_button_is_clickable() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &settle);
         }
         let close = (1019.0, 21.0);
-        let mut press = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut press = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         press.set_cursor(close.0, close.1);
-        press.set_mouse_down(lens::MouseButton::Left, true);
-        press.set_mouse_pressed(lens::MouseButton::Left, true);
+        press.set_mouse_down(optics_ui::MouseButton::Left, true);
+        press.set_mouse_pressed(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &press);
-        let mut release = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut release = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         release.set_cursor(close.0, close.1);
-        release.set_mouse_released(lens::MouseButton::Left, true);
+        release.set_mouse_released(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &release);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &settle);
@@ -193,25 +193,25 @@ mod tests {
     }
 
     /// The tab strip drag region fills the space between the last tab and the close button;
-    /// pressing it triggers `iris_window_start_move` (a safe no-op headless).
+    /// pressing it triggers `optics_window_start_move` (a safe no-op headless).
     #[test]
     fn titlebar_drag_region_is_interactive() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &settle);
         }
         // Middle of the top bar in the drag region
         let drag_point = (500.0, 21.0);
-        let mut press = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut press = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         press.set_cursor(drag_point.0, drag_point.1);
-        press.set_mouse_down(lens::MouseButton::Left, true);
-        press.set_mouse_pressed(lens::MouseButton::Left, true);
+        press.set_mouse_down(optics_ui::MouseButton::Left, true);
+        press.set_mouse_pressed(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &press);
-        let mut release = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut release = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         release.set_cursor(drag_point.0, drag_point.1);
-        release.set_mouse_released(lens::MouseButton::Left, true);
+        release.set_mouse_released(optics_ui::MouseButton::Left, true);
         frame(&mut app, &mut ui, &release);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &settle);
@@ -221,8 +221,8 @@ mod tests {
     #[test]
     fn settings_button_toggles_appearance_popup() {
         let (_dir, mut app) = fixture();
-        let mut ui = lens::Ui::headless().expect("headless ui");
-        let settle = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
             frame(&mut app, &mut ui, &settle);
         }
@@ -231,15 +231,15 @@ mod tests {
         // The settings button is the right-most 32px icon in the 54px
         // toolbar, which sits below the 42px tab strip.
         let gear = (1016.0, 69.0);
-        let click = |app: &mut UiApp, ui: &mut lens::Ui| {
-            let mut press = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        let click = |app: &mut UiApp, ui: &mut optics_ui::Ui| {
+            let mut press = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
             press.set_cursor(gear.0, gear.1);
-            press.set_mouse_down(lens::MouseButton::Left, true);
-            press.set_mouse_pressed(lens::MouseButton::Left, true);
+            press.set_mouse_down(optics_ui::MouseButton::Left, true);
+            press.set_mouse_pressed(optics_ui::MouseButton::Left, true);
             frame(app, ui, &press);
-            let mut release = lens::Input::new((1040.0, 700.0), 1.0 / 60.0);
+            let mut release = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
             release.set_cursor(gear.0, gear.1);
-            release.set_mouse_released(lens::MouseButton::Left, true);
+            release.set_mouse_released(optics_ui::MouseButton::Left, true);
             frame(app, ui, &release);
         };
 
