@@ -8,7 +8,19 @@
 # lockfile in that worktree; the repository hook keeps the local lockfile out
 # of commits. Remove the generated file before promoting an Optics release.
 #
-# Optics v0.0.82 keeps the per-module binding trees in one Cargo workspace
+# The Optics link mode is a build input, not a repository default (ADR-0014).
+# Upstream optics-build supports all configurations: OPTICS_STATIC=1 requires
+# the liboptics_*.a archives, OPTICS_DYNAMIC=1 forces the liboptics_*.so
+# objects, the additive `static` Cargo feature asks for the archives, and
+# leaving every request unset uses the shared-preferred probe (Optics v0.0.83).
+# This worktree's sibling Meson tree is configured with `default_library=both`,
+# so the default build links the shared objects and the Optics wrapper crates
+# relay `-Wl,-rpath` to the uninstalled tree. Export OPTICS_STATIC=1 to embed
+# the archives instead (relinking whenever the C sources change).
+# `scripts/check-optics-link.sh [--expect static|dynamic] <binary>` reports or
+# asserts which mode a built binary actually used.
+#
+# Optics v0.0.83 keeps the per-module binding trees in one Cargo workspace
 # rooted at the repository root (Optics ADR-0169), with every crate under
 # `crates/optics-<module>`. `optics-app` is the application shell above
 # `optics-window` and `optics-ui` (Optics ADR-0166 / ADR-0172). `optics-motion`

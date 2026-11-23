@@ -7,8 +7,8 @@ How to build, test, and run Arca for development.
 | Requirement | Notes |
 |-------------|-------|
 | Rust toolchain | `rustc` and `cargo`, edition 2021 workspace (1.85+) |
-| Optics stack | Sibling `../optics` checkout for cross-repository development or installed native libraries for the canonical build |
-| Meson and a C23 compiler | Required to build the native Optics libraries (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`) |
+| Optics stack | Sibling `../optics` checkout for cross-repository development or installed native libraries for the canonical build. Arca supports every link mode (ADR-0014): the shared-preferred default (Optics v0.0.83) uses `liboptics_*.so` when present, `static` / `OPTICS_STATIC=1` requires the archives, `OPTICS_DYNAMIC=1` forces the shared objects |
+| Meson and a C23 compiler | Required to build the native Optics libraries (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`); Optics v0.0.83 needs `#embed` support (GCC >= 15, Clang >= 19) |
 | Vulkan 1.3 runtime and loader | `optics-gfx` is Vulkan-first; requires a Vulkan-capable GPU driver |
 | Wayland compositor | Runtime environment (`optics-window` creates Wayland xdg-shell surfaces) |
 | pkg-config | Required by build scripts to locate native dependencies |
@@ -28,7 +28,7 @@ This separation allows both modes to coexist cleanly:
 | Concern | Canonical workflow | Local workflow |
 |---------|--------------------|----------------|
 | Rust bindings | Tagged Optics Git sources (`Cargo.toml`) | `[patch]` entries to `../optics/crates` |
-| Native libraries | System-installed via `pkg-config` | Sibling `../optics/build` via rpath-relay |
+| Native libraries | System-installed via `pkg-config`; shared-preferred, so `liboptics_*.so` is used when present | Sibling `../optics/build`, shared-preferred as well; the rpath relay points at the shared objects, while `OPTICS_STATIC=1` embeds the archives instead |
 | `.cargo/config.toml` | Absent | Local patch enabled (`.cargo/optics-local.toml`) |
 | `Cargo.lock` | Canonical and committed | Worktree-local resolution, unstaged by git hook |
 | Target directory | Primary `target/` | Worktree-local `target/` |
@@ -123,10 +123,15 @@ cargo test --workspace
 cargo run --bin arca
 ```
 
-Runtime dynamic library lookup is handled automatically by the rpath-relay
-build scripts reading `DEP_OPTICS_APP_RS_RPATHS`,
-`DEP_OPTICS_WINDOW_RS_RPATHS`, and `DEP_OPTICS_UI_RS_RPATHS`. Never set
-`LD_LIBRARY_PATH` manually.
+The Optics link mode is a build input (ADR-0014). The sibling Meson tree keeps
+the shared objects alongside the archives, so the default `cargo build` uses the
+shared-preferred probe and loads the current `liboptics_*.so`, with the wrapper
+crates relaying `DEP_OPTICS_APP_RS_RPATHS`, `DEP_OPTICS_WINDOW_RS_RPATHS`, and
+`DEP_OPTICS_UI_RS_RPATHS` into `-Wl,-rpath` — never set `LD_LIBRARY_PATH`
+manually. `OPTICS_STATIC=1` (or the `static` feature) embeds the archives
+instead and relinks after every `meson compile`; `OPTICS_DYNAMIC=1` forces the
+shared branch. `scripts/check-optics-link.sh <binary>` reports which mode was
+used.
 
 For full instructions on committing, synchronizing, and promoting Optics
 releases, see [Optics Development Worktree](optics-dev-worktree.md).

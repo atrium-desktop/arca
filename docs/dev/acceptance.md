@@ -15,7 +15,9 @@ interfaces on Wayland?**
   and deliverable criteria for production releases.
 - **Prerequisites**:
   - A running Wayland compositor (e.g., Tessera, Sway, GNOME Wayland).
-  - Optics runtime libraries installed or linked (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`).
+  - A built `arca` binary. A release candidate must embed the Optics modules
+    (ADR-0014): build with `OPTICS_STATIC=1` and run
+    `scripts/check-optics-link.sh --expect static target/release/arca`.
   - Vulkan-capable graphics drivers and device permissions.
   - A test directory with standard files (text files, images, music files with embedded
     artwork, subdirectories).

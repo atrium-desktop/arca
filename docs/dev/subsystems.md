@@ -120,7 +120,7 @@ arca (binary)
   │     ├── optics-gfx-sys
   │     └── optics-motion (pure Rust; no -sys crate)
   ├── arca-engine
-  └── optics-app (rpath relay)
+  └── optics-app (lifecycle shell; relays the shared-branch rpaths)
 ```
 
 | Source Crate | Permitted Dependencies | Forbidden Dependencies |
@@ -150,3 +150,4 @@ arca (binary)
 | **`[INV-DATA-02]`** | Transfer Payload Parity | Drops accept the same interchange formats the clipboard emits (`text/uri-list`, `x-special/gnome-copied-files`, bare paths). | `state::tests::drop_transfers_every_item_in_a_uri_list_payload`, `clipboard::tests::*` |
 | **`[INV-DOC-01]`** | Code-to-Doc Parity | Every CLI flag, config key, sort value and key binding appears in its reference. | `scripts/check-docs.py` (CI job `docs`) |
 | **`[INV-CLI-01]`** | Unified Binary Singleton | `arca` is the sole public executable binary. | Cargo workspace root manifest binary configuration |
+| **`[INV-BUILD-01]`** | Release Link Mode | The *release* `arca` binary must embed the Optics native stack: no `liboptics_*.so` `DT_NEEDED` entry, no Optics runpath, and `optics_app_run` in the symbol table (or, for a stripped artifact, surviving `optics_*` references). Development builds follow the shared-preferred default and may use any mode. | Release builds pass `OPTICS_STATIC=1`; `scripts/check-optics-link.sh --expect static` in CI job `test`, plus the same gate with `--expect dynamic` on the shared build; ADR-0014, amended by ADR-0015 |

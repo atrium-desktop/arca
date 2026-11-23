@@ -17,30 +17,45 @@ rust-version = "1.85"
 [workspace.dependencies]
 # Optics stack official Rust bindings. The canonical build resolves the
 # binding sources from the tagged optics monorepo and links the C libraries
-# discovered by pkg-config. A linked development worktree can patch these
-# sources to a sibling checkout through .cargo/optics-local.toml without making
-# that checkout mandatory for CI or downstream packagers; see
-# docs/dev/optics-dev-worktree.md.
+# discovered by pkg-config.
 #
-# v0.0.82 adopts the semantic module names and the unified `optics_` namespace
+# The Optics link mode is a build input, not a repository default (ADR-0014).
+# `optics-build` supports `OPTICS_STATIC=1` (require the liboptics_*.a
+# archives), `OPTICS_DYNAMIC=1` (force the liboptics_*.so objects), the additive
+# `static` Cargo feature, and the shared-preferred probe when none is set
+# (Optics v0.0.83). Arca does not enable `static` in the manifest, so the host
+# chooses; release artifacts are pinned with `OPTICS_STATIC=1` and verified by
+# scripts/check-optics-link.sh --expect static. Arca's build scripts only relay
+# the rpaths that the shared branch publishes, so every mode stays available.
+# System libraries (libc, Vulkan loader, Wayland client, font stack) stay
+# dynamically linked in all modes.
+#
+# A linked development worktree can patch these sources to a sibling checkout
+# through .cargo/optics-local.toml without making that checkout mandatory for
+# CI or downstream packagers; see docs/dev/optics-dev-worktree.md.
+#
+# v0.0.83 keeps the semantic module names and the unified `optics_` namespace
 # (Optics ADR-0169, ADR-0170, ADR-0172): crates live under the optics root
 # `crates/` as `optics-<module>`, every public symbol carries its module
 # prefix, and the application shell (`optics-app`) keeps its one-way boundary
 # above `optics-window` and `optics-ui`. Arca imports widget and input types
 # from `optics-ui`, platform control from `optics-window`, and the lifecycle
-# from `optics-app`.
-optics-app = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
-optics-window = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
-optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
-optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+# from `optics-app`. v0.0.83 renames the re-exported platform crate alias from
+# `optics_app::iris` to `optics_app::window` and `FluxDiagnostic` to
+# `GfxDiagnostic`; Arca uses the module paths directly, so neither is a source
+# change here.
+optics-app = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
+optics-window = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
+optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
+optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
 # optics-gfx-sys is the direct FFI surface Arca uses for thumbnail images. The
 # safe `optics-gfx` crate arrives transitively through optics-app/optics-ui; it
 # is not a direct workspace dependency.
-optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
 # Motion stayed a header-only vocabulary on the C side and pure Safe Rust here
 # (Optics ADR-0158), so there is no `optics-motion-sys` FFI crate and no native
 # library to discover or rpath.
-optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.82" }
+optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 arca-xdg = { path = "crates/arca-xdg", version = "0.2.15" }

@@ -81,6 +81,35 @@ cargo fmt --check
 cargo clippy --workspace --all-targets
 ```
 
+### Link-Mode Verification
+
+Arca's link mode is a build input (ADR-0014): `OPTICS_STATIC=1` (or the
+`static` Cargo feature) requires the archives, `OPTICS_DYNAMIC=1` forces the
+shared objects, and leaving all unset uses the shared-preferred probe
+introduced in Optics v0.0.83. The script reports and asserts the outcome:
+
+```bash
+cargo build --release -p arca
+scripts/check-optics-link.sh target/release/arca                  # report
+scripts/check-optics-link.sh --expect static target/release/arca  # release gate
+scripts/check-optics-link.sh --expect dynamic target/release/arca # shared gate
+scripts/test-check-optics-link.sh                                  # gate's own tests
+```
+
+A development build from the sibling Meson tree now reports `dynamic`; that is
+the expected v0.0.83 default, not a regression. The release build pins
+`OPTICS_STATIC=1` and reports `static`.
+
+Run the gate before `strip`. `strip --strip-debug` keeps the symbol table it
+reads; a fully stripped artifact fails `--expect static` unless
+`--allow-unverified-stripped` is passed deliberately.
+
+The gate's own failure modes are covered by `scripts/test-check-optics-link.sh`:
+it asserts that a non-Optics binary (stripped or not) is rejected, that a
+stripped artifact needs the explicit override, that bad arguments exit 2, and —
+against a real build — that the announced mode is accepted while the opposite
+mode is not. CI runs it in the `test` job.
+
 ---
 
 ## 4. Key Invariants Guarded by Tests
@@ -109,6 +138,10 @@ cargo clippy --workspace --all-targets
 | Symptom | Likely Cause | First Inspection |
 | :--- | :--- | :--- |
 | `missing optics-app/optics-gfx/optics-ui/optics-window pkg-config` | Optics C libraries not found | Ensure `pkg-config --modversion optics-app optics-window optics-ui optics-gfx` succeeds or check the meson build tree |
+| `Optics was asked to link ... statically, but no liboptics_*.a was found` | A build requested static but the host ships only shared objects | Build Optics with `-Ddefault_library=both` (or install its `-static` subpackage); drop `OPTICS_STATIC` / the `static` feature to accept the shared-preferred probe |
+| `Optics was asked to link ... dynamically, but no liboptics_*.so was found` | A shared request found only archives | Build Optics with `-Ddefault_library=both`/`=shared`, or drop `OPTICS_DYNAMIC` to link the archives on the static-only tree |
+| `... and ... request opposite Optics link modes` | A static and a dynamic switch are both set, often one inherited from the environment | Unset one of them |
+| `FAIL: ... is stripped, so the embedded Optics symbols cannot be confirmed` | The gate ran after a full `strip` | Run it before `strip`, use `strip --strip-debug`, or pass `--allow-unverified-stripped` |
 | `large_directory_does_not_overflow_frame_arena` fails | Unbounded loop added to row builder | Verify viewport height and row range slicing in `crates/arca-ui/src/views/` |
 | `flac_with_picture_decodes` fails | Corrupted test fixture or image decoder feature disabled | Check `image` crate features in `crates/arca-engine/Cargo.toml` |
 | `chooser_save_overwrite_modal_triggers` fails | Modal state flag not cleared or rendered | Check `chooser.rs` prompt state handling in `arca-engine` |

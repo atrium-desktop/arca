@@ -5,23 +5,78 @@
 //! liboptics_svg in the optics meson build tree at runtime without
 //! `LD_LIBRARY_PATH`.
 //!
-//! Optics v0.0.82 publishes one crate per semantic module with a matching
+//! # Link mode is a build input, not a property of this script
+//!
+//! Arca does not force a link mode here. Upstream `optics-build` supports both
+//! and decides per build: by default it links `liboptics_*.so` when the
+//! pkg-config probe finds the shared objects and falls back to
+//! `liboptics_*.a` on a static-only tree (shared-preferred since Optics
+//! v0.0.83). Callers select explicitly with the upstream switches:
+//!
+//! - `OPTICS_STATIC=1` (or the additive `static` Cargo feature) — require
+//!   static; fails when no archive exists.
+//! - `OPTICS_DYNAMIC=1` — force shared.
+//! - neither — the shared-preferred probe, i.e. whatever the host provides.
+//!
+//! This script only reacts to the outcome. When the probe chose shared
+//! libraries, the wrapper crates publish their directories as `DEP_*_RPATHS`
+//! and this script merges them into `-Wl,-rpath` so headless frame tests run
+//! without `LD_LIBRARY_PATH`. When the probe chose the archives the lists are
+//! empty and no rpath is emitted.
+//!
+//! Arca's *release* pipeline pins the static mode (`OPTICS_STATIC=1`) and
+//! verifies the artifact with `scripts/check-optics-link.sh --expect static`; see
+//! docs/adr/0014-optics-link-mode-and-static-release.md. That gate belongs to the
+//! release build, so a developer on a shared-only host still gets a working
+//! `cargo test --workspace`.
+//!
+//! Optics v0.0.83 publishes one crate per semantic module with a matching
 //! `links` key (Optics ADR-0169 / ADR-0170). `optics-app` covers the UI host
-//! seam and its window/ui/gfx dependencies; the two narrower relays keep the
-//! platform and widget layers visible at the call sites that use them.
+//! seam and its window/ui/gfx dependencies; the narrower `optics-window` and
+//! `optics-ui` entries keep the platform and widget layers visible at the call
+//! sites that use them.
 //!
 //! `optics-motion` needs no entry here: Optics implements it as pure Safe
 //! Rust, so there is no `liboptics_motion.so` and no `-sys` links metadata
 //! (Optics ADR-0158).
 
+use std::env;
+
+/// `links` metadata republished by the three Optics wrapper crates this layer
+/// depends on.
+const DEP_RPATH_VARS: [&str; 3] = [
+    "DEP_OPTICS_APP_RS_RPATHS",
+    "DEP_OPTICS_WINDOW_RS_RPATHS",
+    "DEP_OPTICS_UI_RS_RPATHS",
+];
+
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+    for var in DEP_RPATH_VARS {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+
+    let dirs = published_rpaths();
+    if dirs.is_empty() {
+        // Static Optics: the archives were linked and nothing needs a runpath.
+        return;
+    }
+
+    // Old-style DT_RPATH so the search also covers transitive deps. GNU-style
+    // ELF linkers only; macOS ld64 rejects the flag.
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
+    }
+    for dir in &dirs {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{dir}");
+    }
+}
+
+/// Rpaths republished by the Optics wrapper crates, deduplicated in order.
+fn published_rpaths() -> Vec<String> {
     let mut dirs: Vec<String> = Vec::new();
-    for var in [
-        "DEP_OPTICS_APP_RS_RPATHS",
-        "DEP_OPTICS_WINDOW_RS_RPATHS",
-        "DEP_OPTICS_UI_RS_RPATHS",
-    ] {
-        let Ok(rpaths) = std::env::var(var) else {
+    for var in DEP_RPATH_VARS {
+        let Ok(rpaths) = env::var(var) else {
             continue;
         };
         for dir in rpaths.split(';').filter(|s| !s.is_empty()) {
@@ -30,12 +85,5 @@ fn main() {
             }
         }
     }
-    if dirs.is_empty() {
-        return;
-    }
-    // Old-style DT_RPATH so the search also covers transitive deps.
-    println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
-    for dir in dirs {
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{dir}");
-    }
+    dirs
 }

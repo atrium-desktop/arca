@@ -8,7 +8,9 @@ architecture.
 Optics `v0.0.82` renamed every module to its semantic name (Optics ADR-0169,
 ADR-0170, ADR-0172): the codenames below (`aperture`, `flux`, `lens`, `iris`,
 `reticle`, `transit`) survive only in historical documents and in the
-per-release evolution log at the end of this page.
+per-release evolution log at the end of this page. Optics `v0.0.83` then made
+the Rust link mode shared-preferred by default and added an additive `static`
+feature; Arca repinned and kept its release pin explicit (ADR-0015).
 
 ## Before → after
 
@@ -41,12 +43,14 @@ bar) and icon mapping were ported deliberately.
 - `optics-app` re-publishes its library directories as
   `links = "optics_app_rs"` rpath metadata, `optics-window` as
   `links = "optics_window_rs"`, and `optics-ui` as `links = "optics_ui_rs"`.
-  `arca-ui` relays all three lists and `arca` relays the `optics-app` list
-  into `-Wl,-rpath` arguments (with `--disable-new-dtags` so transitive deps
+  Arca follows the shared-preferred default (Optics v0.0.83), so `arca-ui`
+  relays all three lists and `arca` relays the `optics-app` list into
+  `-Wl,-rpath` arguments (with `--disable-new-dtags` so transitive deps
   resolve), which lets binaries and test executables run without
-  `LD_LIBRARY_PATH`. `optics-motion` is pure Safe Rust since Optics
-  `v0.0.79` (Optics ADR-0158), so it has no native library and no rpath
-  relay.
+  `LD_LIBRARY_PATH`. `OPTICS_STATIC=1` (or the `static` feature) embeds the
+  `liboptics_*.a` archives instead and emits no rpath. `optics-motion` is pure
+  Safe Rust since Optics `v0.0.79` (Optics ADR-0158), so it has no native
+  library and no rpath relay.
 - Where the safe `optics-ui` surface is intentionally narrow, `arca-ui`
   drops to `optics_ui_sys` via `frame.as_raw()` inside dedicated helpers:
   the full feather icon set (`icons.rs`), label-scoped focus
@@ -88,3 +92,5 @@ Following the initial 0.2.0 release:
 7. **Unified Bindings & Pure-Rust Motion (Optics v0.0.79, ADR-0011)**: Moved the local patch to one bindings workspace, retired the native motion FFI crate and its rpath relay, and kept icon registration on `optics-ui` so every shipped SVG compiles through the shared vector compiler without an application-side duplicate.
 8. **Application Shell & Descriptor-Only Operations (Optics v0.0.80, ADR-0012)**: Moved the application lifecycle into the separate application-shell library, split UI imports onto the widget crate and platform control onto the window crate, and adopted the final scroll and image-update descriptors. The removed graphics CPU/MSAA/supersampling paths had no Arca call sites.
 9. **Semantic Module Names (Optics v0.0.82, ADR-0013)**: Adopted the `optics-<module>` crate names and unified `optics_<module>_` symbols (Optics ADR-0169, ADR-0170, ADR-0172), moved the local patch to the repository-root `../optics/crates/` tree, and re-derived the rpath relay from the `optics_app_rs`/`optics_window_rs`/`optics_ui_rs` `links` keys. Public C entry points updated: `optics_ui_*` for widgets and icons, `optics_window_*` for platform control, `optics_gfx_*` for thumbnail images, and `optics_app_*` for the lifecycle.
+10. **Optics Link Mode (ADR-0014)**: Kept link selection as a build input — `OPTICS_STATIC=1`, `OPTICS_DYNAMIC=1`, or the upstream default of the pinned release — and stopped treating the *outcome* as an invariant of every build. The `arca` and `arca-ui` build scripts only relay the rpaths that the shared branch publishes; the release artifact is pinned to static by the release invocation and verified with `scripts/check-optics-link.sh --expect static` in the CI job `test`.
+11. **Shared-Preferred Linking (Optics v0.0.83, ADR-0015)**: Repinned the workspace to `v0.0.83`, whose `optics-*-sys` crates link `liboptics_*.so` by default and expose an additive `static` Cargo feature; `OPTICS_STATIC` / `OPTICS_DYNAMIC` remain the top-priority overrides. Arca's development builds now follow the shared default through the rpath relay while the release artifact still pins `OPTICS_STATIC=1`. Adopted the `optics_app::window` and `optics_ui::GfxDiagnostic` renames (no Arca call site used the retired `iris` / `FluxDiagnostic` names) and noted the Optics ADR-0173 retirement of the shader fallback, earcut vault, and upper-case `OPTICS_GFX_INIT` aliases, none of which Arca called.
