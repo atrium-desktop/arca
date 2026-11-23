@@ -16,6 +16,7 @@
 - **Mechanisms Over Exhortations**: Rely on Rust compiler typestates, private visibility, Cargo dependency firewalls, and automated tests to guarantee invariants. Never rely on natural-language comments alone.
 - **Anti-Inflation**: Do not mint pseudo-invariant tags (e.g. `INV-UI-PADDING`, `INV-COLOR-*`). Model state via typed enums and visual layout metrics via design constants.
 - **Atomic Verification**: Always verify code changes with `cargo check --workspace` and relevant crate test suites (`cargo test --workspace`) before declaring tasks complete.
+- **Link-Mode Verification**: The Optics link mode is a build input (ADR-0014) — `OPTICS_STATIC=1`, `OPTICS_DYNAMIC=1`, the `static` Cargo feature, or the upstream shared-preferred default. Never add a repository rule that removes one of those modes. Release artifacts are verified with `OPTICS_STATIC=1 cargo build --release -p arca` followed by `scripts/check-optics-link.sh --expect static target/release/arca`.
 - **Clean Epistemic Lineage**: References must resolve to canonical in-repo ADRs (`docs/adr/0001`+). Never reference non-existent external legacy numbers.
 
 ## 4. On-Demand Standards Routing

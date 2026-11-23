@@ -10,11 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Synchronized workspace dependencies with Optics `v0.0.82` and landed ADR-0013.
+- Synchronized workspace dependencies with Optics `v0.0.83` and landed ADR-0015, which amends ADR-0014 for the shared-preferred link default.
 - Adopted the semantic module names and unified `optics_` namespace (Optics ADR-0169, ADR-0170, ADR-0172): the workspace now depends on `optics-app`, `optics-window`, `optics-ui`, `optics-ui-sys`, `optics-gfx-sys`, and `optics-motion`.
 - Local development patches now resolve the repository-root `../optics/crates/` workspace, including the shared `optics-build` helper.
+- `scripts/check-optics-link.sh` reports which Optics link mode a binary actually used and asserts it with `--expect static|dynamic`; the CI job `test` gates the release artifact on `--expect static` and the shared build on `--expect dynamic` (`[INV-BUILD-01]`).
+- `scripts/test-check-optics-link.sh` covers the gate's own failure modes: a non-Optics binary is rejected, a fully stripped artifact needs `--allow-unverified-stripped`, bad arguments exit 2, and the announced mode is accepted while the opposite one is not. The runpath check now flags any directory that holds `liboptics_*.so`, not only paths containing `optics`.
 
 ### Changed
+- Optics link selection stays a **build input** (ADR-0014): `OPTICS_STATIC=1` requires the `liboptics_*.a` archives, `OPTICS_DYNAMIC=1` forces the `liboptics_*.so` objects, the additive `static` Cargo feature requests the archives, and leaving all unset uses the upstream **shared-preferred** probe introduced in Optics `v0.0.83`. `crates/arca` and `crates/arca-ui` do not enable the feature and reject neither mode; they only relay the rpaths that the shared branch publishes. The release artifact is pinned to static by the release invocation, so `target/release/arca` carries no `liboptics_*.so` dependency and no build-tree runpath while development builds default to the shared objects. The process image otherwise stays dynamic (`libc`, Vulkan loader, Wayland, font stack).
+- Adopted the Optics `v0.0.83` Rust renames: `optics_app::iris` is now `optics_app::window` and `optics_ui::FluxDiagnostic` is now `GfxDiagnostic`. Arca imports the module paths and pattern types directly, so no call site changed.
+- Building the pinned Optics C stack now requires a C23 compiler with `#embed` support (GCC >= 15, Clang >= 19); Arca's Rust toolchain floor stays at 1.85.
+- Packaging loses its Optics runtime dependency: the archives are a build-time requirement (`-Ddefault_library=both`), the recipes build with `OPTICS_STATIC=1`, add `binutils` to the build dependencies, and assert `check-optics-link.sh --expect static` before stripping.
 - Renamed every Optics import to the owning module: `optics_ui::*` widgets and patterns, `optics_window::*` platform control, `optics_app::*` lifecycle (`Application`, `Config`, `RunError`, `StartHost`, `StopHost`, `RecordHost`), `optics_motion::*` springs, and `optics_gfx_sys::optics_gfx_*` thumbnail images.
 - Migrated the narrow FFI helpers to the stutter-free C surface: `optics_ui_sys::{optics_ui_scroll_offset, optics_ui_scroll_to, optics_ui_set_focus, optics_ui_current_id, optics_ui_set_caret_blink, optics_ui_reduced_motion, optics_ui_button}`, the `optics_ui_icon_id`/`optics_ui_id` newtypes, and `OPTICS_UI_BUTTON_SUBTLE` / `OPTICS_UI_ICON_COUNT`.
 - `StartHost::flux_device()` became `StartHost::optics_gfx_device()`; the icon adapter's `lens_id` became `icon_id` to match the module vocabulary.

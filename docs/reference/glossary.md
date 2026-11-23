@@ -25,6 +25,12 @@ The native graphics and UI monorepo powering Arca and Tessera:
 - **optics-app**: Application shell binding an `optics-ui` interface to an
   `optics-window` window.
 
+Arca's release artifact embeds these modules in the `arca` binary (see
+[ADR-0014](../adr/0014-optics-link-mode-and-static-release.md) and
+[ADR-0015](../adr/0015-synchronize-with-optics-v0.0.83-and-shared-preferred-linking.md)).
+The link mode is a build input: `OPTICS_STATIC=1`, `OPTICS_DYNAMIC=1`, the
+`static` Cargo feature, or the upstream shared-preferred default.
+
 ### Portal Prompter
 A standalone user-interface process executed by a desktop portal daemon to handle
 file or credential selection on behalf of sandboxed client applications.

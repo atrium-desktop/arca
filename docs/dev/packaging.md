@@ -24,16 +24,41 @@ Arca links against the **Optics** C libraries via their official Rust bindings:
 - `optics-svg` — Vector-document compiler used by `optics-ui` to parse runtime
   SVG icons (including Arca's own icon set).
 
+Arca's release artifact embeds these modules (ADR-0014), while development
+builds follow the host's default. The link mode is a build input handled
+upstream by `optics-build` (ADR-0014 / ADR-0015):
+
+| Invocation | Result |
+| :--- | :--- |
+| no request | shared-preferred (Optics v0.0.83): `liboptics_*.so` when the probe finds it, else `liboptics_*.a` on a static-only tree |
+| `static` Cargo feature | require the archives; fail when the host has none |
+| `OPTICS_STATIC=1` | require the archives; overrides the feature and the default |
+| `OPTICS_DYNAMIC=1` | force the shared objects |
+
+A release build therefore needs the development files *and* the static
+archives and pins the mode explicitly: `pkg-config` must resolve each module's
+`.pc` file, and `liboptics_*.a` must exist in the corresponding `libdir`. Optics
+builds `default_library=both` by default, so a normal `meson setup` satisfies
+this; a package that splits `optics` into a `-devel`/`-static` subpackage must
+expose the archives at build time.
+
 Verify that the native development files are installed on the packaging host:
 
 ```bash
 pkg-config --modversion optics-app optics-window optics-ui optics-gfx optics-svg
+pkg-config --variable=libdir optics-ui     # must contain liboptics_ui.a
 ```
 
 The system package must also provide:
 - `wayland-client` (>= 1.22)
 - `vulkan-loader` (Vulkan 1.3+ loader and ICD drivers: Mesa RADV, ANV, or proprietary)
 - `xkbcommon` (>= 1.5.0)
+- The font stack `optics-text` links at runtime (`fontconfig`, `freetype`,
+  `harfbuzz`, `fribidi`)
+
+Only Optics is embedded; the libraries above stay dynamic runtime dependencies.
+`OPTICS_DYNAMIC=1` is not a packaging mode: it exists for development
+worktrees and yields a binary that needs the Optics runtime libraries.
 
 ### Rust Dependencies
 
@@ -81,10 +106,10 @@ Execute the workspace release build with frozen dependency validation:
 
 ```bash
 # Offline vendored build
-cargo build --frozen --offline --release --package arca
+OPTICS_STATIC=1 cargo build --frozen --offline --release --package arca
 
 # Or online build using distribution pre-cached cargo tree
-cargo build --locked --release --package arca
+OPTICS_STATIC=1 cargo build --locked --release --package arca
 ```
 
 Run headless tests during packaging to verify frame invariants:
@@ -92,6 +117,26 @@ Run headless tests during packaging to verify frame invariants:
 ```bash
 cargo test --frozen --offline --workspace
 ```
+
+Confirm that the produced binary embeds Optics, then gate the package on it.
+The release invocation pins the mode (ADR-0014) instead of relying on what the
+build host happens to provide:
+
+```bash
+OPTICS_STATIC=1 cargo build --locked --release --package arca
+scripts/check-optics-link.sh --expect static target/release/arca
+```
+
+`OPTICS_STATIC=1` makes the `optics-*-sys` build scripts require the
+`liboptics_*.a` archives and fail with the remediation when the packaging host
+exposes only `liboptics_*.so`. The gate itself needs the binutils inspection
+tools (`readelf`, `nm`, `strings`), so `binutils` belongs in the build
+dependencies. It also reads the symbol table, so run it before any strip step:
+`strip --strip-debug` keeps that evidence, and a fully stripped artifact needs
+`--allow-unverified-stripped`. The script fails on a `liboptics_*.so`
+`DT_NEEDED` entry, on an Optics runpath (including a `/usr/local/lib` that holds
+`liboptics_*.so`), or on a binary with no Optics code at all, so a misconfigured
+build cannot ship silently.
 
 ---
 
@@ -177,8 +222,8 @@ pkgdesc="A fast file manager for Wayland, built on the optics stack"
 arch=('x86_64' 'aarch64')
 url="https://github.com/aegis-shell/arca"
 license=('MIT')
-depends=('optics' 'wayland' 'vulkan-icd-loader' 'libxkbcommon')
-makedepends=('cargo' 'pkg-config')
+depends=('wayland' 'vulkan-icd-loader' 'libxkbcommon' 'fontconfig' 'freetype2' 'harfbuzz')
+makedepends=('cargo' 'pkg-config' 'optics' 'binutils')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
@@ -189,12 +234,15 @@ prepare() {
 
 build() {
     cd "$pkgname-$pkgver"
-    cargo build --frozen --release --package arca
+    OPTICS_STATIC=1 cargo build --frozen --release --package arca
 }
 
 check() {
     cd "$pkgname-$pkgver"
     cargo test --frozen --workspace
+    # The release artifact embeds the Optics modules (ADR-0014): the
+    # installed binary must not depend on the Optics runtime package.
+    scripts/check-optics-link.sh --expect static target/release/arca
 }
 
 package() {
@@ -217,10 +265,14 @@ export DH_VERBOSE = 1
 	dh $@ --buildsystem=cargo
 
 override_dh_auto_build:
-	cargo build --release --locked --package arca
+	OPTICS_STATIC=1 cargo build --release --locked --package arca
 
 override_dh_auto_test:
 	cargo test --release --locked --workspace
+	# Run the link gate before any strip step. `strip --strip-debug` keeps the
+	# symbol table the gate reads; a fully stripped binary needs
+	# --allow-unverified-stripped.
+	scripts/check-optics-link.sh --expect static target/release/arca
 
 override_dh_auto_install:
 	install -Dm755 target/release/arca debian/arca/usr/bin/arca
@@ -241,6 +293,9 @@ Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  rust >= 1.85
+BuildRequires:  binutils
+# Static Optics link (ADR-0014): the pkgconfig packages must ship the
+# liboptics_*.a archives, not only the shared objects.
 BuildRequires:  pkgconfig(optics-app)
 BuildRequires:  pkgconfig(optics-gfx)
 BuildRequires:  pkgconfig(optics-ui)
@@ -249,6 +304,12 @@ BuildRequires:  pkgconfig(optics-svg)
 BuildRequires:  pkgconfig(wayland-client)
 BuildRequires:  pkgconfig(vulkan)
 BuildRequires:  pkgconfig(xkbcommon)
+Requires:       vulkan-loader
+Requires:       wayland
+Requires:       xkbcommon
+Requires:       fontconfig
+Requires:       freetype
+Requires:       harfbuzz
 
 %description
 Arca is a fast file manager for Wayland, designed as a companion application
@@ -259,10 +320,11 @@ compositor.
 %autosetup -p1
 
 %build
-cargo build --release --locked --package arca
+OPTICS_STATIC=1 cargo build --release --locked --package arca
 
 %check
 cargo test --release --locked --workspace
+scripts/check-optics-link.sh --expect static target/release/arca
 
 %install
 install -Dm755 target/release/arca %{buildroot}%{_bindir}/arca
@@ -312,7 +374,7 @@ install -Dm644 assets/icons/folder.svg %{buildroot}%{_datadir}/icons/hicolor/sca
         {
           "type": "git",
           "url": "https://github.com/aegis-shell/optics.git",
-          "tag": "v0.0.82"
+          "tag": "v0.0.83"
         }
       ]
     },
@@ -321,7 +383,8 @@ install -Dm644 assets/icons/folder.svg %{buildroot}%{_datadir}/icons/hicolor/sca
       "buildsystem": "simple",
       "build-commands": [
         "cargo --offline fetch --manifest-path Cargo.toml",
-        "cargo --offline build --release --package arca",
+        "OPTICS_STATIC=1 cargo --offline build --release --package arca",
+        "scripts/check-optics-link.sh --expect static target/release/arca",
         "install -Dm755 target/release/arca /app/bin/arca",
         "install -Dm644 assets/org.tessera.Arca.desktop /app/share/applications/org.tessera.Arca.desktop",
         "install -Dm644 assets/org.tessera.Arca.metainfo.xml /app/share/metainfo/org.tessera.Arca.metainfo.xml",
@@ -347,10 +410,12 @@ Before distributing packages:
 1. **Verify Binary Dependencies**:
    ```bash
    ldd /usr/bin/arca
+   scripts/check-optics-link.sh --expect static /usr/bin/arca
    ```
-   Ensure `liboptics_app.so`, `liboptics_gfx.so`, `liboptics_ui.so`,
-   `liboptics_window.so`, `liboptics_svg.so`, `libvulkan.so.1`, and
-   `libwayland-client.so.0` resolve without `not found` errors.
+   The binary must not list any `liboptics_*` entry: Optics is embedded
+   (ADR-0014). `libvulkan.so.1`, `libwayland-client.so.0`, `libxkbcommon.so.0`,
+   and the font stack resolve from the distribution packages and must not
+   report `not found`.
 
 2. **Verify Desktop File Syntax**:
    ```bash

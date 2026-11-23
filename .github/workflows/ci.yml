@@ -123,9 +123,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libvulkan-dev libwayland-dev \
-            libxkbcommon-dev meson ninja-build
-          # The pinned optics tag is built by the bindings' build scripts via
-          # pkg-config; see docs/dev/setup.md for a full local toolchain.
+            libxkbcommon-dev meson ninja-build binutils
+          # The pinned optics tag is probed through pkg-config. The link mode
+          # is a build input (ADR-0014): the test gate below exercises both the
+          # shared-preferred default (Optics v0.0.83) and the pinned static
+          # release artifact. See docs/dev/setup.md for the full local toolchain.
 
       - name: Formatting
         run: cargo fmt --all -- --check
@@ -135,6 +137,31 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace
+
+      # [INV-BUILD-01] The *release* artifact must embed the Optics native
+      # stack (ADR-0014). The mode is pinned by the release invocation, not by
+      # the repository, so a shared-only host can still develop and test.
+      - name: Release Optics link mode
+        run: |
+          OPTICS_STATIC=1 cargo build --release -p arca
+          scripts/check-optics-link.sh --expect static target/release/arca
+          strip --strip-debug target/release/arca
+          scripts/check-optics-link.sh --expect static target/release/arca
+          mkdir -p /tmp/link-gate
+          cp target/release/arca /tmp/link-gate/arca
+
+      # The shared branch is a supported configuration, so it needs coverage of
+      # its own: without this job a regression in the rpath relay or in the
+      # pkg-config probe would only surface in a downstream shared deployment.
+      - name: Shared Optics link mode
+        run: |
+          OPTICS_DYNAMIC=1 cargo build --release -p arca
+          scripts/check-optics-link.sh --expect dynamic target/release/arca
+
+      # The gate is what stands between a misconfigured link and a shipped
+      # artifact, so its own failure modes are tested rather than reviewed.
+      - name: Link-gate self-test
+        run: scripts/test-check-optics-link.sh /tmp/link-gate/arca
 
   invariants:
     name: Regression invariants
@@ -150,7 +177,7 @@ jobs:
         run: cargo test -p arca-ui large_directory_does_not_overflow_frame_arena
 
       - name: INV-OPS-01 trash roundtrip
-        run: cargo test -p arca-xdg trash::
+        run: "cargo test -p arca-xdg trash::"
 
       - name: INV-OPS-02 anti-clobber
         run: cargo test -p arca-engine ops::tests

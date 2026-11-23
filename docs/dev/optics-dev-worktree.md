@@ -17,7 +17,7 @@ worktrees sharing a single repository storage:
 | Rust bindings | Tagged Optics Git source | Sibling `../optics` via `[patch]` |
 | `Cargo.lock` | Canonical, tagged, committed | Worktree-local, never committed |
 | Cargo config | `.cargo/config.toml` absent | Copied from `.cargo/optics-local.toml` |
-| Native libraries | System-installed `/usr/lib/lib*.so` | Sibling `../optics/build/` via `-rpath` |
+| Native libraries | System-installed via `pkg-config` (shared-preferred) | Sibling `../optics/build/`, also shared-preferred; the wrapper crates relay the build-tree `-rpath`, while `OPTICS_STATIC=1` embeds the archives |
 | Target cache | Primary `target/` | Worktree-local `target/` |
 
 ### The Foundational Principle: Truth on Main vs Local Illusion
@@ -121,7 +121,7 @@ This configuration achieves two things:
 
 1. **Cargo Source Replacement**: It instructs Cargo to intercept every
    dependency on the remote `ming2k/optics` repository and redirect it to
-   the local sibling directory `../optics/`. Optics `v0.0.82` keeps the
+   the local sibling directory `../optics/`. Optics `v0.0.83` keeps the
    Cargo workspace at the repository root (Optics ADR-0169) with every
    binding crate under `crates/optics-<module>`; `optics-app` is the
    application shell above `optics-window` and `optics-ui` (Optics
@@ -129,15 +129,26 @@ This configuration achieves two things:
    exists.
 2. **Native Discovery and Precedence**: Loading `*-sys` crates locally
    causes their `build.rs` scripts to run from disk. These scripts detect
-   `../optics/build/meson-uninstalled/`, prepend it to `PKG_CONFIG_PATH`,
-   and inject `-Wl,-rpath` so that uninstalled local C libraries take
-   absolute precedence over any system-installed versions.
+   `../optics/build/meson-uninstalled/` and prepend it to `PKG_CONFIG_PATH`,
+   so the uninstalled build tree takes absolute precedence over any
+   system-installed versions.
 
-   Cargo publishes `links` metadata (`DEP_*_RPATHS`) only to direct
-   dependents, so `arca-ui` relays the `optics-app`, `optics-window`, and
-   `optics-ui` rpaths and `arca` relays the `optics-app` list into their
-   runpaths. Optics `v0.0.76` and later carry the full version in every
-   pre-1.0 native SONAME, so a stale system
+   The link mode is a build input (ADR-0014). The sibling Meson tree is
+   configured with `default_library=both`, so `liboptics_*.so` sits next to
+   every `liboptics_*.a` and the shared-preferred default introduced in
+   Optics `v0.0.83` links the shared objects through the relayed `-rpath`.
+   A `meson compile` is enough to pick up a C change; no Rust relink is
+   required.
+
+   A worktree that wants the archives instead exports `OPTICS_STATIC=1`
+   (or enables the `static` feature). The resulting binary embeds the C
+   sources under development and has to be relinked after each
+   `meson compile`; that is the release configuration. The wrapper crates
+   publish the shared branch's `links` metadata (`DEP_*_RPATHS`, visible
+   only to direct dependents), which Arca turns into `-Wl,-rpath`:
+   `arca-ui` relays the `optics-app`, `optics-window`, and `optics-ui`
+   lists and `arca` relays the `optics-app` list. Optics `v0.0.76` and later
+   carry the full version in every pre-1.0 native SONAME, so a stale system
    `liboptics_app`/`liboptics_gfx`/`liboptics_ui`/`liboptics_window`
    library cannot satisfy the loader.
 
@@ -145,6 +156,9 @@ This configuration achieves two things:
    motion as header-only C and pure Safe Rust since `v0.0.79` (Optics
    ADR-0158), so there is no `liboptics_motion.so` and no `-sys` crate to
    patch or rpath.
+
+   `scripts/check-optics-link.sh target/debug/arca` reports which mode a
+   built binary used.
 
 ### 3. Resolve the Local Dependency Graph
 
@@ -187,14 +201,19 @@ When modifying Optics and Arca simultaneously:
    # From either directory, build the shared Meson tree:
    meson compile -C ../optics/build
    ```
-2. Build and test Arca in the development worktree. The `-sys` crates
-   automatically inject `-Wl,-rpath` pointing to `../optics/build`,
-   resolving uninstalled `.so` files at runtime:
+2. Build and test Arca in the development worktree. The shared-preferred
+   default loads the freshly rebuilt `liboptics_*.so` through the relayed
+   rpath, so a `meson compile` is visible without relinking:
    ```bash
    # In projects/arca-dev/ (branch dev):
    cargo check --workspace
    cargo test --workspace
    ```
+
+   To embed the `liboptics_*.a` archives instead, run the same commands with
+   `OPTICS_STATIC=1`; the Rust binaries then have to be relinked after each
+   `meson compile`. `scripts/check-optics-link.sh` reports which mode a built
+   binary used, and `--expect static` asserts the release mode.
 
 Do not run concurrent Meson or Ninja builds against `../optics/build` from
 multiple terminals, as the build output directory is a shared write location.

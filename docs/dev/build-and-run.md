@@ -13,11 +13,37 @@ Arca requires Rust 1.85+ and the native Optics graphics stack (`optics-app`, `op
 rustc --version                  # rustc >= 1.85
 ```
 
+### Choosing the Optics link mode
+
+Optics supports both modes and the choice belongs to the build, not to Optics.
+The `optics-*-sys` build scripts expose the upstream switches and feature
+(ADR-0014):
+
+| Invocation | Result |
+| :--- | :--- |
+| `cargo build -p arca` | shared-preferred (Optics v0.0.83): `liboptics_*.so` when the `pkg-config` probe finds them, otherwise the `liboptics_*.a` archives on a static-only tree |
+| `cargo build -p arca --features optics-app/static` | force the archives; fails with the remediation when the host has none |
+| `OPTICS_STATIC=1 cargo build -p arca` | force the archives; same result as the feature, with higher precedence |
+| `OPTICS_DYNAMIC=1 cargo build -p arca` | force the shared objects |
+
+A default Optics Meson tree (`default_library=both`) provides both, so the
+shared-preferred default resolves to `liboptics_*.so`. The local development
+worktree relays the build-tree rpaths, so no `LD_LIBRARY_PATH` is needed:
+
+```bash
+meson setup ../optics/build ../optics -Dtests=false -Dbuildtype=debugoptimized
+meson compile -C ../optics/build
+```
+
 When building alongside a local Optics development tree in this `arca-dev` worktree:
 
 ```bash
 cp .cargo/optics-local.toml .cargo/config.toml
 ```
+
+Report which mode a built binary actually used with
+`scripts/check-optics-link.sh [binary]`; pass `--expect static` or
+`--expect dynamic` to turn it into an assertion.
 
 ---
 
@@ -31,6 +57,14 @@ cargo build -p arca
 
 # Release build
 cargo build --release -p arca
+```
+
+A release artifact must embed the Optics modules, so the release pipeline pins
+the mode instead of relying on the shared-preferred probe:
+
+```bash
+OPTICS_STATIC=1 cargo build --release -p arca
+scripts/check-optics-link.sh --expect static target/release/arca
 ```
 
 ---
@@ -85,4 +119,5 @@ cargo clippy --workspace --all-targets -- -D warnings
 ## 5. Runtime Diagnostics
 
 - **Wayland Session**: Arca is a native Wayland client. Ensure `$WAYLAND_DISPLAY` is exported.
-- **Optics Libraries**: If the dynamic linker fails to find `liboptics_app.so`, `liboptics_gfx.so`, or `liboptics_ui.so`, ensure `LD_LIBRARY_PATH` includes the build tree or Optics is installed.
+- **Optics Stack**: A default development build links the shared modules through the rpath relay, so `ldd target/debug/arca` lists `liboptics_*.so` and the loader finds them in the build tree. A release build embeds the Optics modules, so `ldd target/release/arca` must not list any `liboptics_*`. If a shared binary cannot find `liboptics_app.so`, `liboptics_gfx.so`, or `liboptics_ui.so`, check whether the rpath relay is active for an uninstalled tree or whether Optics is installed; `OPTICS_STATIC=1` avoids the runtime lookup entirely.
+- **Vulkan**: `libvulkan.so.1` and the ICD drivers stay dynamic even in a static Optics build; a missing driver surfaces as a device-creation failure at startup, not as a loader error.

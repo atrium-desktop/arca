@@ -18,7 +18,8 @@ Before any pull request is merged into `main`, it must clear the following verif
 ├─────────────────────────────────────────────────────────────┤
 │ 3. Architecture Gate: Subsystem Boundary Compliance         │
 │    Engine headless purity, XDG zero-dependency purity,      │
-│    1 MiB optics-ui arena virtualization maintained          │
+│    1 MiB optics-ui arena virtualization maintained,         │
+│    release artifact embeds Optics (INV-BUILD-01)            │
 ├─────────────────────────────────────────────────────────────┤
 │ 4. Code-to-Doc Synchronization Gate                         │
 │    API, CLI, shortcut, or protocol changes matched in docs  │
@@ -48,5 +49,6 @@ Prior to creating a release tag:
 1. **Workspace Compilation**: Run `cargo check --workspace` and verify zero errors.
 2. **Full Test Suite**: Run `cargo test --workspace` across all crates (ensuring `arca-xdg`, `arca-engine`, `arca-ui`, and `arca` pass).
 3. **Packaging Integrity**: Verify that headless tests pass under `--locked` or offline flags (`cargo test --release --locked --workspace`).
-4. **Changelog Integrity**: Ensure user-facing features, fixes, and migrations are documented in `CHANGELOG.md`.
-5. **Clean Git State**: Verify no untracked experimental files or temporary debug assets remain in the tree.
+4. **Release Link Integrity**: Run `OPTICS_STATIC=1 cargo build --release -p arca` and `scripts/check-optics-link.sh --expect static target/release/arca`; the artifact must embed the Optics modules (`[INV-BUILD-01]`).
+5. **Changelog Integrity**: Ensure user-facing features, fixes, and migrations are documented in `CHANGELOG.md`.
+6. **Clean Git State**: Verify no untracked experimental files or temporary debug assets remain in the tree.

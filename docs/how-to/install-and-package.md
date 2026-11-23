@@ -11,7 +11,13 @@ Arca requires:
 - A running Wayland compositor (Tessera, Sway, Hyprland, GNOME on Wayland, etc.)
 - A GPU with Vulkan support and installed Vulkan drivers (e.g. Mesa RADV, Mesa ANV,
   or NVIDIA proprietary)
-- The **Optics** shared runtime libraries (`liboptics_app.so`, `liboptics_gfx.so`, `liboptics_ui.so`, `liboptics_window.so`)
+- The system libraries Arca opens at runtime: the Vulkan loader, `libwayland-client`,
+  `libxkbcommon`, and the font stack (`fontconfig`, `freetype`, `harfbuzz`, `fribidi`)
+
+The **Optics** modules are compiled into the `arca` binary, so there is no Optics
+runtime package to install. Building from source still needs the Optics
+development files with their static archives (`liboptics_*.a`); see
+[Build and Install from Source](#build-and-install-from-source).
 
 ---
 
@@ -37,21 +43,31 @@ To compile and install Arca globally:
 
 ### Step 1: Install Optics C Libraries
 
-If Optics is not yet installed on your system, build and install it first:
+Arca links the Optics modules statically for release builds, while the link mode
+itself remains a build input. A default Meson build tree (which builds both
+archives and shared objects) is the right input. Optics `v0.0.83` needs a C23
+compiler with `#embed` support (GCC >= 15, Clang >= 19). Build and install the
+headers plus archives first:
 
 ```bash
 git clone https://github.com/aegis-shell/optics.git
 cd optics
-meson setup build --prefix=/usr
+meson setup build --prefix=/usr --default-library=both
 meson compile -C build
 sudo meson install -C build
 ```
 
-Verify that `pkg-config` locates the Optics libraries:
+Verify that `pkg-config` locates the Optics libraries and their static archives:
 
 ```bash
 pkg-config --modversion optics-app optics-window optics-ui optics-gfx
+ls "$(pkg-config --variable=libdir optics-ui)"/liboptics_*.a
 ```
+
+If the archives are missing, a build that pins the static mode stops with an
+explicit message instead of silently producing a dynamically linked binary.
+`OPTICS_DYNAMIC=1` builds against the shared objects instead, which then have to
+be installed on the target host.
 
 ### Step 2: Build Arca
 
@@ -60,8 +76,14 @@ Clone the Arca repository and compile the release binary:
 ```bash
 git clone https://github.com/aegis-shell/arca.git
 cd arca
-cargo build --release
+OPTICS_STATIC=1 cargo build --release
+scripts/check-optics-link.sh --expect static target/release/arca
 ```
+
+`OPTICS_STATIC=1` makes an installed-archive mismatch fail the build, and
+`scripts/check-optics-link.sh --expect static` confirms that the binary embeds
+the Optics modules and carries no Optics runtime path. `ldd target/release/arca`
+should list only the system libraries named in the prerequisites.
 
 ### Step 3: Install Binary and Desktop Assets
 
@@ -101,4 +123,10 @@ Check the version output:
 
 ```bash
 arca --version
+```
+
+Confirm that Optics is embedded rather than loaded at runtime:
+
+```bash
+ldd "$(command -v arca)" | grep optics   # expected: no output
 ```

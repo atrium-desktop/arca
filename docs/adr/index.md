@@ -26,3 +26,5 @@ For the record template and guidelines, see [ADR Template](template.md).
 | [0011](0011-synchronize-with-optics-v0.0.79-and-unified-bindings.md) | Synchronize with Optics v0.0.79, Unified Bindings, and Pure-Rust Motion | Accepted | 2026-11-12 |
 | [0012](0012-synchronize-with-optics-v0.0.80-and-aperture-shell.md) | Synchronize with Optics v0.0.80, the Aperture Application Shell, and Descriptor-Only Operations | Accepted | 2026-11-16 |
 | [0013](0013-synchronize-with-optics-v0.0.82-semantic-module-naming.md) | Synchronize with Optics v0.0.82, Semantic Module Naming, and the Zero-Stutter Namespace | Accepted | 2026-11-20 |
+| [0014](0014-optics-link-mode-and-static-release.md) | Optics Link Mode: Library-Level Flexibility, Static Release Artifact | Accepted | 2026-11-20 |
+| [0015](0015-synchronize-with-optics-v0.0.83-and-shared-preferred-linking.md) | Synchronize with Optics v0.0.83, Shared-Preferred Linking, and the Additive Static Feature | Accepted | 2026-11-23 |
