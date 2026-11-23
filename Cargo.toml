@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.15"
+version = "0.2.16"
 edition = "2021"
 # The effective toolchain floor is raised by the optics bindings (edition
 # 2024, rust 1.85), which compile from source in every dependency mode.
@@ -58,9 +58,9 @@ optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
 optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-arca-xdg = { path = "crates/arca-xdg", version = "0.2.15" }
-arca-engine = { path = "crates/arca-engine", version = "0.2.15" }
-arca-ui = { path = "crates/arca-ui", version = "0.2.15" }
+arca-xdg = { path = "crates/arca-xdg", version = "0.2.16" }
+arca-engine = { path = "crates/arca-engine", version = "0.2.16" }
+arca-ui = { path = "crates/arca-ui", version = "0.2.16" }
 
 [profile.release]
 opt-level = 3
