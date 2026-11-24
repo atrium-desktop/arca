@@ -1,0 +1,45 @@
+[package]
+name = "arca-tests"
+description = "Root integration and end-to-end test suites for the Arca workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+autotests = false
+autobins = false
+autoexamples = false
+autobenches = false
+
+[features]
+default = ["native"]
+# Tests that cross the native boundary (optics-ui/optics-app, headless frames,
+# and suites that link the presentation layer). The native-free lane builds
+# only the pure engine/XDG suites with `--no-default-features`.
+native = ["dep:arca-ui", "dep:optics-app", "dep:optics-ui", "dep:optics-window"]
+
+[dependencies]
+arca-engine.workspace = true
+test-support.workspace = true
+arca-xdg.workspace = true
+serde_json.workspace = true
+
+arca-ui = { workspace = true, optional = true }
+# Direct native edges: their `links` metadata publishes the uninstalled Optics
+# rpaths that `build.rs` re-emits for these test executables. Production code
+# reaches them through `arca-ui`.
+optics-app = { workspace = true, optional = true }
+optics-ui = { workspace = true, optional = true }
+optics-window = { workspace = true, optional = true }
+
+[[test]]
+name = "integration"
+path = "integration/main.rs"
+
+[[test]]
+name = "e2e"
+path = "e2e/main.rs"
+
+[package.metadata.cargo-machete]
+# Native rpath metadata for the test harnesses; these edges exist so `build.rs`
+# can see `DEP_*_RPATHS`.
+ignored = ["optics-app", "optics-window"]

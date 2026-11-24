@@ -6,7 +6,13 @@ This document codifies the workspace topology, subsystem boundaries, and non-neg
 
 ## 1. Concentric Workspace Topology
 
-Arca organizes its Cargo workspace into four concentric layers. Dependencies flow strictly from outer layers inward; backward or circular dependencies across layer boundaries are prohibited:
+Arca organizes its production Cargo workspace into four concentric layers. Two
+additional workspace members are test-only and sit outside the dependency
+graph: `crates/test-support` (std-only fixtures) and `tests/`
+(`arca-tests`, the root integration/E2E suites). No production crate may declare either as a normal or build dependency;
+`tests/integration/architecture.rs` enforces that direction.
+Dependencies flow strictly from outer layers inward; backward or circular
+dependencies across layer boundaries are prohibited:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -53,7 +59,7 @@ Arca organizes its Cargo workspace into four concentric layers. Dependencies flo
 
 ### 2.3 UI Frame Arena Memory Budget
 - **Red-Line**: Viewport rendering in `arca-ui` must strictly adhere to the `optics-ui` 1 MiB per-frame widget arena budget.
-- **Enforcement**: All directory listing views (**Grid**, **List**, and **Miller columns**) must remain strictly virtualized. Only visible row slices calculate layout nodes and allocate draw calls. Unbounded iteration over large directory collections in rendering code is prohibited and guarded by automated arena tests (`tests::large_directory_does_not_overflow_frame_arena`).
+- **Enforcement**: All directory listing views (**Grid**, **List**, and **Miller columns**) must remain strictly virtualized. Only visible row slices calculate layout nodes and allocate draw calls. Unbounded iteration over large directory collections in rendering code is prohibited and guarded by automated arena tests (`virtualization::large_directory_does_not_overflow_frame_arena_in_any_view`, `virtualization::scrolled_large_listing_builds_only_visible_rows`).
 
 ### 2.4 Non-Destructive File Operations & Trash Fidelity
 - **Red-Line**: Destructive file deletions must default to compliant FreeDesktop trash with companion `.trashinfo` metadata (RFC 3339 timestamps and percent-encoded paths). Inline renaming and new folder creation must never silently clobber existing destinations.

@@ -723,7 +723,7 @@ pub fn run_chooser(
     let result_holder = Arc::new(Mutex::new(None));
     let result_clone = result_holder.clone();
 
-    let mut app = UiApp::new(state);
+    let mut app = UiApp::new(state).sync_navigation();
     app.chooser = Some(chooser_state);
 
     let window_title = if !request.title.is_empty() {

@@ -100,7 +100,13 @@ pub struct UiApp {
     pub(crate) rename_focused_now: bool,
 
     pub(crate) pending_focus: Option<FocusTarget>,
-    pub(crate) last_click: Option<(usize, Instant)>,
+    /// Last clicked entry (absolute path) and time. Identity is the path, not
+    /// the visible index or the bare name: navigation, filtering and sorting
+    /// rebuild the index space, and two directories can each contain a `sub`.
+    /// An index-only check turned "click a file, navigate, click the row at the
+    /// same position" into a spurious double-click that launched the wrong
+    /// entry.
+    pub(crate) last_click: Option<(String, Instant)>,
     pub(crate) ctx_menu: Option<CtxMenu>,
     pub(crate) settings_menu: Option<CtxMenu>,
     pub(crate) sidebar_menu: Option<SidebarMenu>,
@@ -109,6 +115,14 @@ pub struct UiApp {
     pub(crate) miller_seeded_for: Option<String>,
     pub(crate) thumbs: ThumbStore,
     pub(crate) observed_tab_id: u64,
+    /// Per-MIME "Open with" snapshot. Resolving an association scans and
+    /// parses every installed `.desktop` file; doing that synchronously on
+    /// every right-click turns repeated clicking into a disk-latency storm on
+    /// large or slow application directories. The set is immutable for the
+    /// window's lifetime (installing an application is not an interaction this
+    /// cache must observe).
+    pub(crate) open_with_cache:
+        std::collections::HashMap<String, Vec<arca_xdg::desktop::DesktopEntry>>,
     pub(crate) preview: PreviewOverlay,
     pub chooser: Option<ChooserState>,
     pub(crate) location_completion: Option<LocationCompletionState>,
@@ -130,6 +144,14 @@ pub struct UiApp {
     pub(crate) hovered_grid_index: Option<usize>,
     pub(crate) next_hovered_grid_index: Option<usize>,
     pub(crate) current_grid_columns: usize,
+    /// Whether navigation reads happen on a worker. Production enables this;
+    /// deterministic tests and the chooser opt into synchronous reads.
+    pub(crate) async_navigation: bool,
+    /// Test-only observation point: an activation token must never be requested
+    /// merely to navigate into a directory (the request can block the UI thread
+    /// until the compositor answers).
+    #[cfg(test)]
+    pub(crate) activation_token_requests: usize,
 }
 
 /// Move keyboard focus to the first widget built under one of `labels`.
@@ -170,10 +192,42 @@ impl UiApp {
     /// Build the app around an IPC endpoint. Callers that do not own the
     /// single-instance socket (every test, the chooser windows) pass `None`.
     pub fn new(state: AppState) -> UiApp {
-        UiApp::with_ipc(state, None)
+        UiApp::assemble(state, None, None)
     }
 
-    pub fn with_ipc(mut state: AppState, ipc: Option<crate::ipc::IpcServer>) -> UiApp {
+    pub fn with_ipc(state: AppState, ipc: Option<crate::ipc::IpcServer>) -> UiApp {
+        UiApp::assemble(state, ipc, None)
+    }
+
+    /// Build the app with an explicit thumbnail cache directory.
+    ///
+    /// The default cache is the user's FreeDesktop thumbnail store, and its
+    /// service starts a janitor that prunes old entries. Tests and embedders
+    /// must pass a scratch path here instead of mutating the real cache.
+    pub fn with_thumb_cache(state: AppState, cache_dir: impl Into<std::path::PathBuf>) -> UiApp {
+        UiApp::assemble(state, None, Some(cache_dir.into()))
+    }
+
+    /// Force synchronous directory reads.
+    ///
+    /// Deterministic headless tests and the chooser use this; the interactive
+    /// window keeps the default asynchronous navigation so a slow directory
+    /// never blocks the frame that received the click.
+    pub fn sync_navigation(mut self) -> UiApp {
+        self.async_navigation = false;
+        self
+    }
+
+    /// Toggle asynchronous navigation after construction (test/embedding).
+    pub fn set_async_navigation(&mut self, enabled: bool) {
+        self.async_navigation = enabled;
+    }
+
+    fn assemble(
+        mut state: AppState,
+        ipc: Option<crate::ipc::IpcServer>,
+        thumb_cache: Option<std::path::PathBuf>,
+    ) -> UiApp {
         state.set_fs_event_listener(Some(std::sync::Arc::new(|| {
             optics_window::post_to_main_thread(|| {});
         })));
@@ -200,6 +254,9 @@ impl UiApp {
             hovered_grid_index: None,
             next_hovered_grid_index: None,
             current_grid_columns: 0,
+            async_navigation: true,
+            #[cfg(test)]
+            activation_token_requests: 0,
             filter,
             filter_focused: false,
             filter_focused_now: false,
@@ -215,8 +272,12 @@ impl UiApp {
             sidebar_width: 220.0,
             viewport: (1040.0, 700.0),
             miller_seeded_for: None,
-            thumbs: ThumbStore::new(),
+            thumbs: match thumb_cache {
+                Some(cache_dir) => ThumbStore::with_cache_dir(cache_dir),
+                None => ThumbStore::new(),
+            },
             observed_tab_id,
+            open_with_cache: std::collections::HashMap::new(),
             preview: PreviewOverlay::new(),
             chooser: None,
         }
@@ -291,11 +352,18 @@ impl UiApp {
             optics_window::window_restore();
             optics_window::window_focus();
         }
+        let nav_changed = self.state.poll_navigation();
         let fs_changed = self.state.drain_fs_events();
         let job_changed = self.state.poll_async_jobs();
-        // A running transfer must keep painting so progress advances and the
-        // completion event is observed without waiting for the next input.
-        if fs_changed || job_changed || self.state.is_transferring() {
+        // A running transfer or navigation must keep painting so progress
+        // advances and the completion event is observed without waiting for
+        // the next input.
+        if nav_changed
+            || self.state.is_navigating()
+            || fs_changed
+            || job_changed
+            || self.state.is_transferring()
+        {
             optics_window::request_animation_frame();
         }
         self.sync_active_tab();
@@ -603,9 +671,9 @@ impl UiApp {
     pub(crate) fn submit_location(&mut self, frame: &mut Frame) {
         self.location_completion = None;
         let dest = self.location.as_str().into_owned();
-        let before = self.state.cwd().to_string();
-        self.state.navigate(&dest);
-        if self.state.cwd() != before {
+        if self.navigate_to(&dest) {
+            // For an asynchronous request the toolbar updates the location
+            // text once the reader publishes the new cwd.
             self.location.set(self.state.cwd());
             self.location_focused = false;
             self.location_focused_now = false;
@@ -683,14 +751,102 @@ impl UiApp {
         }
     }
 
+    /// Request an XDG activation token for a *file* launch.
+    ///
+    /// optics-window performs this synchronously on the UI thread and bounds
+    /// the wait at roughly one second when the compositor never answers. It is
+    /// therefore requested only where it can matter: launching an external
+    /// application. Navigating into a directory needs no token, and asking for
+    /// one made every double-click on a folder pay the full timeout on
+    /// compositors without `xdg_activation`.
+    fn file_activation_token(&mut self) -> Option<String> {
+        #[cfg(test)]
+        {
+            self.activation_token_requests += 1;
+        }
+        optics_window::window_create_activation_token(None)
+    }
+
+    /// Navigate using the configured policy. Returns whether the request was
+    /// accepted (asynchronous requests report acceptance, not completion).
+    pub(crate) fn navigate_to(&mut self, destination: &str) -> bool {
+        if self.async_navigation {
+            self.state.begin_navigate(destination)
+        } else {
+            let before = self.state.cwd().to_string();
+            self.state.navigate(destination);
+            self.state.cwd() != before
+        }
+    }
+
+    pub(crate) fn go_back(&mut self) {
+        if self.async_navigation {
+            self.state.begin_go_back();
+        } else {
+            self.state.go_back();
+        }
+    }
+
+    pub(crate) fn go_forward(&mut self) {
+        if self.async_navigation {
+            self.state.begin_go_forward();
+        } else {
+            self.state.go_forward();
+        }
+    }
+
+    pub(crate) fn go_up(&mut self) {
+        if self.async_navigation {
+            self.state.begin_go_up();
+        } else {
+            self.state.go_up();
+        }
+    }
+
+    /// Open a child of the current directory, requesting an activation token
+    /// only for non-navigable entries.
+    pub(crate) fn open_child(&mut self, name: &str) {
+        let navigable = self
+            .state
+            .entries()
+            .iter()
+            .find(|entry| entry.name == name)
+            .map(|entry| entry.navigable);
+        match navigable {
+            Some(false) => {
+                let token = self.file_activation_token();
+                self.state.open_child_with_token(name, token.as_deref());
+            }
+            Some(true) => {
+                let target = arca_engine::entry::child_path(self.state.cwd(), name);
+                self.navigate_to(&target);
+            }
+            // A racing deletion still goes through the engine's token-free
+            // open path, which reports the failure in the status bar.
+            None => self.state.open_child(name),
+        }
+    }
+
+    /// Open the current selection with the same token policy as [`Self::open_child`].
+    pub(crate) fn open_selected(&mut self) {
+        let Some(name) = self.state.selected_entry().map(|entry| entry.name.clone()) else {
+            return;
+        };
+        self.open_child(&name);
+    }
+
     pub(crate) fn row_clicked(&mut self, visible_idx: usize, name: &str) {
         let now = Instant::now();
+        let identity = std::path::Path::new(self.state.cwd())
+            .join(name)
+            .to_string_lossy()
+            .into_owned();
         let ctrl = self.mods & optics_ui::mods::CTRL != 0;
         let shift = self.mods & optics_ui::mods::SHIFT != 0;
 
         if ctrl {
             self.state.toggle_select_visible(visible_idx);
-            self.last_click = Some((visible_idx, now));
+            self.last_click = Some((identity.clone(), now));
             if let Some(chooser) = &mut self.chooser {
                 if chooser.request.mode == FileChooserMode::OpenFile && chooser.allows_multiple() {
                     let path = std::path::Path::new(self.state.cwd()).join(name);
@@ -701,41 +857,43 @@ impl UiApp {
         }
         if shift {
             self.state.select_range_visible(visible_idx);
-            self.last_click = Some((visible_idx, now));
+            self.last_click = Some((identity.clone(), now));
             return;
         }
 
-        if let Some((last_idx, at)) = self.last_click {
-            if last_idx == visible_idx && now.duration_since(at).as_millis() < DOUBLE_CLICK_MS {
-                self.last_click = None;
-                self.preview.close();
-                if let Some(chooser) = &mut self.chooser {
-                    let entry = self.state.entries().iter().find(|e| e.name == name);
-                    if let Some(entry) = entry {
-                        if entry.navigable {
-                            self.state.open_child(name);
-                            return;
-                        } else if chooser.request.mode == FileChooserMode::OpenFile {
-                            // Double-click accepts the whole staged selection
-                            // in multiple mode, not just the clicked row.
-                            let path = std::path::Path::new(self.state.cwd()).join(name);
-                            let paths = chooser.accept_selection(Some(path));
-                            chooser.accept_paths(paths);
-                            optics_window::window_close();
-                            return;
-                        } else if chooser.request.mode == FileChooserMode::SaveFile {
-                            chooser.save_name.set(name);
-                            crate::chooser::trigger_accept(self);
-                            return;
-                        }
+        let is_double_click = self.last_click.as_ref().is_some_and(|(last_path, at)| {
+            *last_path == identity && now.duration_since(*at).as_millis() < DOUBLE_CLICK_MS
+        });
+        if is_double_click {
+            self.last_click = None;
+            self.preview.close();
+            if let Some(chooser) = &mut self.chooser {
+                let entry = self.state.entries().iter().find(|e| e.name == name);
+                if let Some(entry) = entry {
+                    if entry.navigable {
+                        self.state.open_child(name);
+                        return;
+                    } else if chooser.request.mode == FileChooserMode::OpenFile {
+                        // Double-click accepts the whole staged selection in
+                        // multiple mode, not just the clicked row.
+                        let path = std::path::Path::new(self.state.cwd()).join(name);
+                        let paths = chooser.accept_selection(Some(path));
+                        chooser.accept_paths(paths);
+                        optics_window::window_close();
+                        return;
+                    } else if chooser.request.mode == FileChooserMode::SaveFile {
+                        chooser.save_name.set(name);
+                        crate::chooser::trigger_accept(self);
+                        return;
                     }
                 }
-                let token = optics_window::window_create_activation_token(None);
-                self.state.open_child_with_token(name, token.as_deref());
-                return;
             }
+            // Directories never ask for an activation token; only a real
+            // application launch needs one (and may block on it).
+            self.open_child(name);
+            return;
         }
-        self.last_click = Some((visible_idx, now));
+        self.last_click = Some((identity.clone(), now));
         self.state.select_visible(visible_idx);
         if let Some(chooser) = &mut self.chooser {
             let entry = self
@@ -762,15 +920,28 @@ impl UiApp {
         }
     }
 
+    /// Candidate applications for `mime`, resolved once per MIME type.
+    fn applications_for_mime(&mut self, mime: &str) -> Vec<arca_xdg::desktop::DesktopEntry> {
+        if let Some(cached) = self.open_with_cache.get(mime) {
+            return cached.clone();
+        }
+        let resolved = arca_xdg::desktop::applications_for_mime(mime);
+        self.open_with_cache
+            .insert(mime.to_string(), resolved.clone());
+        resolved
+    }
+
     pub(crate) fn row_right_clicked(&mut self, visible_idx: usize, anchor: Rect) {
         if !self.state.is_selected(visible_idx) {
             self.state.select_visible(visible_idx);
         }
-        let open_with = self
+        let mime = self
             .state
             .selected_entry()
             .filter(|e| !e.navigable)
-            .map(|e| arca_xdg::desktop::applications_for_mime(&e.mime_type))
+            .map(|e| e.mime_type.clone());
+        let open_with = mime
+            .map(|mime| self.applications_for_mime(&mime))
             .unwrap_or_default();
         self.ctx_menu = Some(CtxMenu {
             anchor,
@@ -801,8 +972,15 @@ impl UiApp {
 
     pub(crate) fn miller_clicked(&mut self, directory: &str, name: &str) {
         self.preview.close();
-        self.state.activate_miller_item(directory, name);
         self.last_click = None;
+        let target = arca_engine::entry::child_path(directory, name);
+        if self.async_navigation && arca_engine::entry::dir_exists(&target) {
+            self.navigate_to(&target);
+            return;
+        }
+        // Selecting a file in an ancestor column first changes the active
+        // directory; that composite operation stays synchronous.
+        self.state.activate_miller_item(directory, name);
     }
 
     fn handle_keys(&mut self, frame: &mut Frame, input: &Input) {
@@ -912,10 +1090,10 @@ impl UiApp {
                     self.state.cycle_tab(shift);
                     self.sync_active_tab();
                 }
-                optics_ui::key::LEFT if alt => self.state.go_back(),
-                optics_ui::key::RIGHT if alt => self.state.go_forward(),
-                optics_ui::key::UP if alt => self.state.go_up(),
-                optics_ui::key::BACKSPACE if !ctrl && !alt => self.state.go_up(),
+                optics_ui::key::LEFT if alt => self.go_back(),
+                optics_ui::key::RIGHT if alt => self.go_forward(),
+                optics_ui::key::UP if alt => self.go_up(),
+                optics_ui::key::BACKSPACE if !ctrl && !alt => self.go_up(),
                 optics_ui::key::LEFT if !ctrl && !alt && self.state.view_mode == ViewMode::Grid => {
                     self.state.move_selection(-1)
                 }
@@ -927,14 +1105,13 @@ impl UiApp {
                 optics_ui::key::LEFT
                     if !ctrl && !alt && self.state.view_mode == ViewMode::Miller =>
                 {
-                    self.state.go_up()
+                    self.go_up()
                 }
                 optics_ui::key::RIGHT
                     if !ctrl && !alt && self.state.view_mode == ViewMode::Miller =>
                 {
                     self.preview.close();
-                    let token = optics_window::window_create_activation_token(None);
-                    self.state.open_selected_with_token(token.as_deref());
+                    self.open_selected();
                 }
                 optics_ui::key::UP if !ctrl && !alt => {
                     let step = if self.state.view_mode == ViewMode::Grid {
@@ -961,8 +1138,7 @@ impl UiApp {
                         chooser::trigger_accept(self);
                     } else {
                         self.preview.close();
-                        let token = optics_window::window_create_activation_token(None);
-                        self.state.open_selected_with_token(token.as_deref());
+                        self.open_selected();
                     }
                 }
                 optics_ui::key::DELETE if shift && !ctrl && !alt => {
@@ -1134,6 +1310,7 @@ mod tests {
             .sub_row_rect
             .map(|r| (r.x + r.w * 0.5, r.y + r.h * 0.5))
             .unwrap_or((500.0, 150.0));
+        assert_eq!(app.activation_token_requests, 0);
         for _ in 0..2 {
             let mut press = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
             press.set_cursor(row0.0, row0.1);
@@ -1146,9 +1323,48 @@ mod tests {
             frame(&mut app, &mut ui, &release);
         }
         assert!(app.state.cwd().ends_with("/sub"));
+        assert_eq!(
+            app.activation_token_requests, 0,
+            "navigating into a directory must not request a synchronous activation token"
+        );
         for _ in 0..3 {
             frame(&mut app, &mut ui, &settle);
         }
+    }
+
+    /// Double-click detection follows the entry's absolute path, not its
+    /// visible index or bare name. Clicking row 0, navigating elsewhere, then
+    /// clicking row 0 again — even on a same-named entry — used to look like a
+    /// double-click on the *new* entry and launch it.
+    #[test]
+    fn double_click_does_not_cross_a_navigation_to_a_different_entry() {
+        let (dir, mut app) = fixture();
+        let outer = dir.join("outer");
+        std::fs::create_dir_all(outer.join("sub")).unwrap();
+
+        // First click selects the directory at visible index 0.
+        app.row_clicked(0, "sub");
+        assert_eq!(
+            app.state.selected_entry().map(|entry| entry.name.as_str()),
+            Some("sub")
+        );
+
+        // Navigation rebuilds the visible index space. A click at the same
+        // index, even on a same-named entry, is a different absolute path and
+        // must not form a double-click.
+        app.state.navigate(outer.to_str().unwrap());
+        app.row_clicked(0, "sub");
+
+        assert_eq!(
+            app.state.cwd(),
+            outer.to_str().unwrap(),
+            "a same-named entry in another directory must not replay the previous double-click"
+        );
+        assert_eq!(
+            app.state.selected_entry().map(|entry| entry.name.as_str()),
+            Some("sub"),
+            "the click selects the new row"
+        );
     }
 
     #[test]

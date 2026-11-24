@@ -1,92 +1,131 @@
 # Automated Verification & Testing Guide
 
-This document details the automated testing strategy, execution commands, and regression prevention practices for developers working on Arca.
+This document describes Arca's layered test architecture, the commands for each
+lane, and the regression invariants the suites guard. No automated test requires
+a live Wayland session or a physical display GPU: presentation coverage runs
+through `optics_ui::Ui::headless()`.
 
 ---
 
 ## 1. The Test Pyramid
 
-Arca organizes automated verification across four structured tiers to guarantee fast regression feedback without requiring a live Wayland session or physical display GPU:
-
 ```text
                   ▲
                  / \
-                /   \     Tier 4: End-to-End System Tests
-               / E2E \    (CLI execution, Portal stdio JSON roundtrips)
+                /   \      Tier 4: End-to-end (spawned binary)
+               / E2E \     CLI surface, portal JSON stdio, single-instance IPC
               /───────\
-             /  Integ  \  Tier 3: Subsystem Integration Tests
-            /  -ration  \ (Multi-tab state machines, file operations undo)
-           /─────────────\
-          /   Headless    \ Tier 2: Headless UI Frame Tests
-         /   Frame Tests   \ (Immediate-mode rendering, 1 MiB arena budget)
+             /  Integ  \   Tier 3: Workspace integration (`arca-tests`)
+            /  -ration  \  Architecture firewalls, engine+XDG flows, headless
+           /─────────────\ user journeys, damage/virtualization, click stress
+          /   Headless    \ Tier 2: Headless UI unit frames (in `arca-ui`)
+         /   Frame Tests   \ Widgets, layouts, input routing, arena budget
         /───────────────────\
-       /        Unit         \ Tier 1: Fast Unit Tests
-      /      Assertions       \ (XDG protocols, sorting, trash, config)
+       /        Unit         \ Tier 1: Fast unit tests (beside each module)
+      /      Assertions       \ XDG specs, sorting, trash, config, protocols
      /─────────────────────────\
 ```
 
-- **Tier 1: Fast Unit Tests (`arca-xdg`, `arca-engine`)**: In-memory and temp-directory tests covering XDG base/user directories, MIME sniffing and glob matching, RFC 8089 file URIs, FreeDesktop trash v1.0 specifications, sorting/filtering, and config serialization. Runs in milliseconds.
-- **Tier 2: Headless Frame Tests (`arca-ui`)**: Driven via `optics_ui::Ui::headless()`, verifying frame construction, layout generation, input event handling, widget focus, popup interactions, and virtualized viewport arena memory safety.
-- **Tier 3: Subsystem Integration Tests**: Validates interactions between `arca-engine` state machines and `arca-ui` view components (e.g., location bar tab completion, batch trash undo, dynamic tab reordering).
-- **Tier 4: End-to-End System Tests (`arca`)**: CLI flag validation, standalone file picking, and XDG desktop portal prompter JSON protocol execution over stdio.
+- **Tier 1 — crate-local unit tests.** Live in `#[cfg(test)] mod tests` next to
+  the module they constrain in `arca-xdg`, `arca-engine`, `arca-ui`, and
+  `arca/src/cli.rs`. They must stay fast and deterministic.
+- **Tier 2 — headless UI frames.** Also crate-local (`arca-ui`), driven through
+  `optics_ui::Ui::headless()`. They assert widget responses, focus, layout, and
+  the 1 MiB frame-arena invariant.
+- **Tier 3 — workspace integration (`tests/integration/`).** Crosses crate and
+  protocol boundaries: the architecture firewalls, real scratch-directory
+  navigation and file operations, portal contract encode/decode, the
+  single-instance socket, complete headless user journeys, regional-damage
+  quiescence, virtualization, and repetitive-interaction stress.
+- **Tier 4 — end-to-end (`tests/e2e/`).** Spawns the production `arca` binary
+  and speaks its real entry surfaces: argv/stdout/stderr, prompter JSON over
+  stdio, and forwarding through the Unix socket.
+
+The external suites are one package, `arca-tests`, with two test binaries
+(`integration` and `e2e`) so Cargo links each suite once. Shared fixtures live
+in `crates/test-support` (std-only) and `tests/common/`. See
+[`tests/README.md`](../../tests/README.md).
 
 ---
 
 ## 2. Testing Principles
 
-1. **Deterministic Execution**:
-   - Tests must NOT depend on a running Wayland compositor, X11 display, or physical Vulkan GPU.
-   - All presentation tests are driven headlessly via `optics_ui::Ui::headless()`.
-2. **Invariant Verification via Tests**:
-   - Whenever an ADR defines a true system invariant that cannot be enforced purely by the type system at compile time, a dedicated automated test asserting the invariant must exist in the appropriate test suite.
-   - Example: `tests::large_directory_does_not_overflow_frame_arena` mechanically guards the 1 MiB optics-ui arena budget (`[INV-UI-01]`).
-3. **Purity and Leak-Free Fixtures**:
-   - Tests creating temporary directories or files must use RAII fixtures (e.g., `std::env::temp_dir()` with unique prefixes or cleanup guards) that clean up on drop, preventing disk pollution.
-4. **Fast Feedback**:
-   - Unit tests in `arca-xdg` and `arca-engine` execute in sub-second time to support rapid developer inner loops.
+1. **Deterministic execution.** No compositor, X11 display, or physical GPU.
+   Presentation tests build real frames headlessly.
+2. **Mechanically guarded invariants.** A rule that cannot be enforced by the
+   type system gets a named test (see §6). Architecture firewalls are Rust tests
+   in `tests/integration/architecture.rs`, so `cargo test` and CI fail together.
+3. **Leak-free fixtures.** `test_support::fs::TestDir` creates a unique
+   scratch tree under the system temp directory and removes it on drop,
+   including on panic. `AppState::with_config_and_trash_root` keeps destructive
+   tests inside a scratch Trash, and `UiApp::with_thumb_cache` keeps thumbnail
+   pruning out of the user's real cache. `test_support::env::XdgIsolation`
+   remains available for tests that must exercise environment-derived paths.
+4. **No fixed sleeps for asynchronous effects.** Use
+   `test_support::poll::wait_until`/`wait_for`; every wait is bounded.
+5. **Never build from a test.** A nested `cargo build` blocks on the runner's
+   target-directory lock and looks like a product hang. The end-to-end suite
+   resolves an already-built binary (`test_support::workspace::binary`);
+   `nextest` builds workspace binaries once through its setup script.
+6. **Layer-appropriate placement.** A test belongs beside the module if it only
+   needs that module; at the root if it proves a boundary, a whole user
+   journey, or a process contract.
+7. **Prefer nextest when touching process-global state.** `XdgIsolation` still
+   mutates `XDG_*`/`HOME`, which is process-global. Nextest's process-per-test
+   model isolates that cleanly; plain `cargo test` runs sibling tests as
+   threads. Keep env-derived assertions inside the isolated test, and run
+   `cargo nextest run` when adding another test that depends on XDG/HOME.
 
 ---
 
 ## 3. Run Commands
 
-### Executing Tests
-
 ```bash
-# Run all workspace tests (XDG + engine + UI headless + binary)
-cargo test --workspace
+# Everything, canonical runner (process-per-test, timeouts, binary setup)
+cargo nextest run --locked --workspace
 
-# Run all tests in arca-xdg only (pure std specs)
+# Same graph through Cargo (fast local loop; threads share the process)
+cargo test --locked --workspace
+
+# Fast, native-free engine/XDG/protocol/architecture lane
+cargo nextest run --locked -p arca-tests --no-default-features
+
+# One external suite, with per-test processes and the binary setup script
+cargo nextest run --locked -p arca-tests
+
+# One crate's unit tests
 cargo test -p arca-xdg
-
-# Run all tests in arca-engine only (headless domain engine)
 cargo test -p arca-engine
-
-# Run all tests in arca-ui only (headless optics-ui frames)
 cargo test -p arca-ui
 
-# Run a specific test by name filter
-cargo test large_directory_does_not_overflow_frame_arena
-
-# Run tests with uncaptured stdout output
-cargo test -- --nocapture
+# Focused selections
+cargo test -p arca-tests architecture::
+cargo test -p arca-tests --test e2e
+cargo test -p arca-ui --lib
+cargo test large_directory_does_not_overflow_frame_arena_in_any_view
 ```
 
-### Static Analysis and Linters
+Nextest uses [`.config/nextest.toml`](../../.config/nextest.toml): a 60 s
+slow-test timeout (so a deadlock fails instead of hanging), a setup script that
+builds `--workspace --bins` once before the end-to-end tests, and single-thread
+groups for the IPC endpoint and trash roundtrip. CI uses the nextest profile,
+so tests that touch process-global state are isolated by construction.
+
+### Static analysis and lint gates
 
 ```bash
-# Check formatting across all crates
 cargo fmt --check
-
-# Run clippy with workspace rules
-cargo clippy --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+python3 scripts/check-docs.py tests   # test locality
 ```
 
-### Link-Mode Verification
+### Link-mode verification
 
-Arca's link mode is a build input (ADR-0014): `OPTICS_STATIC=1` (or the
-`static` Cargo feature) requires the archives, `OPTICS_DYNAMIC=1` forces the
-shared objects, and leaving all unset uses the shared-preferred probe
-introduced in Optics v0.0.83. The script reports and asserts the outcome:
+Arca's link mode is a build input (ADR-0014, ADR-0016): the workspace manifest
+enables Optics's `static` feature by default so canonical and release builds
+embed `liboptics_*.a`, while `OPTICS_DYNAMIC=1` (configured in
+`arca-dev/.cargo/config.toml`) overrides to `liboptics_*.so` for fast local
+iteration. The script reports and asserts the outcome:
 
 ```bash
 cargo build --release -p arca
@@ -96,62 +135,101 @@ scripts/check-optics-link.sh --expect dynamic target/release/arca # shared gate
 scripts/test-check-optics-link.sh                                  # gate's own tests
 ```
 
-A development build from the sibling Meson tree now reports `dynamic`; that is
-the expected v0.0.83 default, not a regression. The release build pins
-`OPTICS_STATIC=1` and reports `static`.
-
 Run the gate before `strip`. `strip --strip-debug` keeps the symbol table it
 reads; a fully stripped artifact fails `--expect static` unless
 `--allow-unverified-stripped` is passed deliberately.
 
-The gate's own failure modes are covered by `scripts/test-check-optics-link.sh`:
-it asserts that a non-Optics binary (stripped or not) is rejected, that a
-stripped artifact needs the explicit override, that bad arguments exit 2, and —
-against a real build — that the announced mode is accepted while the opposite
-mode is not. CI runs it in the `test` job.
-
 ---
 
-## 4. Key Invariants Guarded by Tests
+## 4. Suite Map
 
-1. **UI Frame Arena Budget (`[INV-UI-01]`)**:
-   - `tests::large_directory_does_not_overflow_frame_arena` verifies that directories with thousands of items do not exceed the 1 MiB immediate-mode arena limit.
-   - Virtualized row calculation ensures only visible rows allocate draw calls.
-
-2. **Anti-Clobber in File Operations (`[INV-OPS-02]`)**:
-   - `ops::tests::rename_refuses_to_clobber` ensures renaming never silently overwrites an existing destination.
-   - `ops::tests::create_folder_picks_unique_names` checks automatic deduplication ("New Folder", "New Folder (1)").
-
-3. **FreeDesktop Trash Specification (`[INV-OPS-01]`)**:
-   - `trash::tests::test_trash_roundtrip` and `trash::tests::test_trashinfo_roundtrip` verify that `.trashinfo` metadata stores valid RFC 3339 timestamps and percent-encoded original paths.
-
-4. **Portal Prompter Wire Contract**:
-   - `chooser::tests::wire_roundtrip` and `chooser::tests::glob_matching` verify compatibility with the Tessera prompter contract v6 and FileChooser v3 filters.
-
-5. **XDG Specification Purity (`[INV-ARCH-01]`)**:
-   - Tests in `arca-xdg` verify MIME database matching, desktop file exec code expansions (`%f`, `%u`), and RFC 1321 MD5 hashes without pulling any third-party dependencies.
+| Path | Layer | What it proves |
+| :--- | :--- | :--- |
+| `crates/arca-xdg/src/**` | unit | Base/User Dirs, MIME + glob, file URIs, trash v1.0, `.desktop`, MD5 |
+| `crates/arca-engine/src/**` | unit | Sorting, history, state machine, ops, config, preview, thumbnails, worker, watcher |
+| `crates/arca-ui/src/**` | unit + headless | Widgets, input routing, every view, inline rename, menus, preview, tabs |
+| `crates/arca/src/cli.rs` | unit | Every argv combination, including forwarding decisions |
+| `tests/integration/architecture.rs` | integration | Zero-dependency XDG and test support, headless engine, concentric dependencies, one binary, test-only crates |
+| `tests/integration/navigation.rs` | integration | Tabs, per-tab history/filter, hidden files, sorting, completion, bookmarks |
+| `crates/arca-engine/src/state.rs` | unit | Synchronous and asynchronous navigation, last-writer-wins, history cursor, cancel-on-sync |
+| `tests/integration/file_operations.rs` | integration | Anti-clobber rename, unique folders, copy/paste, drop payloads, trash + undo/purge |
+| `tests/integration/chooser_contract.rs` | integration | Prompter contract v6 request/response encoding, validation, filters |
+| `tests/integration/ipc.rs` | integration | Single-instance handshake, queueing, stale endpoints, concurrent clients |
+| `tests/integration/ui_flows.rs` | integration | End-to-end headless journeys: views, keys, double-click, context menu, settings |
+| `tests/integration/damage_and_quiescence.rs` | integration | Regional damage, departure damage, caret phase edges, animation termination |
+| `tests/integration/virtualization.rs` | integration | 2 500-entry directories and scrolling stay inside the frame arena |
+| `tests/integration/interaction_stress.rs` | integration | Hundreds of clicks / view changes stay bounded and quiescent |
+| `tests/e2e/cli.rs` | e2e | `--help`/`--version`, documented flags, unknown-option reporting |
+| `tests/e2e/portal_prompter.rs` | e2e | One JSON response line, malformed/foreign requests fail closed |
+| `tests/e2e/ipc_forward.rs` | e2e | Real binary forwards a relative path to a running instance and exits |
 
 ---
 
 ## 5. Failure Triage Matrix
 
-| Symptom | Likely Cause | First Inspection |
+| Symptom | Likely cause | First inspection |
 | :--- | :--- | :--- |
-| `missing optics-app/optics-gfx/optics-ui/optics-window pkg-config` | Optics C libraries not found | Ensure `pkg-config --modversion optics-app optics-window optics-ui optics-gfx` succeeds or check the meson build tree |
-| `Optics was asked to link ... statically, but no liboptics_*.a was found` | A build requested static but the host ships only shared objects | Build Optics with `-Ddefault_library=both` (or install its `-static` subpackage); drop `OPTICS_STATIC` / the `static` feature to accept the shared-preferred probe |
-| `Optics was asked to link ... dynamically, but no liboptics_*.so was found` | A shared request found only archives | Build Optics with `-Ddefault_library=both`/`=shared`, or drop `OPTICS_DYNAMIC` to link the archives on the static-only tree |
-| `... and ... request opposite Optics link modes` | A static and a dynamic switch are both set, often one inherited from the environment | Unset one of them |
-| `FAIL: ... is stripped, so the embedded Optics symbols cannot be confirmed` | The gate ran after a full `strip` | Run it before `strip`, use `strip --strip-debug`, or pass `--allow-unverified-stripped` |
-| `large_directory_does_not_overflow_frame_arena` fails | Unbounded loop added to row builder | Verify viewport height and row range slicing in `crates/arca-ui/src/views/` |
-| `flac_with_picture_decodes` fails | Corrupted test fixture or image decoder feature disabled | Check `image` crate features in `crates/arca-engine/Cargo.toml` |
-| `chooser_save_overwrite_modal_triggers` fails | Modal state flag not cleared or rendered | Check `chooser.rs` prompt state handling in `arca-engine` |
-| `test_trash_roundtrip` fails | Permissions issue or invalid timestamp format | Inspect temporary path permissions and RFC 3339 formatting |
+| `missing optics-* pkg-config` | Optics C libraries not found | `pkg-config --modversion optics-ui`; see `docs/dev/setup.md` |
+| `Optics was asked to link ... statically, but no liboptics_*.a was found` | Static build on a shared-only tree | Build Optics with `-Ddefault_library=both`, or pass `OPTICS_DYNAMIC=1` |
+| `Optics was asked to link ... dynamically, but no liboptics_*.so was found` | Shared request on an archive-only tree | Build both, or drop `OPTICS_DYNAMIC` |
+| `... request opposite Optics link modes` | A static and a dynamic switch are both set | Unset one |
+| `FAIL: ... is stripped` | Link gate ran after a full `strip` | Run before stripping or use `--strip-debug` |
+| `workspace binary 'arca' is missing` | E2E suite ran without building the binary | `cargo build --workspace --bins`, or use `cargo nextest run` |
+| `large_directory_does_not_overflow_frame_arena_in_any_view` fails | Unbounded loop in a view builder | `crates/arca-ui/src/content.rs` viewport slicing |
+| `hundreds_of_row_clicks_are_bounded...` fails | Per-click stall or unbounded allocation | `docs/dev/interaction-latency.md` |
+| `trash_roundtrip_through_engine_and_undo` fails | Scratch Trash permissions or a record mismatch | Inspect the injected `trash-root` directory and its `.trashinfo` record |
+| `builds_frames_headless` fails | Optics shared libraries not loadable | Run via the workspace harness (rpath relay) or `OPTICS_DYNAMIC=0` |
 
 ---
 
-## 6. Adding New Tests
+## 6. Invariants and Their Enforcing Tests
 
-1. **Pure Specifications (`arca-xdg`)**: Add unit tests in `crates/arca-xdg/src/` inside `#[cfg(test)] mod tests`. Must remain std-only.
-2. **Domain Business Logic (`arca-engine`)**: Add unit tests in the corresponding module under `crates/arca-engine/src/`. Use scratch directories via `std::env::temp_dir()` and ensure tests clean up after themselves.
-3. **UI Interaction & Layout (`arca-ui`)**: Add headless tests in `crates/arca-ui/src/app.rs` or submodules. Construct state via `AppState::new()`, invoke frames via `optics_ui::Ui::headless()`, and assert state mutations or widget response IDs.
-4. Assert both nominal outcomes and boundary edge cases (empty paths, duplicate names, missing metadata, unreadable files).
+1. **`[INV-ARCH-01]` / `[INV-ARCH-02]` / `[INV-ARCH-03]` — architecture
+   firewalls.** `tests/integration/architecture.rs` asserts `arca-xdg` has zero
+   dependencies, `arca-engine` never links the graphics stack, and dependencies
+   flow inward only. The same rules remain duplicated in the CI `architecture`
+   job for defence in depth.
+2. **`[INV-UI-01]` — 1 MiB frame arena.**
+   `virtualization::large_directory_does_not_overflow_frame_arena_in_any_view`
+   (2 500 entries × Grid/List/Miller) and
+   `virtualization::scrolled_large_listing_builds_only_visible_rows`.
+3. **`[INV-OPS-01]` — FreeDesktop trash.**
+   `arca-xdg` unit tests plus
+   `file_operations::trash_roundtrip_through_engine_and_undo` and
+   `file_operations::purge_permanently_removes_a_trashed_record`.
+4. **`[INV-OPS-02]` — anti-clobber.** `arca-engine` unit tests plus
+   `file_operations::rename_refuses_to_clobber_then_succeeds_to_a_free_name`.
+5. **`[INV-UI-04]` — interaction latency.** A click must not request a
+   synchronous XDG activation token unless it launches an application, and
+   interactive navigation must not read the directory on the frame thread.
+   `app::tests::double_click_into_directory_does_not_panic_on_stale_rows`
+   asserts the token policy,
+   `app::tests::double_click_does_not_cross_a_navigation_to_a_different_entry`
+   pins path-based double-click identity, `state::tests::async_navigation*`
+   covers last-writer-wins and history, `ui_flows::asynchronous_navigation_*`
+   exercises the production policy, and `interaction_stress::*` bounds
+   repetitive input. See [Interaction Latency](interaction-latency.md).
+6. **Portal wire contract.** `chooser_contract::*` plus
+   `e2e::portal_prompter::*` cover version refusal, field validation, and the
+   one-line response framing.
+
+---
+
+## 7. Adding Tests
+
+1. **Pure specification (`arca-xdg`):** add a `#[cfg(test)] mod tests` block in
+   the module. Stay std-only.
+2. **Domain logic (`arca-engine`):** add tests beside the module. Use
+   `test-support` only from external suites; crate-local tests may keep a
+   small private helper.
+3. **UI interaction (`arca-ui`):** add headless tests beside the module when
+   they need private state; add `tests/integration/ui_flows.rs` when the journey
+   goes through the public `UiApp` surface.
+4. **Cross-crate or process boundary:** add a module under
+   `tests/integration/` (crate-level composition) or `tests/e2e/` (spawns the
+   binary). Register it in the corresponding `main.rs`.
+5. **New architectural rule with high blast radius:** record it in an ADR,
+   add a named assertion to `tests/integration/architecture.rs` or the relevant
+   suite, and update §6 here.
+6. Assert both nominal and boundary outcomes (empty paths, duplicate names,
+   missing metadata, unreadable files, stale sockets).

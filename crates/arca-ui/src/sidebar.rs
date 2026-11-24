@@ -162,7 +162,7 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                         });
 
                         if let Some(path) = target {
-                            app.state.navigate(&path);
+                            app.navigate_to(&path);
                             app.location.set(&path);
                             app.location_focused = false;
                             app.location_focused_now = false;

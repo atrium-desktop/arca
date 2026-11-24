@@ -32,7 +32,7 @@ Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 
 
 ### 1. 编译构建
 
-Arca 通过官方 Rust 绑定链接 Optics C 库（`optics-app` / `optics-window` / `optics-ui` / `optics-gfx`）。Optics 同时支持静态与动态链接，由构建方决定（`OPTICS_STATIC=1`、`OPTICS_DYNAMIC=1`、可叠加的 `static` Cargo feature，或不设开关时的共享优先探测）；发布产物固定使用静态模式。Vulkan 加载器、Wayland 客户端与字体栈始终为动态链接：
+Arca 通过官方 Rust 绑定链接 Optics C 库（`optics-app` / `optics-window` / `optics-ui` / `optics-gfx`）。工作区默认启用 Optics 的 `static` Cargo feature，使主线与发布产物默认静态嵌入 Optics；传入 `OPTICS_DYNAMIC=1`（本地开发 worktree 默认启用）可切换为动态链接。Vulkan 加载器、Wayland 客户端与字体栈始终为动态链接：
 
 ```bash
 cargo build --release

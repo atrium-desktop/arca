@@ -176,7 +176,8 @@ mod tests {
             Config::default(),
             dir.str(),
         );
-        let mut app = UiApp::new(state);
+        let cache = dir.cache_path().to_path_buf();
+        let mut app = UiApp::with_thumb_cache(state, cache).sync_navigation();
         let mut ui = optics_ui::Ui::headless().expect("headless ui");
         frame(
             &mut app,

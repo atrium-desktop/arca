@@ -59,7 +59,6 @@ To keep the repository root clean, professional, and clutter-free, only canonica
 - `README.md` (and regional language variants like `README-zh.md`)
 - `CHANGELOG.md`
 - `CONTRIBUTING.md`
-- `AGENTS.md`
 - `LICENSE`
 - `SECURITY.md` (if established)
 

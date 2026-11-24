@@ -1,0 +1,55 @@
+# Nextest execution and scheduling for the Arca workspace.
+#
+# The root end-to-end suite spawns the production `arca` binary as a separate
+# process. A test must never run `cargo build` itself: the test runner already
+# holds Cargo's target-directory lock, so a nested build blocks until the test
+# timeout and looks like a product hang. The setup script builds every workspace
+# binary once, before the tests that need it.
+
+experimental = ["setup-scripts"]
+
+[profile.default]
+# Bounded tests: a real deadlock fails instead of hanging the suite forever.
+slow-timeout = { period = "60s", terminate-after = 1 }
+retries = 0
+
+[profile.ci]
+slow-timeout = { period = "90s", terminate-after = 1 }
+retries = 1
+failure-output = "immediate-final"
+
+[scripts.setup.workspace-binaries]
+command = "cargo build --locked --workspace --bins"
+
+[test-groups]
+# The single-instance IPC endpoint and the FreeDesktop trash roundtrip are
+# process-wide resources; keep those tests from racing each other.
+exclusive-system-tests = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'package(arca-tests) and test(/^(ipc::|file_operations::trash)/)'
+test-group = 'exclusive-system-tests'
+
+[[profile.ci.overrides]]
+filter = 'package(arca-tests) and test(/^(ipc::|file_operations::trash)/)'
+test-group = 'exclusive-system-tests'
+
+# External suites link the full presentation stack: start them after the pure
+# engine/XDG targets so the GPU/UI processes do not compete with cheap tests.
+[[profile.default.overrides]]
+filter = 'package(arca-tests)'
+priority = 100
+
+[[profile.ci.overrides]]
+filter = 'package(arca-tests)'
+priority = 100
+
+[[profile.default.scripts]]
+filter = 'package(arca-tests) and test(/^(cli|ipc_forward|portal_prompter)::/)'
+platform = "cfg(unix)"
+setup = "workspace-binaries"
+
+[[profile.ci.scripts]]
+filter = 'package(arca-tests) and test(/^(cli|ipc_forward|portal_prompter)::/)'
+platform = "cfg(unix)"
+setup = "workspace-binaries"

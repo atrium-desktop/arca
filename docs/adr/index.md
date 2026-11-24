@@ -27,4 +27,9 @@ For the record template and guidelines, see [ADR Template](template.md).
 | [0012](0012-synchronize-with-optics-v0.0.80-and-aperture-shell.md) | Synchronize with Optics v0.0.80, the Aperture Application Shell, and Descriptor-Only Operations | Accepted | 2026-11-16 |
 | [0013](0013-synchronize-with-optics-v0.0.82-semantic-module-naming.md) | Synchronize with Optics v0.0.82, Semantic Module Naming, and the Zero-Stutter Namespace | Accepted | 2026-11-20 |
 | [0014](0014-optics-link-mode-and-static-release.md) | Optics Link Mode: Library-Level Flexibility, Static Release Artifact | Accepted | 2026-11-20 |
-| [0015](0015-synchronize-with-optics-v0.0.83-and-shared-preferred-linking.md) | Synchronize with Optics v0.0.83, Shared-Preferred Linking, and the Additive Static Feature | Accepted | 2026-11-23 |
+| [0015](0015-synchronize-with-optics-v0.0.83-and-shared-preferred-linking.md) | Synchronize with Optics v0.0.83, Shared-Preferred Linking, and the Additive Static Feature | Accepted (Amended by ADR-0016, ADR-0018) | 2026-11-23 |
+| [0016](0016-default-static-optics-manifest-and-dev-dynamic-override.md) | Default-Static Optics Manifest and Worktree-Local Dynamic Override | Accepted (Amended by ADR-0018) | 2026-11-24 |
+| [0017](0017-synchronize-with-optics-v0.0.86-and-root-test-architecture.md) | Synchronize with Optics v0.0.86 and Adopt the Root Test Architecture | Accepted | 2026-11-24 |
+| [0018](0018-canonical-lockfile-and-environment-resolved-optics.md) | Canonical Lockfile and Environment-Resolved Optics Checkout | Accepted | 2026-11-24 |
+| [0019](0019-explicit-test-resources.md) | Explicit Test Resources for Thumbnail Cache and Trash | Accepted | 2026-11-24 |
+| [0020](0020-asynchronous-directory-navigation.md) | Asynchronous Directory Navigation at the UI Boundary | Accepted | 2026-11-24 |

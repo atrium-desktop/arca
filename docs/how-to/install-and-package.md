@@ -45,7 +45,7 @@ To compile and install Arca globally:
 
 Arca links the Optics modules statically for release builds, while the link mode
 itself remains a build input. A default Meson build tree (which builds both
-archives and shared objects) is the right input. Optics `v0.0.83` needs a C23
+archives and shared objects) is the right input. Optics `v0.0.86` needs a C23
 compiler with `#embed` support (GCC >= 15, Clang >= 19). Build and install the
 headers plus archives first:
 
@@ -76,14 +76,15 @@ Clone the Arca repository and compile the release binary:
 ```bash
 git clone https://github.com/aegis-shell/arca.git
 cd arca
-OPTICS_STATIC=1 cargo build --release
+cargo build --release
 scripts/check-optics-link.sh --expect static target/release/arca
 ```
 
-`OPTICS_STATIC=1` makes an installed-archive mismatch fail the build, and
-`scripts/check-optics-link.sh --expect static` confirms that the binary embeds
-the Optics modules and carries no Optics runtime path. `ldd target/release/arca`
-should list only the system libraries named in the prerequisites.
+Arca enables Optics's `static` Cargo feature by default, so an installed-archive
+mismatch fails the build, and `scripts/check-optics-link.sh --expect static`
+confirms that the binary embeds the Optics modules and carries no Optics
+runtime path. `ldd target/release/arca` should list only the system libraries
+named in the prerequisites.
 
 ### Step 3: Install Binary and Desktop Assets
 

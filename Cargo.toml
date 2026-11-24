@@ -5,62 +5,57 @@ members = [
     "crates/arca-engine",
     "crates/arca-ui",
     "crates/arca",
+    # Test-only workspace members. They are never production dependencies: the
+    # root suites and their shared support crate exist so unit, integration,
+    # and end-to-end coverage share one harness instead of growing per-crate
+    # copies. `cargo test --workspace` builds and runs them.
+    "crates/test-support",
+    "tests",
 ]
 
 [workspace.package]
-version = "0.2.16"
+version = "0.2.17"
 edition = "2021"
 # The effective toolchain floor is raised by the optics bindings (edition
 # 2024, rust 1.85), which compile from source in every dependency mode.
 rust-version = "1.85"
 
 [workspace.dependencies]
-# Optics stack official Rust bindings. The canonical build resolves the
-# binding sources from the tagged optics monorepo and links the C libraries
-# discovered by pkg-config.
+# Optics stack official Rust bindings. Canonical and production builds
+# statically link the Optics archives by default via the `static` Cargo feature
+# so shipped binaries carry no runtime dependency on a pre-1.0 Optics SONAME
+# (`scripts/check-optics-link.sh --expect static`). System libraries (libc,
+# Vulkan loader, Wayland client, font stack) stay dynamically linked in all
+# modes.
 #
-# The Optics link mode is a build input, not a repository default (ADR-0014).
-# `optics-build` supports `OPTICS_STATIC=1` (require the liboptics_*.a
-# archives), `OPTICS_DYNAMIC=1` (force the liboptics_*.so objects), the additive
-# `static` Cargo feature, and the shared-preferred probe when none is set
-# (Optics v0.0.83). Arca does not enable `static` in the manifest, so the host
-# chooses; release artifacts are pinned with `OPTICS_STATIC=1` and verified by
-# scripts/check-optics-link.sh --expect static. Arca's build scripts only relay
-# the rpaths that the shared branch publishes, so every mode stays available.
-# System libraries (libc, Vulkan loader, Wayland client, font stack) stay
-# dynamically linked in all modes.
-#
-# A linked development worktree can patch these sources to a sibling checkout
-# through .cargo/optics-local.toml without making that checkout mandatory for
-# CI or downstream packagers; see docs/dev/optics-dev-worktree.md.
-#
-# v0.0.83 keeps the semantic module names and the unified `optics_` namespace
-# (Optics ADR-0169, ADR-0170, ADR-0172): crates live under the optics root
-# `crates/` as `optics-<module>`, every public symbol carries its module
-# prefix, and the application shell (`optics-app`) keeps its one-way boundary
-# above `optics-window` and `optics-ui`. Arca imports widget and input types
-# from `optics-ui`, platform control from `optics-window`, and the lifecycle
-# from `optics-app`. v0.0.83 renames the re-exported platform crate alias from
-# `optics_app::iris` to `optics_app::window` and `FluxDiagnostic` to
-# `GfxDiagnostic`; Arca uses the module paths directly, so neither is a source
-# change here.
-optics-app = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
-optics-window = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
-optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
-optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
+# A linked development worktree copies .cargo/optics-local.toml to
+# .cargo/config.toml. That file points the `-sys` build scripts at a sibling
+# `../optics` source/build tree through `OPTICS_SOURCE_DIR` /
+# `OPTICS_BUILD_DIR` and sets `[env] OPTICS_DYNAMIC = "1"` for fast
+# shared-library iteration; it never patches the Cargo graph, so the committed
+# canonical Cargo.lock is valid in every worktree. Downstream packagers that
+# explicitly prefer shared system libraries can set `OPTICS_DYNAMIC=1` in the
+# build environment. See docs/dev/cross-repository-development.md.
+optics-app = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
+optics-window = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
+optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
+optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
 # optics-gfx-sys is the direct FFI surface Arca uses for thumbnail images. The
 # safe `optics-gfx` crate arrives transitively through optics-app/optics-ui; it
 # is not a direct workspace dependency.
-optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
+optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
 # Motion stayed a header-only vocabulary on the C side and pure Safe Rust here
 # (Optics ADR-0158), so there is no `optics-motion-sys` FFI crate and no native
 # library to discover or rpath.
-optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.83" }
+optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.86" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-arca-xdg = { path = "crates/arca-xdg", version = "0.2.16" }
-arca-engine = { path = "crates/arca-engine", version = "0.2.16" }
-arca-ui = { path = "crates/arca-ui", version = "0.2.16" }
+arca-xdg = { path = "crates/arca-xdg", version = "0.2.17" }
+arca-engine = { path = "crates/arca-engine", version = "0.2.17" }
+arca-ui = { path = "crates/arca-ui", version = "0.2.17" }
+# Test-only support crate: scratch directories, environment isolation, polling,
+# and built-binary lookup shared by the root integration and end-to-end suites.
+test-support = { path = "crates/test-support", version = "0.2.17" }
 
 [profile.release]
 opt-level = 3

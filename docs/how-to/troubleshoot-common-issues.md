@@ -109,6 +109,36 @@ requests to Arca, or the portal configuration defaults to another prompter.
 
 ---
 
+## Window Stalls While Clicking Rapidly
+
+### Symptom: the window stops responding for a second or more during repeated
+clicks, then catches up
+
+### Cause
+A frame is doing synchronous work on the UI thread. Historical causes in Arca
+were a directory double-click requesting an XDG activation token (a up-to-one-
+second roundtrip that navigation never needs) and a right-click re-scanning the
+entire `.desktop` database. Slow network directories and continuously changing
+watched directories can also make navigation/refresh expensive.
+
+### Resolution
+1. Use a current build: directory opens no longer request activation tokens and
+   "Open with" results are cached per MIME type.
+2. If the stall happens only in one directory, check whether it is on a network
+   mount or receives continuous writes (downloads, build output). Those
+   directories make the synchronous directory read and watcher refresh visible.
+3. Capture a profile while reproducing and look for
+   `optics_window_create_activation_token`, `discover_applications`,
+   `read_dir`, or plan replay; report the stack with your bug report.
+4. Run the headless stress suites to separate an app-side stall from a
+   compositor/GPU stall:
+   ```bash
+   cargo test -p arca-tests interaction_stress
+   cargo test -p arca-tests virtualization
+   ```
+
+---
+
 ## Corrupted or Unresponsive Configuration
 
 ### Symptom: Application crashes immediately upon reading config

@@ -24,6 +24,7 @@ static NEXT_SCRATCH: AtomicU64 = AtomicU64::new(0);
 pub(crate) struct ScratchDir {
     listing: std::path::PathBuf,
     config: std::path::PathBuf,
+    cache: std::path::PathBuf,
 }
 
 impl ScratchDir {
@@ -41,9 +42,12 @@ impl ScratchDir {
         std::fs::create_dir_all(&listing).expect("create scratch listing");
         let mut config_name = listing.as_os_str().to_owned();
         config_name.push(".conf");
+        let mut cache_name = listing.as_os_str().to_owned();
+        cache_name.push(".cache");
         Self {
             listing,
             config: std::path::PathBuf::from(config_name),
+            cache: std::path::PathBuf::from(cache_name),
         }
     }
 
@@ -59,6 +63,12 @@ impl ScratchDir {
     pub(crate) fn config_path(&self) -> &std::path::Path {
         &self.config
     }
+
+    /// Thumbnail cache outside the listed directory. Tests must never prune
+    /// or write the user's real `~/.cache/thumbnails`.
+    pub(crate) fn cache_path(&self) -> &std::path::Path {
+        &self.cache
+    }
 }
 
 impl std::ops::Deref for ScratchDir {
@@ -73,6 +83,7 @@ impl Drop for ScratchDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.listing);
         let _ = std::fs::remove_file(&self.config);
+        let _ = std::fs::remove_dir_all(&self.cache);
     }
 }
 
@@ -84,7 +95,8 @@ pub(crate) fn fixture() -> (ScratchDir, UiApp) {
     std::fs::write(dir.path().join("a.txt"), b"a").unwrap();
     std::fs::write(dir.path().join(".hidden"), b"h").unwrap();
     let state = state_for(&dir);
-    (dir, UiApp::new(state))
+    let cache = dir.cache_path().to_path_buf();
+    (dir, UiApp::with_thumb_cache(state, cache).sync_navigation())
 }
 
 /// A scratch directory holding `sub/`, `a.txt` and `b.txt`.
@@ -94,7 +106,8 @@ pub(crate) fn fixture_two_files() -> (ScratchDir, UiApp) {
     std::fs::write(dir.path().join("a.txt"), b"a").unwrap();
     std::fs::write(dir.path().join("b.txt"), b"b").unwrap();
     let state = state_for(&dir);
-    (dir, UiApp::new(state))
+    let cache = dir.cache_path().to_path_buf();
+    (dir, UiApp::with_thumb_cache(state, cache).sync_navigation())
 }
 
 /// An `AppState` rooted at `dir` with an isolated config file.

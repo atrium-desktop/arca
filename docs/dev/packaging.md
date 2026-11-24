@@ -4,7 +4,7 @@ This guide covers building distribution packages (Arch Linux, Debian/Ubuntu,
 Fedora, and Flatpak) for Arca from source releases.
 
 Daily source-tree development does not require packaging or installing Arca to the
-system; see [Optics Development Worktree](optics-dev-worktree.md) instead.
+system; see [Cross-Repository Development](cross-repository-development.md) instead.
 
 ---
 
@@ -24,16 +24,15 @@ Arca links against the **Optics** C libraries via their official Rust bindings:
 - `optics-svg` — Vector-document compiler used by `optics-ui` to parse runtime
   SVG icons (including Arca's own icon set).
 
-Arca's release artifact embeds these modules (ADR-0014), while development
-builds follow the host's default. The link mode is a build input handled
-upstream by `optics-build` (ADR-0014 / ADR-0015):
+Arca's workspace manifest enables Optics's `static` Cargo feature by default so
+canonical and release builds embed `liboptics_*.a` without extra flags, while
+development worktrees override the mode with `OPTICS_DYNAMIC=1`:
 
 | Invocation | Result |
 | :--- | :--- |
-| no request | shared-preferred (Optics v0.0.83): `liboptics_*.so` when the probe finds it, else `liboptics_*.a` on a static-only tree |
-| `static` Cargo feature | require the archives; fail when the host has none |
-| `OPTICS_STATIC=1` | require the archives; overrides the feature and the default |
-| `OPTICS_DYNAMIC=1` | force the shared objects |
+| default (`static` Cargo feature) | require the `liboptics_*.a` archives; fail when the host has none |
+| `OPTICS_STATIC=1` | require the archives explicitly |
+| `OPTICS_DYNAMIC=1` | override `static` and link the shared `liboptics_*.so` objects |
 
 A release build therefore needs the development files *and* the static
 archives and pins the mode explicitly: `pkg-config` must resolve each module's
@@ -64,8 +63,9 @@ worktrees and yields a binary that needs the Optics runtime libraries.
 
 In canonical packaging mode:
 - `Cargo.lock` must resolve against the published optics release tag.
-- Downstream packagers must not enable `.cargo/config.toml` path patches pointing to
-  local worktrees.
+- Downstream packagers must not ship or enable a local `.cargo/config.toml`
+  that points `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR` at a development
+  checkout.
 - Approved external crates are strictly limited:
   - `image` (with features `png` and `jpeg` only)
   - `serde` and `serde_json` (used for the XDG desktop portal prompter protocol)
@@ -76,7 +76,7 @@ In canonical packaging mode:
 
 For reproducible, offline distribution builds:
 
-1. Ensure no local `.cargo/config.toml` patch overrides exist:
+1. Ensure no local `.cargo/config.toml` checkout override exists:
    ```bash
    test ! -e .cargo/config.toml
    ```
@@ -374,7 +374,7 @@ install -Dm644 assets/icons/folder.svg %{buildroot}%{_datadir}/icons/hicolor/sca
         {
           "type": "git",
           "url": "https://github.com/aegis-shell/optics.git",
-          "tag": "v0.0.83"
+          "tag": "v0.0.86"
         }
       ]
     },

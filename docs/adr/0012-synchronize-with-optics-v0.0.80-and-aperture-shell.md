@@ -214,7 +214,7 @@ checkout, so local development exercises the same crate graph as the tag.
 - [ADR 0010: Synchronize with Optics v0.0.78](0010-synchronize-with-optics-v0.0.78-and-record-only-host-canvas.md)
 - [ADR 0011: Synchronize with Optics v0.0.79](0011-synchronize-with-optics-v0.0.79-and-unified-bindings.md)
 - [Optics Migration History](../dev/optics-migration.md)
-- [Optics Development Worktree Workflow](../dev/optics-dev-worktree.md)
+- [Cross-Repository Development Workflow](../dev/cross-repository-development.md)
 - Optics ADR-0163: Repository-Root Cargo Workspace
 - Optics ADR-0165: Single-Option Descriptor Migration
 - Optics ADR-0166: Aperture Application Shell and Iris/Lens Split

@@ -11,7 +11,7 @@
 //! and decides per build: by default it links `liboptics_*.so` when the
 //! pkg-config probe finds the shared objects and falls back to
 //! `liboptics_*.a` on a static-only tree (shared-preferred since Optics
-//! v0.0.83). Callers select explicitly with the upstream switches:
+//! v0.0.86). Callers select explicitly with the upstream switches:
 //!
 //! - `OPTICS_STATIC=1` (or the additive `static` Cargo feature) — require
 //!   static; fails when no archive exists.
@@ -24,13 +24,16 @@
 //! without `LD_LIBRARY_PATH`. When the probe chose the archives the lists are
 //! empty and no rpath is emitted.
 //!
-//! Arca's *release* pipeline pins the static mode (`OPTICS_STATIC=1`) and
-//! verifies the artifact with `scripts/check-optics-link.sh --expect static`; see
-//! docs/adr/0014-optics-link-mode-and-static-release.md. That gate belongs to the
-//! release build, so a developer on a shared-only host still gets a working
-//! `cargo test --workspace`.
+//! Arca's workspace manifest enables the `static` feature by default so
+//! canonical and release builds embed `liboptics_*.a` without extra flags,
+//! while linked `dev` worktrees set `OPTICS_DYNAMIC=1` in `.cargo/config.toml`
+//! for fast shared-library iteration; see
+//! docs/adr/0014-optics-link-mode-and-static-release.md and
+//! docs/adr/0016-default-static-optics-manifest-and-dev-dynamic-override.md.
+//! Release artifacts are verified with
+//! `scripts/check-optics-link.sh --expect static`.
 //!
-//! Optics v0.0.83 publishes one crate per semantic module with a matching
+//! Optics v0.0.86 publishes one crate per semantic module with a matching
 //! `links` key (Optics ADR-0169 / ADR-0170). `optics-app` covers the UI host
 //! seam and its window/ui/gfx dependencies; the narrower `optics-window` and
 //! `optics-ui` entries keep the platform and widget layers visible at the call

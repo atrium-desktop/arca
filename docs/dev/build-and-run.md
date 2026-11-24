@@ -15,20 +15,23 @@ rustc --version                  # rustc >= 1.85
 
 ### Choosing the Optics link mode
 
-Optics supports both modes and the choice belongs to the build, not to Optics.
-The `optics-*-sys` build scripts expose the upstream switches and feature
-(ADR-0014):
+Optics supports both modes and the choice belongs to the build, not to Optics
+(ADR-0014, ADR-0016). Arca's root `Cargo.toml` enables Optics's `static` Cargo
+feature by default so canonical and release builds embed `liboptics_*.a`, while
+a linked `arca-dev` worktree sets `[env] OPTICS_DYNAMIC = "1"` in
+`.cargo/config.toml` for fast shared-library iteration:
 
 | Invocation | Result |
 | :--- | :--- |
-| `cargo build -p arca` | shared-preferred (Optics v0.0.83): `liboptics_*.so` when the `pkg-config` probe finds them, otherwise the `liboptics_*.a` archives on a static-only tree |
-| `cargo build -p arca --features optics-app/static` | force the archives; fails with the remediation when the host has none |
-| `OPTICS_STATIC=1 cargo build -p arca` | force the archives; same result as the feature, with higher precedence |
-| `OPTICS_DYNAMIC=1 cargo build -p arca` | force the shared objects |
+| `cargo build -p arca` (canonical `main`) | static via workspace `static` feature (`liboptics_*.a`); fails with remediation when the host has no archives |
+| `cargo build -p arca` (linked `arca-dev` worktree) | dynamic via `.cargo/config.toml` `[env] OPTICS_DYNAMIC = "1"` (`liboptics_*.so` + relayed `-Wl,-rpath`) |
+| `OPTICS_DYNAMIC=0 cargo build -p arca` (inside `arca-dev`) | disables the worktree dynamic override and verifies the production static closure |
+| `OPTICS_STATIC=1 cargo build -p arca` | explicitly require the archives |
+| `OPTICS_DYNAMIC=1 cargo build -p arca` | override `static` and force the shared objects |
 
-A default Optics Meson tree (`default_library=both`) provides both, so the
-shared-preferred default resolves to `liboptics_*.so`. The local development
-worktree relays the build-tree rpaths, so no `LD_LIBRARY_PATH` is needed:
+A default Optics Meson tree (`default_library=both`) provides both `.so` and
+`.a`. The local development worktree relays the build-tree rpaths so no
+`LD_LIBRARY_PATH` is needed:
 
 ```bash
 meson setup ../optics/build ../optics -Dtests=false -Dbuildtype=debugoptimized
@@ -59,11 +62,13 @@ cargo build -p arca
 cargo build --release -p arca
 ```
 
-A release artifact must embed the Optics modules, so the release pipeline pins
-the mode instead of relying on the shared-preferred probe:
+A release artifact must embed the Optics modules (`[INV-BUILD-01]`). Because
+the workspace manifest enables `features = ["static"]` by default, a canonical
+release build embeds them automatically (pass `OPTICS_DYNAMIC=0` if verifying
+from inside `arca-dev`):
 
 ```bash
-OPTICS_STATIC=1 cargo build --release -p arca
+cargo build --release -p arca
 scripts/check-optics-link.sh --expect static target/release/arca
 ```
 
@@ -119,5 +124,5 @@ cargo clippy --workspace --all-targets -- -D warnings
 ## 5. Runtime Diagnostics
 
 - **Wayland Session**: Arca is a native Wayland client. Ensure `$WAYLAND_DISPLAY` is exported.
-- **Optics Stack**: A default development build links the shared modules through the rpath relay, so `ldd target/debug/arca` lists `liboptics_*.so` and the loader finds them in the build tree. A release build embeds the Optics modules, so `ldd target/release/arca` must not list any `liboptics_*`. If a shared binary cannot find `liboptics_app.so`, `liboptics_gfx.so`, or `liboptics_ui.so`, check whether the rpath relay is active for an uninstalled tree or whether Optics is installed; `OPTICS_STATIC=1` avoids the runtime lookup entirely.
+- **Optics Stack**: Canonical `main` and release builds embed the Optics modules via the workspace `static` feature, so `ldd target/release/arca` must not list any `liboptics_*`. A linked `arca-dev` build overrides the mode with `OPTICS_DYNAMIC=1` and links the shared modules through the rpath relay, so `ldd target/debug/arca` lists `liboptics_*.so` and the loader finds them in `../optics/build`. If a shared binary cannot find `liboptics_app.so`, `liboptics_gfx.so`, or `liboptics_ui.so`, check whether the rpath relay is active for an uninstalled tree or whether Optics is installed; canonical static builds avoid runtime lookup entirely.
 - **Vulkan**: `libvulkan.so.1` and the ICD drivers stay dynamic even in a static Optics build; a missing driver surfaces as a device-creation failure at startup, not as a loader error.

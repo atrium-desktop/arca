@@ -181,8 +181,9 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
     if let Some(idx) = activated {
         match actions.get(idx) {
             Some(Action::Open) => {
-                let token = optics_window::window_create_activation_token(None);
-                app.state.open_selected_with_token(token.as_deref());
+                // The same token policy as Enter/double-click: directory
+                // navigation never pays the synchronous token roundtrip.
+                app.open_selected();
             }
             Some(Action::QuickLook) => {
                 app.toggle_preview();
@@ -285,7 +286,7 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones)
         actions.push(Action::RemoveBookmark);
     }
 
-    if arca_engine::AppState::is_trash_location(&menu.path) {
+    if app.state.is_trash_location(&menu.path) {
         items.push(MenuItem::separator());
         actions.push(Action::None);
 

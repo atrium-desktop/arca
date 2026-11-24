@@ -36,9 +36,23 @@ pub(crate) struct ThumbStore {
 }
 
 impl ThumbStore {
+    /// Production store backed by the FreeDesktop thumbnail cache.
     pub fn new() -> ThumbStore {
+        Self::from_service(ThumbService::new())
+    }
+
+    /// Store backed by an explicit cache directory.
+    ///
+    /// Embedders and tests pass a scratch path: `ThumbService::new` starts a
+    /// janitor that prunes the user's real `~/.cache/thumbnails`, which a test
+    /// process must never do.
+    pub fn with_cache_dir(cache_dir: std::path::PathBuf) -> ThumbStore {
+        Self::from_service(ThumbService::with_cache_dir(cache_dir))
+    }
+
+    fn from_service(service: ThumbService) -> ThumbStore {
         ThumbStore {
-            service: ThumbService::new(),
+            service,
             images: HashMap::new(),
             order: VecDeque::new(),
             cwd: String::new(),
@@ -215,7 +229,8 @@ mod tests {
     /// returning to a folder is instant.
     #[test]
     fn sync_cwd_drops_pending_work_only() {
-        let mut store = ThumbStore::new();
+        let dir = crate::test_support::ScratchDir::new("arca-thumb-store");
+        let mut store = ThumbStore::with_cache_dir(dir.path().join("cache"));
         store.sync_cwd("/a");
         store.sync_cwd("/a");
         assert_eq!(store.cwd, "/a");
@@ -228,7 +243,8 @@ mod tests {
     /// a harmless no-op rather than a null-pointer upload.
     #[test]
     fn image_for_without_a_device_returns_none() {
-        let mut store = ThumbStore::new();
+        let dir = crate::test_support::ScratchDir::new("arca-thumb-none");
+        let mut store = ThumbStore::with_cache_dir(dir.path().join("cache"));
         store.sync_cwd("/tmp");
         assert!(store.image_for("/tmp/anything.png").is_none());
     }

@@ -11,7 +11,20 @@
 
 Arca is a fast, keyboard-first file manager for Wayland and a companion application for the Tessera desktop ecosystem. The project name derives from the Latin *arca* — historically a chest, coffer, or ark for safekeeping valuable documents and treasures. In modern computing, Arca serves as a secure, fast, and visually refined vessel for browsing and managing files across Wayland compositors.
 
-It is organized as an uncompromising, modern Cargo workspace containing four specialized crates arranged across concentric architectural layers:
+It is organized as a modern Cargo workspace containing four production crates
+arranged across concentric architectural layers, plus two test-only workspace
+members (`crates/test-support` and `tests/`) that are never normal or build
+dependencies of a production crate:
+
+- **`crates/test-support`** — std-only fixtures shared by external suites:
+  scratch directories with RAII cleanup, serialized XDG environment isolation,
+  bounded polling, and built-binary lookup.
+- **`tests/` (`arca-tests`)** — one root integration binary and one root
+  end-to-end binary. The architecture firewalls, cross-crate flows, headless
+  user journeys, prompter contract, IPC handshake, virtualization, and
+  interaction-stress guards live here; see [Automated Testing](testing.md).
+
+The production topology:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -61,7 +74,7 @@ It is organized as an uncompromising, modern Cargo workspace containing four spe
 - **Role**: Headless domain engine and session state machine for file browsing, history, operations, and settings.
 - **Owned Domains**:
   - *Directory Model*: `DirEntry` representations, filesystem metadata caching, file kind classification (file, directory, symlink, socket, fifo, device), hidden-file filtering.
-  - *Navigation & Session State*: Multi-tab state management (`TabState`), per-tab current working directory, forward/backward history stacks with truncation on branch, bookmarks (GTK bookmarks, XDG user dirs, custom user pins).
+  - *Navigation & Session State*: Multi-tab state management (`TabState`), per-tab current working directory, forward/backward history stacks with truncation on branch, bookmarks (GTK bookmarks, XDG user dirs, custom user pins), and an asynchronous read/poll seam (`begin_navigate` / `poll_navigation`) the interactive window uses so directory I/O never blocks a click frame.
   - *Sorting & Filtering*: Deterministic sorting (by Name, Size, Modified Time; ascending/descending) with directories pinned to top, case-insensitive substring search filter.
   - *File Operations (`ops`)*: Safe inline rename (refuses to clobber existing destinations), unique folder creation ("New Folder", "New Folder (1)"), batch trash movement, trash restoration, undo queue, clipboard copy/cut staging (`ClipboardAction`).
   - *Configuration (`config`)*: `~/.config/arca/arca.conf` parser and serializer (`key = value`) for view mode, sort order, hidden files flag, theme preference, thumbnails toggle, and bookmarks.
@@ -136,12 +149,13 @@ arca (binary)
 
 | Invariant ID | Name | Architectural Red-Line | Mechanical Enforcement |
 | :--- | :--- | :--- | :--- |
-| **`[INV-ARCH-01]`** | XDG Pure-Std Isolation | `arca-xdg` must have strictly zero external dependencies. | CI job `architecture` parses `crates/arca-xdg/Cargo.toml` and fails on any dependency block |
-| **`[INV-ARCH-02]`** | Engine Headless Purity | `arca-engine` must never link GUI or Wayland libraries. | CI job `architecture` rejects `optics-app`/`optics-ui`/`optics-window`/`optics-gfx`/`optics-text`/`optics-material`/`optics-svg`/`optics-scene`/`optics-motion`/`optics`/`arca-ui` as dependencies |
-| **`[INV-ARCH-03]`** | Concentric Dependency Direction | Outer layers may depend inward only; no cycles. | CI job `architecture` checks each crate's internal edges against an allow-list |
-| **`[INV-UI-01]`** | 1 MiB Frame Arena Budget | Viewport rendering must never exceed the optics-ui 1 MiB arena memory limit. | `tests::large_directory_does_not_overflow_frame_arena` (CI job `invariants`) |
+| **`[INV-ARCH-01]`** | XDG Pure-Std Isolation | `arca-xdg` must have strictly zero external dependencies. | `architecture::xdg_layer_is_dependency_free` and CI job `architecture` |
+| **`[INV-ARCH-02]`** | Engine Headless Purity | `arca-engine` must never link GUI or Wayland libraries. | `architecture::engine_layer_never_links_the_graphics_stack` and CI job `architecture` |
+| **`[INV-ARCH-03]`** | Concentric Dependency Direction | Outer layers may depend inward only; no cycles, and production crates never depend on test infrastructure. | `architecture::dependency_direction_is_concentric`, `architecture::production_crates_do_not_depend_on_test_infrastructure` |
+| **`[INV-UI-01]`** | 1 MiB Frame Arena Budget | Viewport rendering must never exceed the optics-ui 1 MiB arena memory limit. | `virtualization::large_directory_does_not_overflow_frame_arena_in_any_view`, `virtualization::scrolled_large_listing_builds_only_visible_rows` (CI job `test`) |
 | **`[INV-UI-02]`** | Motion Math Centralization | Easing curves and spring dynamics must delegate to `optics-motion`. | Elimination of private approach/clamping math; ADR-0004 |
 | **`[INV-UI-03]`** | Legible Text | Body text must meet WCAG AA (4.5:1) on its surface in both schemes. | `theme::contrast_tests::*` |
+| **`[INV-UI-04]`** | Interaction Latency | A directory open must not request a synchronous XDG activation token or read the directory on the interactive frame thread; double-clicks are identified by entry absolute path; repetitive clicking must stay bounded and return to zero damage. | `app::tests::double_click_into_directory_does_not_panic_on_stale_rows`, `app::tests::double_click_does_not_cross_a_navigation_to_a_different_entry`, `state::tests::async_navigation*`, `ui_flows::asynchronous_navigation_*`, `interaction_stress::*`, `damage_and_quiescence::*`; [Interaction Latency](interaction-latency.md), [ADR-0020](../adr/0020-asynchronous-directory-navigation.md) |
 | **`[INV-OPS-01]`** | Non-Destructive Trash | Deletions must generate compliant FreeDesktop `.trashinfo` metadata, recording the deleted path itself (never a symlink's target). | `trash::tests::test_trash_roundtrip`, `trash::tests::trashing_a_symlink_records_the_link_path` |
 | **`[INV-OPS-02]`** | Anti-Clobber File Creation | Renaming and folder creation must never silently overwrite destinations, including dangling symlinks. | `ops::tests::rename_refuses_to_clobber`, `ops::tests::rename_refuses_dangling_symlink_destination` |
 | **`[INV-OPS-03]`** | No Self-Containment | A directory may never be copied or moved into itself or a descendant. | `ops::tests::copy_and_move_reject_self_descendant_targets`, `state::tests::drop_refuses_a_directory_into_its_own_descendant` |
@@ -150,4 +164,4 @@ arca (binary)
 | **`[INV-DATA-02]`** | Transfer Payload Parity | Drops accept the same interchange formats the clipboard emits (`text/uri-list`, `x-special/gnome-copied-files`, bare paths). | `state::tests::drop_transfers_every_item_in_a_uri_list_payload`, `clipboard::tests::*` |
 | **`[INV-DOC-01]`** | Code-to-Doc Parity | Every CLI flag, config key, sort value and key binding appears in its reference. | `scripts/check-docs.py` (CI job `docs`) |
 | **`[INV-CLI-01]`** | Unified Binary Singleton | `arca` is the sole public executable binary. | Cargo workspace root manifest binary configuration |
-| **`[INV-BUILD-01]`** | Release Link Mode | The *release* `arca` binary must embed the Optics native stack: no `liboptics_*.so` `DT_NEEDED` entry, no Optics runpath, and `optics_app_run` in the symbol table (or, for a stripped artifact, surviving `optics_*` references). Development builds follow the shared-preferred default and may use any mode. | Release builds pass `OPTICS_STATIC=1`; `scripts/check-optics-link.sh --expect static` in CI job `test`, plus the same gate with `--expect dynamic` on the shared build; ADR-0014, amended by ADR-0015 |
+| **`[INV-BUILD-01]`** | Release Link Mode | The *release* `arca` binary must embed the Optics native stack: no `liboptics_*.so` `DT_NEEDED` entry, no Optics runpath, and `optics_app_run` in the symbol table (or, for a stripped artifact, surviving `optics_*` references). Linked `dev` worktrees override to dynamic via `[env] OPTICS_DYNAMIC = "1"`. | Workspace enables `features = ["static"]` by default; CI job `test` gates `cargo build --release -p arca` with `scripts/check-optics-link.sh --expect static` and `OPTICS_DYNAMIC=1` with `--expect dynamic`; ADR-0014, amended by ADR-0015 and ADR-0016 |

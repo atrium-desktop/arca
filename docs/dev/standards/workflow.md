@@ -47,8 +47,8 @@ Any pull request that introduces or modifies user-visible or integrator-facing s
 Prior to creating a release tag:
 
 1. **Workspace Compilation**: Run `cargo check --workspace` and verify zero errors.
-2. **Full Test Suite**: Run `cargo test --workspace` across all crates (ensuring `arca-xdg`, `arca-engine`, `arca-ui`, and `arca` pass).
+2. **Full Test Suite**: Run `cargo nextest run --locked --workspace` across all crates and the root suites (`arca-xdg`, `arca-engine`, `arca-ui`, `arca`, `arca-tests`, `test-support`). Run `cargo nextest run -p arca-tests --no-default-features` to confirm the native-free lane.
 3. **Packaging Integrity**: Verify that headless tests pass under `--locked` or offline flags (`cargo test --release --locked --workspace`).
-4. **Release Link Integrity**: Run `OPTICS_STATIC=1 cargo build --release -p arca` and `scripts/check-optics-link.sh --expect static target/release/arca`; the artifact must embed the Optics modules (`[INV-BUILD-01]`).
+4. **Release Link Integrity**: Run `cargo build --release -p arca` (static by default via the workspace `static` feature; pass `OPTICS_DYNAMIC=0` if running inside `arca-dev`) and `scripts/check-optics-link.sh --expect static target/release/arca`; the artifact must embed the Optics modules (`[INV-BUILD-01]`).
 5. **Changelog Integrity**: Ensure user-facing features, fixes, and migrations are documented in `CHANGELOG.md`.
 6. **Clean Git State**: Verify no untracked experimental files or temporary debug assets remain in the tree.

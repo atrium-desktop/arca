@@ -1,0 +1,12 @@
+[package]
+name = "test-support"
+description = "Shared, dependency-free infrastructure for Arca unit, integration, and end-to-end tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+# Strictly zero dependencies: test support must stay as portable as
+# `arca-xdg`, because the native-free CI lane builds it without the Optics
+# toolchain.

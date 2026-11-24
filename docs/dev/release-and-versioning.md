@@ -8,7 +8,7 @@ This document defines the operational procedures, versioning invariants, Git tag
 
 Arca maintains a unified, tightly integrated desktop application suite. Unlike autonomous multi-standard clusters with divergent release cadences, Arca operates under a **Unified Lockstep SemVer Model**:
 
-1. **Workspace Version Alignment**: All internal crates (`arca-xdg`, `arca-engine`, `arca-ui`, `arca`) share the exact same version declared at the root manifest under `[workspace.package.version]`.
+1. **Workspace Version Alignment**: All internal crates (`arca-xdg`, `arca-engine`, `arca-ui`, `arca`) share the exact same version declared at the root manifest under `[workspace.package.version]`. The two test-only members (`test-support`, `arca-tests`) inherit the same version but set `publish = false` and are never shipped.
 2. **Deterministic Release Bundles**: A release tag (e.g. `v0.2.10`) uniquely identifies an atomic snapshot across all crates, ensuring that package managers and distribution builders never experience version mismatch between engine, UI, and binary layers.
 3. **Optics Stack Synchronization**: The repository declares upstream Optics bindings with explicit version tags matching the desktop runtime environment.
 
@@ -16,7 +16,7 @@ Arca maintains a unified, tightly integrated desktop application suite. Unlike a
 
 ## 2. Workspace Crate Versioning Matrix
 
-All four crates in the repository inherit their version from the root `Cargo.toml`:
+All four production crates in the repository inherit their version from the root `Cargo.toml`. The test-only members do the same but are not published:
 
 | Crate | Layer | Role | Version Source |
 | :--- | :--- | :--- | :--- |
@@ -49,12 +49,12 @@ cargo check --workspace
 Expected result: zero warnings, zero unresolved symbols.
 
 ### 3.2 Automated Test Gate
-Run full unit and headless frame test suites:
+Run the canonical process-per-test suite:
 
 ```bash
-cargo test --workspace
+cargo nextest run --locked --workspace
 ```
-Expected result: all unit tests in `arca-xdg`, `arca-engine`, and headless frame tests in `arca-ui` pass cleanly.
+Expected result: all unit, integration, and end-to-end tests pass cleanly; `cargo test --locked --workspace` is a supported local alternative.
 
 ### 3.3 Offline / Locked Dependency Check
 Ensure reproducible distribution builds:
@@ -67,7 +67,8 @@ cargo test --release --locked --workspace
 Verify that large directory listings stay strictly within the 1 MiB frame arena limit:
 
 ```bash
-cargo test large_directory_does_not_overflow_frame_arena
+cargo test -p arca-tests virtualization::large_directory_does_not_overflow_frame_arena_in_any_view
+cargo test -p arca-tests virtualization::scrolled_large_listing_builds_only_visible_rows
 ```
 
 ---

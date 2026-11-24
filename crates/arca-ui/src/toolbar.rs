@@ -20,13 +20,13 @@ pub(crate) fn build_toolbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
         },
         |frame| {
             if icons::icon_button(frame, ids::ArrowLeft, 30.0) {
-                app.state.go_back();
+                app.go_back();
             }
             if icons::icon_button(frame, ids::ArrowRight, 30.0) {
-                app.state.go_forward();
+                app.go_forward();
             }
             if icons::icon_button(frame, ids::ArrowUp, 30.0) {
-                app.state.go_up();
+                app.go_up();
             }
             if icons::icon_button(frame, ids::RefreshCw, 30.0) {
                 app.state.refresh();

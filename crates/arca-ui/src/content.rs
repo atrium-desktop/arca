@@ -1168,11 +1168,16 @@ mod tests {
             std::fs::write(dir.join(format!("file-{i:04}.txt")), b"x").unwrap();
         }
         let config_file = dir.join("cfg").join("arca.conf");
-        let mut app = UiApp::new(AppState::with_config(
-            config_file.to_str().unwrap().into(),
-            Config::default(),
-            dir.to_str().unwrap(),
-        ));
+        let cache = dir.with_extension("cache");
+        let mut app = UiApp::with_thumb_cache(
+            AppState::with_config(
+                config_file.to_str().unwrap().into(),
+                Config::default(),
+                dir.to_str().unwrap(),
+            ),
+            &cache,
+        )
+        .sync_navigation();
         app.state.set_view_mode(ViewMode::List);
 
         let mut ui = optics_ui::Ui::headless().expect("headless ui");
@@ -1201,6 +1206,8 @@ mod tests {
             after.0 > before.0,
             "scroll must advance the window: {before:?} -> {after:?}"
         );
+
+        let _ = std::fs::remove_dir_all(&cache);
     }
 
     #[test]
@@ -1235,50 +1242,10 @@ mod tests {
         }
     }
 
-    /// A listing of a few thousand entries once overflowed optics-ui's 1 MiB
-    /// per-frame arena: draw calls past the limit are dropped silently, which
-    /// blanked every grid icon. The virtualized listings must stay far below
-    /// the budget no matter how large the directory.
-    #[test]
-    fn large_directory_does_not_overflow_frame_arena() {
-        let dir = std::env::temp_dir().join(format!(
-            "arca-ui-big-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        for i in 0..2500 {
-            std::fs::write(dir.join(format!("file-{i:04}.txt")), b"x").unwrap();
-        }
-        let config_file = dir.join("cfg").join("arca.conf");
-        let state = AppState::with_config(
-            config_file.to_str().unwrap().into(),
-            Config::default(),
-            dir.to_str().unwrap(),
-        );
-        let mut app = UiApp::new(state);
-        let mut ui = optics_ui::Ui::headless().expect("headless ui");
-        let input = optics_ui::Input::new((1280.0, 760.0), 1.0 / 60.0);
-
-        for mode in [
-            arca_engine::ViewMode::Grid,
-            arca_engine::ViewMode::List,
-            arca_engine::ViewMode::Miller,
-        ] {
-            app.state.set_view_mode(mode);
-            let mut overflowed = false;
-            for _ in 0..3 {
-                ui.frame(&input, |f| {
-                    app.build(f, &input);
-                });
-                overflowed |= ui.overflowed();
-            }
-            assert!(!overflowed, "{mode:?} overflowed the optics-ui frame arena");
-        }
-    }
+    // The 1 MiB frame-arena invariant for multi-thousand-entry directories now
+    // lives in the root integration suite (`tests/integration/virtualization.rs`),
+    // where it is named by CI as an architectural invariant and exercises the
+    // public `UiApp` surface instead of this module's private helpers.
 
     #[test]
     fn light_and_dark_mode_renders_all_views_and_icons() {

@@ -2,7 +2,7 @@
 
 This directory contains internal engineering documentation for contributors working on Arca: build workflows, automated testing, manual acceptance runbooks, packaging, architecture blueprints, and engineering standards.
 
-For the user-facing project overview, see the root [README](../../README.md). For agent directives and subsystem red-lines, see [AGENTS.md](../../AGENTS.md).
+For the user-facing project overview, see the root [README](../../README.md).
 
 ---
 
@@ -12,8 +12,9 @@ For the user-facing project overview, see the root [README](../../README.md). Fo
 | :--- | :--- |
 | **[Setup](setup.md)** | Prerequisites, canonical vs local workflows, building native dependencies, running, and troubleshooting |
 | **[Build & Run Guide](build-and-run.md)** | Compiling, sandbox execution, CLI picker mode, portal prompter, and headless tests |
-| **[Optics Development Worktree](optics-dev-worktree.md)** | Developing against a live sibling `optics` checkout via Cargo `[patch]` and linked worktrees |
-| **[Automated Testing](testing.md)** | Four-tier test pyramid, running unit and headless UI frame tests, and invariant validation |
+| **[Cross-Repository Development](cross-repository-development.md)** | Developing against a live sibling `optics` checkout via `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR`, linked worktrees, and dynamic-link overrides without patching the Cargo graph |
+| **[Automated Testing](testing.md)** | Four-tier test architecture, root integration/E2E suites, native-free lane, and invariant validation |
+| **[Interaction Latency](interaction-latency.md)** | Click-stall analysis, synchronous token/desktop-scan causes, and the stress guards that bound them |
 | **[Acceptance Scenarios](acceptance.md)** | Outside-in deliverable acceptance criteria, end-to-end user journeys, and scenario matrices |
 | **[Release & Versioning](release-and-versioning.md)** | Lockstep workspace SemVer model, pre-release checklists, and Git tagging playbooks |
 | **[Distribution Packaging](packaging.md)** | Packaging guidelines, dependencies, reproducible builds, and system desktop manifests |

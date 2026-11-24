@@ -6,83 +6,35 @@ on:
   pull_request:
 
 env:
-  # The engine/UI crates link the Optics C libraries. CI builds them from the
-  # pinned tag; this job only needs the pure-Rust layers plus a headless UI.
   CARGO_TERM_COLOR: always
+  # The pinned Optics version. Keep this in lockstep with Cargo.toml.
+  OPTICS_TAG: v0.0.86
 
 jobs:
   architecture:
-    name: Architecture firewalls
+    name: Architecture & native-free suites
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
 
-      # [INV-ARCH-01] arca-xdg is strictly `std`-only. Assert on the manifest
-      # rather than trusting review: a single added dependency breaks the
-      # Freedesktop layer's portability guarantee.
-      - name: arca-xdg must have zero dependencies
+      # The CI checkout of Optics must be the same tag the manifest resolves.
+      - name: Optics tag matches the workflow pin
         run: |
-          python3 - <<'PY'
-          import tomllib, sys
-          with open("crates/arca-xdg/Cargo.toml", "rb") as fh:
-              manifest = tomllib.load(fh)
-          deps = {
-              **manifest.get("dependencies", {}),
-              **manifest.get("dev-dependencies", {}),
-              **manifest.get("build-dependencies", {}),
+          pinned=$(sed -n 's/.*tag = "\(v[^"]*\)".*/\1/p' Cargo.toml | sort -u)
+          test "$pinned" = "$OPTICS_TAG" || {
+            echo "Cargo.toml pins $pinned but OPTICS_TAG is $OPTICS_TAG" >&2
+            exit 1
           }
-          if deps:
-              sys.exit(f"[INV-ARCH-01] arca-xdg declares dependencies: {sorted(deps)}")
-          print("arca-xdg is dependency-free")
-          PY
 
-      # [INV-ARCH-02] arca-engine must never link the graphics stack.
-      - name: arca-engine must not link GUI/Wayland crates
-        run: |
-          python3 - <<'PY'
-          import tomllib, sys
-          forbidden = {"optics-app", "optics-app-sys", "optics-ui",
-                       "optics-ui-sys", "optics-window", "optics-window-sys",
-                       "optics-gfx", "optics-gfx-sys", "optics-text",
-                       "optics-text-sys", "optics-material",
-                       "optics-material-sys", "optics-svg", "optics-svg-sys",
-                       "optics-scene", "optics-scene-sys", "optics-motion",
-                       "optics", "arca-ui", "arca"}
-          with open("crates/arca-engine/Cargo.toml", "rb") as fh:
-              manifest = tomllib.load(fh)
-          used = set(manifest.get("dependencies", {})) & forbidden
-          if used:
-              sys.exit(f"[INV-ARCH-02] arca-engine links {sorted(used)}")
-          print("arca-engine is headless")
-          PY
+      # The architecture firewalls are Rust tests in the root suite. They are
+      # native-free, so a host without the Optics toolchain can still prove the
+      # crate boundaries, the zero-dependency layers, and the lockfile graph.
+      - name: Architecture firewalls
+        run: "cargo test -p arca-tests --no-default-features architecture::"
 
-      # [INV-ARCH-03] The dependency graph must stay a DAG in the intended
-      # direction: outer layers may depend inward, never the reverse.
-      - name: Dependency direction
-        run: |
-          python3 - <<'PY'
-          import tomllib, sys
-          crates = {name: f"crates/{name}/Cargo.toml"
-                    for name in ["arca-xdg", "arca-engine", "arca-ui", "arca"]}
-          allowed = {
-              "arca-xdg": set(),
-              "arca-engine": {"arca-xdg"},
-              "arca-ui": {"arca-engine", "arca-xdg"},
-              "arca": {"arca-engine", "arca-ui", "arca-xdg"},
-          }
-          for name, path in crates.items():
-              with open(path, "rb") as fh:
-                  manifest = tomllib.load(fh)
-              internal = {d for d in manifest.get("dependencies", {}) if d in crates}
-              extra = internal - allowed[name]
-              if extra:
-                  sys.exit(f"{name} may not depend on {sorted(extra)}")
-          print("dependency direction is concentric")
-          PY
-
-      - name: Rustdoc links resolve
-        run: cargo doc --workspace --no-deps --offline 2>&1 | tee /tmp/doc.log
-        continue-on-error: false
+      - name: Native-free engine, XDG, and protocol suites
+        run: cargo test -p arca-tests --no-default-features
 
   docs:
     name: Code-to-doc synchronisation
@@ -90,8 +42,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The workflow standard requires CLI/config/shortcut surfaces to be
-      # documented in the same change. These checks make that mechanical.
       - name: CLI flags are documented
         run: python3 scripts/check-docs.py cli
 
@@ -104,80 +54,122 @@ jobs:
       - name: Internal doc links resolve
         run: python3 scripts/check-docs.py links
 
-      # Tests belong beside the module they constrain. A monolithic
-      # `lib.rs::tests` block silently absorbs suites and hides the mapping
-      # between a module and its regression coverage.
       - name: Test locality
         run: python3 scripts/check-docs.py tests
 
   test:
-    name: Build & test
+    name: Build & test (native)
     runs-on: ubuntu-latest
+    env:
+      OPTICS_SOURCE_DIR: ${{ github.workspace }}/optics
+      OPTICS_BUILD_DIR: ${{ github.workspace }}/optics/build
+      # Tests exercise the shared branch (fast, no relink after a C change).
+      # The release gate below flips this to 0 and verifies the archives.
+      OPTICS_DYNAMIC: "1"
+      # bindgen must use the same C23-capable Clang that built Optics.
+      LIBCLANG_PATH: /usr/lib/llvm-19/lib
+      CLANG_PATH: /usr/bin/clang-19
     steps:
       - uses: actions/checkout@v4
+
+      # The committed Cargo.lock resolves the pinned Optics Git tag. CI checks
+      # the same tag out beside the workspace and points the -sys build scripts
+      # at its Meson tree; no Cargo [patch] is involved.
+      - name: Checkout pinned Optics
+        uses: actions/checkout@v4
+        with:
+          repository: ming2k/optics
+          ref: ${{ env.OPTICS_TAG }}
+          path: optics
+          token: ${{ secrets.OPTICS_READ_TOKEN || github.token }}
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
-      - name: Install Optics build prerequisites
+      - uses: taiki-e/install-action@nextest
+
+      - name: Install native build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libvulkan-dev libwayland-dev \
-            libxkbcommon-dev meson ninja-build binutils
-          # The pinned optics tag is probed through pkg-config. The link mode
-          # is a build input (ADR-0014): the test gate below exercises both the
-          # shared-preferred default (Optics v0.0.83) and the pinned static
-          # release artifact. See docs/dev/setup.md for the full local toolchain.
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libvulkan-dev libwayland-dev wayland-protocols \
+            libxkbcommon-dev libfontconfig-dev libfreetype-dev \
+            libharfbuzz-dev libfribidi-dev libdbus-1-dev libglib2.0-dev \
+            libsystemd-dev libpng-dev libjpeg-dev meson ninja-build \
+            binutils wget gnupg lsb-release software-properties-common
+          # Optics v0.0.86 requires a C23 compiler with #embed (Clang >= 19).
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y --no-install-recommends clang-19 libclang-19-dev
+
+      - name: Build pinned Optics C stack
+        env:
+          CC: clang-19
+          CXX: clang++-19
+        run: |
+          meson setup optics/build optics \
+            -Dtests=false \
+            -Dexamples=false \
+            -Dbuildtype=release \
+            -Ddefault_library=both
+          meson compile -C optics/build
 
       - name: Formatting
         run: cargo fmt --all -- --check
 
       - name: Clippy (warnings are errors)
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
-      - name: Tests
-        run: cargo test --workspace
+      - name: Rustdoc
+        run: cargo doc --locked --workspace --no-deps
 
-      # [INV-BUILD-01] The *release* artifact must embed the Optics native
-      # stack (ADR-0014). The mode is pinned by the release invocation, not by
-      # the repository, so a shared-only host can still develop and test.
+      - name: Tests (nextest, process-per-test)
+        run: cargo nextest run --locked --workspace --profile ci
+
+      - name: Doctests
+        run: cargo test --locked --doc --workspace
+
+      # [INV-BUILD-01] The workspace enables Optics's `static` feature by
+      # default. Verify the produced ELF before and after stripping debug info.
       - name: Release Optics link mode
+        env:
+          OPTICS_DYNAMIC: "0"
         run: |
-          OPTICS_STATIC=1 cargo build --release -p arca
+          cargo build --locked --release -p arca
           scripts/check-optics-link.sh --expect static target/release/arca
           strip --strip-debug target/release/arca
           scripts/check-optics-link.sh --expect static target/release/arca
           mkdir -p /tmp/link-gate
           cp target/release/arca /tmp/link-gate/arca
 
-      # The shared branch is a supported configuration, so it needs coverage of
-      # its own: without this job a regression in the rpath relay or in the
-      # pkg-config probe would only surface in a downstream shared deployment.
+      # The shared branch is a supported configuration and needs its own gate:
+      # without this a regression in the rpath relay or pkg-config probe would
+      # only surface in a downstream shared deployment.
       - name: Shared Optics link mode
         run: |
-          OPTICS_DYNAMIC=1 cargo build --release -p arca
+          cargo build --locked --release -p arca
           scripts/check-optics-link.sh --expect dynamic target/release/arca
 
-      # The gate is what stands between a misconfigured link and a shipped
-      # artifact, so its own failure modes are tested rather than reviewed.
       - name: Link-gate self-test
         run: scripts/test-check-optics-link.sh /tmp/link-gate/arca
 
-  invariants:
-    name: Regression invariants
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Named invariants from docs/dev/subsystems.md. They run in this job so
+      # they share the exact native environment the other tests use.
+      - name: INV-ARCH-01..03 architecture firewalls
+        run: "cargo test --locked -p arca-tests --no-default-features architecture::"
 
-      # Named invariants from docs/dev/subsystems.md. Running them explicitly
-      # keeps the mapping between the document and the enforcing test honest.
       - name: INV-UI-01 frame arena budget
-        run: cargo test -p arca-ui large_directory_does_not_overflow_frame_arena
+        run: "cargo test --locked -p arca-tests virtualization::"
+
+      - name: INV-UI-04 interaction latency
+        run: "cargo test --locked -p arca-tests interaction_stress::"
 
       - name: INV-OPS-01 trash roundtrip
-        run: "cargo test -p arca-xdg trash::"
+        run: |
+          cargo test --locked -p arca-xdg trash::
+          cargo test --locked -p arca-tests --no-default-features file_operations::trash
 
       - name: INV-OPS-02 anti-clobber
-        run: cargo test -p arca-engine ops::tests
+        run: "cargo test --locked -p arca-engine ops::tests"

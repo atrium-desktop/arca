@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.17] - 2026-11-24
+
+### Added
+- Synchronized workspace dependencies with Optics `v0.0.86` and landed ADR-0017. The pinned release includes the `-sys` FFI type-ownership unification (`v0.0.84`), canonical RenderPlan handles for image snapshots with shared-owner `vk_image` lifetime tracking (`v0.0.85`), and falsy `OPTICS_DYNAMIC`/`OPTICS_STATIC` handling (`v0.0.86`).
+- Added the root `arca-tests` workspace package and the std-only `test-support` crate: one integration binary (architecture firewalls, engine/XDG flows, prompter contract, IPC, headless user journeys, damage/quiescence, virtualization, interaction stress) and one end-to-end binary (argv, portal JSON stdio, single-instance forwarding).
+- Added `[INV-UI-04]` interaction-latency guards: stress tests bound hundreds of clicks and view changes, and the damage suite asserts quiescence.
+- Added `.config/nextest.toml` with a workspace-binary setup script, slow-test timeouts, and exclusive groups for IPC and trash.
+- Added explicit test resources (ADR-0019): `UiApp::with_thumb_cache` keeps the thumbnail janitor off the user's real cache, and `AppState::with_config_and_trash_root` keeps destructive tests inside a scratch Trash instead of mutating `HOME`/`XDG_*`.
+- Added asynchronous interactive navigation (ADR-0020): `AppState::begin_navigate` / `poll_navigation` read directories on a worker, publish only the newest request into the tab that asked for it, and `UiApp` enables the policy by default. The synchronous engine API remains for the CLI, chooser, and deterministic tests.
+
+### Fixed
+- **Directory double-clicks no longer request an XDG activation token.** `optics-window` creates the token synchronously and bounds the wait at roughly one second; asking for one merely to navigate made every folder open pay that timeout on compositors that delay `xdg_activation`. Enter, Miller right-arrow, row double-click, and context-menu Open now request a token only for an application launch.
+- **Right-click no longer re-parses the whole desktop-entry database.** "Open with" candidates are cached per MIME type for the window's lifetime instead of scanning every `applications/` directory and `mimeapps.list` on each context menu.
+- **Double-click identity is the entry absolute path, not its visible index.** Clicking a row, navigating (bookmark, location submit, folder open), then clicking the row at the same position within 400 ms used to look like a double-click on the new entry and launch it — a rapid-click path that could spawn applications unintentionally.
+- **Optics image-plan and `VkImage` lifetime fixes** reach Arca's thumbnail store by pinning `v0.0.86`; snapshots and the original image now agree on the RenderPlan handle, and the Vulkan image is released only when the final shared owner retires.
+
+### Changed
+- **One canonical Cargo graph in every worktree (ADR-0018).** The Cargo `[patch]` block is gone: the committed `Cargo.lock` always resolves the tagged Optics Git sources, and the local `.cargo/config.toml` only sets `OPTICS_SOURCE_DIR`, `OPTICS_BUILD_DIR`, and `OPTICS_DYNAMIC=1`. `dev` and `main` now share one lockfile, the pre-commit hook validates it instead of unstaging it, and `cargo tree -i optics-app` reports the pinned tag rather than a local path.
+- Moved the regional-damage/quiescence suite from `crates/arca-ui/tests/` into the root integration suite, and moved the 2 500-entry arena test into `virtualization.rs`, so CI names the same tests the docs reference.
+- CI now checks out and builds the pinned Optics tag with a C23-capable Clang, runs the suite through nextest (process-per-test, timeouts), and executes the native-free architecture lane plus the architecture, virtualization, interaction-latency, and trash invariants in the same native environment.
+
+---
+
 ## [0.2.16] - 2026-11-23
 
 ### Added

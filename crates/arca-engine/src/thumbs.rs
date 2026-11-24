@@ -49,7 +49,7 @@ pub struct Thumb {
 /// Decode `path` to a thumbnail, or `None` for unsupported/invalid input.
 ///
 /// Pure function: the disk-cache read-through lives in the workers, not
-/// here. Never reads more than [`READ_CAP`] bytes and never panics on
+/// here. Never reads more than `READ_CAP` bytes and never panics on
 /// malformed data: every parse step uses checked slicing and bails out on
 /// the first inconsistency.
 pub fn decode_thumb(path: &Path) -> Option<Thumb> {
@@ -87,7 +87,7 @@ struct Shared {
 /// Requests are pushed onto a shared `Mutex<VecDeque>` + `Condvar` that
 /// `min(available_parallelism, 4)` workers pop from; finished thumbs flow
 /// back on a single mpsc channel. When the pending count hits
-/// [`MAX_PENDING`] the OLDEST queued request is dropped (and removed from
+/// `MAX_PENDING` the OLDEST queued request is dropped (and removed from
 /// the dedupe set, so a re-request works) — the newest requests are the
 /// rows the user is looking at. Workers read through a per-startup-pruned
 /// disk cache before touching [`decode_thumb`].
@@ -158,7 +158,7 @@ impl ThumbService {
     }
 
     /// Queue `path` for decoding unless it is cached, negatively cached, or
-    /// already queued/decoding. Over [`MAX_PENDING`] pending, the OLDEST
+    /// already queued/decoding. Over `MAX_PENDING` pending, the OLDEST
     /// queued request is dropped to make room (it leaves the dedupe set, so
     /// a later re-request re-queues it).
     pub fn request(&mut self, path: &str) {
@@ -407,7 +407,7 @@ fn prune_cache_dir(dir: &Path, max_entries: usize) {
     }
 }
 
-/// Read at most [`READ_CAP`] bytes. Regular files only — a FIFO or device
+/// Read at most `READ_CAP` bytes. Regular files only — a FIFO or device
 /// node named `*.png` would otherwise block a decode worker forever.
 fn read_capped(path: &Path) -> Option<Vec<u8>> {
     if !std::fs::metadata(path).ok()?.is_file() {

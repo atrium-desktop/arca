@@ -10,8 +10,12 @@ if [ ! -f "$manifest" ]; then
 fi
 
 refs=$(
+    # Each dependency line may carry extra inline fields (for example the
+    # default-static `features = ["static"]`), so extract the tag from any
+    # table entry that names the Optics Git source rather than assuming the
+    # original `{ git = ..., tag = ... }` shape.
     sed -n \
-        's/^[a-zA-Z0-9_-]* = { git = "https:\/\/github.com\/ming2k\/optics", tag = "\([^"]*\)" }$/\1/p' \
+        's/^[a-zA-Z0-9_-]* = { .*git = "https:\/\/github.com\/ming2k\/optics".*tag = "\([^"]*\)".* }$/\1/p' \
         "$manifest"
 )
 package_count=$(printf '%s\n' "$refs" | sed '/^$/d' | wc -l)

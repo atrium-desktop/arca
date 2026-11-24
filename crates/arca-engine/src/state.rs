@@ -1,11 +1,16 @@
 //! `AppState`: the whole non-GUI state of the file manager.
 //!
 //! The UI crate owns one of these, renders it every frame, and calls its
-//! methods in response to input. All methods are synchronous and cheap
-//! (directory reads of even large folders are milliseconds).
+//! methods in response to input. The engine exposes a synchronous API for
+//! tests, embedders, and the CLI/chooser paths, and an asynchronous
+//! navigation API (`begin_navigate` / `poll_navigation`) for the interactive
+//! window: a directory read must never block the frame that received the
+//! click.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use crate::bookmarks::{self, Bookmark};
 use crate::chooser::FileFilter;
@@ -21,6 +26,15 @@ use crate::watch::{FsWatcher, WakeFn};
 /// `Ctrl+C`/`Ctrl+X` staging and for drop payloads, so the two paths can
 /// never drift apart again.
 pub use arca_xdg::clipboard::{FileClipboard as Clipboard, TransferAction};
+
+/// A directory read in flight. Each request owns its receiver; a newer request
+/// replaces the previous one and the stale worker's send fails harmlessly.
+struct PendingNavigation {
+    tab_id: u64,
+    target: String,
+    push_history: bool,
+    result: std::sync::mpsc::Receiver<std::io::Result<Vec<Entry>>>,
+}
 
 /// The complete application state.
 pub struct AppState {
@@ -51,6 +65,17 @@ pub struct AppState {
     /// up by name per frame would blow the frame budget. Built once per
     /// listing and invalidated whenever the directory changes.
     trash_index: Option<std::collections::HashMap<String, trash::TrashItem>>,
+
+    /// Optional explicit Trash root. `None` uses the FreeDesktop home/per-mount
+    /// location; embedders and tests pass a scratch root so they never move the
+    /// user's files into the real Trash.
+    trash_root: Option<PathBuf>,
+
+    /// Latest asynchronous navigation request, if any.
+    pending_navigation: Option<PendingNavigation>,
+    /// Monotonic request id. A worker that lost the race skips its read
+    /// instead of competing for the disk after the user has moved on.
+    nav_generation: Arc<AtomicU64>,
 }
 
 /// One independent browsing session. Navigation, selection and filtering are
@@ -64,7 +89,7 @@ pub struct AppState {
 /// toggle and filter edit, so an index kept across a rebuild would silently
 /// address a different file — and the next `Delete` would then trash the
 /// wrong entry. The `*_indices` fields are a cache derived from the names by
-/// [`TabState::resync_selection`] and are never written from outside it.
+/// `TabState::resync_selection` and are never written from outside it.
 ///
 /// Selection is always a subset of the visible set: names hidden by the
 /// filter are dropped, because every file operation resolves through
@@ -196,7 +221,7 @@ impl TabState {
     }
 
     /// Drop every selection name (derived caches are refreshed by
-    /// [`TabState::resync_selection`]).
+    /// `TabState::resync_selection`).
     fn clear_selection_names(&mut self) {
         self.selected_names.clear();
         self.cursor_name = None;
@@ -259,6 +284,9 @@ impl AppState {
             config_file,
             watcher: FsWatcher::new().ok(),
             trash_index: None,
+            trash_root: None,
+            pending_navigation: None,
+            nav_generation: Arc::new(AtomicU64::new(0)),
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
         state.navigate(&path::home_dir());
@@ -268,6 +296,20 @@ impl AppState {
 
     /// Construct with explicit inputs (tests, embedding).
     pub fn with_config(config_file: String, cfg: Config, start_dir: &str) -> AppState {
+        Self::with_config_and_trash_root(config_file, cfg, start_dir, None)
+    }
+
+    /// Construct with an explicit Trash root.
+    ///
+    /// Embedders and tests use this to keep destructive operations inside a
+    /// scratch tree instead of the user's real home/per-mount Trash. `None`
+    /// preserves the FreeDesktop default.
+    pub fn with_config_and_trash_root(
+        config_file: String,
+        cfg: Config,
+        start_dir: &str,
+        trash_root: Option<PathBuf>,
+    ) -> AppState {
         let mut state = AppState {
             tabs: vec![TabState::empty(1)],
             active_tab: 0,
@@ -287,6 +329,9 @@ impl AppState {
             config_file,
             watcher: FsWatcher::new().ok(),
             trash_index: None,
+            trash_root,
+            pending_navigation: None,
+            nav_generation: Arc::new(AtomicU64::new(0)),
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
         state.navigate(start_dir);
@@ -450,8 +495,24 @@ impl AppState {
     }
 
     fn set_dir(&mut self, path: &str) {
+        // A synchronous navigation supersedes any in-flight asynchronous one;
+        // bumping the generation also tells the worker to skip its read.
+        self.cancel_navigation();
         let listing = entry::read_dir(path, self.show_hidden, self.sort_key, self.sort_ascending);
-        let tab = &mut self.tabs[self.active_tab];
+        self.apply_listing(self.active_tab, path, listing);
+    }
+
+    /// Apply a directory listing to one tab, whether it came from a
+    /// synchronous read or an asynchronous worker.
+    fn apply_listing(
+        &mut self,
+        tab_index: usize,
+        path: &str,
+        listing: std::io::Result<Vec<Entry>>,
+    ) {
+        let Some(tab) = self.tabs.get_mut(tab_index) else {
+            return;
+        };
         tab.cwd = path.to_string();
         tab.filter.clear();
         match listing {
@@ -467,14 +528,174 @@ impl AppState {
         // Entering a directory is a new listing: nothing is selected. A
         // *re-read* of the same directory goes through `refresh` instead,
         // which preserves selection by name.
-        let tab = &mut self.tabs[self.active_tab];
         tab.clear_selection_names();
-        let visible = self.visible();
-        let tab = &mut self.tabs[self.active_tab];
-        tab.resync_selection(&visible);
-        self.rebuild_miller_columns();
+        let visible = self.visible_in_tab(tab_index);
+        self.tabs[tab_index].resync_selection(&visible);
+
+        if tab_index == self.active_tab {
+            self.rebuild_miller_columns();
+            self.rebuild_trash_index();
+        }
+        if self
+            .status
+            .as_deref()
+            .is_some_and(|status| status.starts_with("Loading "))
+        {
+            self.status = None;
+        }
         self.sync_fs_watches();
-        self.rebuild_trash_index();
+    }
+
+    // ---- asynchronous navigation ---------------------------------------
+
+    /// Start reading a directory off the UI thread.
+    ///
+    /// Returns `true` once the request is accepted. The caller keeps painting
+    /// the previous listing and calls [`Self::poll_navigation`] each frame;
+    /// [`Self::is_navigating`] tells the host to request another frame. A
+    /// newer request replaces the older one, so only the last navigation can
+    /// publish a listing.
+    pub fn begin_navigate(&mut self, raw: &str) -> bool {
+        let resolved = if raw.starts_with('/') || raw.starts_with('~') || self.cwd().is_empty() {
+            path::normalize(raw)
+        } else {
+            path::resolve(self.cwd(), raw)
+        };
+        // The directory probe and read happen in the worker: even a `stat`
+        // can block on an unresponsive mount. History is recorded only after
+        // the read succeeds.
+        self.begin_set_dir(resolved, true)
+    }
+
+    /// Asynchronous [`Self::go_back`].
+    pub fn begin_go_back(&mut self) -> bool {
+        let path = self.tabs[self.active_tab]
+            .history
+            .go_back()
+            .map(str::to_string);
+        match path {
+            Some(path) => self.begin_set_dir(path, false),
+            None => false,
+        }
+    }
+
+    /// Asynchronous [`Self::go_forward`].
+    pub fn begin_go_forward(&mut self) -> bool {
+        let path = self.tabs[self.active_tab]
+            .history
+            .go_forward()
+            .map(str::to_string);
+        match path {
+            Some(path) => self.begin_set_dir(path, false),
+            None => false,
+        }
+    }
+
+    /// Asynchronous [`Self::go_up`].
+    pub fn begin_go_up(&mut self) -> bool {
+        let parent = path::parent(self.cwd());
+        if parent == self.cwd() {
+            return false;
+        }
+        self.begin_navigate(&parent)
+    }
+
+    fn cancel_navigation(&mut self) {
+        self.nav_generation.fetch_add(1, Ordering::Relaxed);
+        self.pending_navigation = None;
+    }
+
+    fn begin_set_dir(&mut self, path: String, push_history: bool) -> bool {
+        let tab_index = self.active_tab;
+        let tab_id = self.tabs[tab_index].id;
+        let generation = self.nav_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        let generation_handle = Arc::clone(&self.nav_generation);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let thread_path = path.clone();
+        let show_hidden = self.show_hidden;
+        let sort_key = self.sort_key;
+        let sort_ascending = self.sort_ascending;
+        let spawned = std::thread::Builder::new()
+            .name("arca-navigation".into())
+            .spawn(move || {
+                if generation_handle.load(Ordering::Relaxed) != generation {
+                    return;
+                }
+                let listing = entry::read_dir(&thread_path, show_hidden, sort_key, sort_ascending);
+                if generation_handle.load(Ordering::Relaxed) == generation {
+                    let _ = tx.send(listing);
+                }
+            });
+
+        if spawned.is_err() {
+            self.pending_navigation = None;
+            let listing = entry::read_dir(&path, show_hidden, sort_key, sort_ascending);
+            if let Ok(entries) = listing {
+                if push_history {
+                    self.tabs[tab_index].history.push(&path);
+                }
+                self.apply_listing(tab_index, &path, Ok(entries));
+            } else {
+                self.set_status(format!("Cannot open {path}"));
+            }
+            return true;
+        }
+
+        self.pending_navigation = Some(PendingNavigation {
+            tab_id,
+            target: path.clone(),
+            push_history,
+            result: rx,
+        });
+        self.set_status(format!("Loading {path}…"));
+        true
+    }
+
+    /// Whether a directory read is in flight.
+    #[must_use]
+    pub fn is_navigating(&self) -> bool {
+        self.pending_navigation.is_some()
+    }
+
+    /// Poll the in-flight navigation without blocking. Returns true when the
+    /// listing changed (or the worker failed), so the host can invalidate.
+    pub fn poll_navigation(&mut self) -> bool {
+        let Some(pending) = self.pending_navigation.take() else {
+            return false;
+        };
+        match pending.result.try_recv() {
+            Ok(Ok(entries)) => {
+                let Some(index) = self.tabs.iter().position(|tab| tab.id == pending.tab_id) else {
+                    return false;
+                };
+                if pending.push_history {
+                    self.tabs[index].history.push(&pending.target);
+                }
+                self.apply_listing(index, &pending.target, Ok(entries));
+                true
+            }
+            Ok(Err(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                self.set_status(format!("Not a directory: {}", pending.target));
+                true
+            }
+            Ok(Err(error)) => {
+                self.set_status(format!("Cannot open {}: {error}", pending.target));
+                true
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                self.pending_navigation = Some(pending);
+                false
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.set_status("Navigation failed".into());
+                true
+            }
+        }
     }
 
     pub fn go_back(&mut self) {
@@ -662,7 +883,7 @@ impl AppState {
     /// selection caches.
     ///
     /// `entries` is exactly what the index caches address, so a re-read that
-    /// skips [`TabState::resync_selection`] leaves `selected_indices`
+    /// skips `TabState::resync_selection` leaves `selected_indices`
     /// pointing at whatever entry now occupies those indices — and the next
     /// `Delete` in that tab would act on the wrong file. Every entries write
     /// must therefore go through here or through an equivalent resync.
@@ -1112,7 +1333,8 @@ impl AppState {
         }
     }
 
-    /// Open `name` (a child of cwd) — the mouse path of [`Self::open_selected`].
+    /// Open `name` (a child of cwd) — the mouse path of
+    /// [`Self::open_selected_with_token`].
     pub fn open_child(&mut self, name: &str) {
         self.open_child_with_token(name, None);
     }
@@ -1187,7 +1409,7 @@ impl AppState {
         }
         let count = paths.len();
         let path_refs: Vec<&Path> = paths.iter().map(|p| Path::new(p.as_str())).collect();
-        match trash::trash_paths_record(&path_refs, None) {
+        match trash::trash_paths_record(&path_refs, self.trash_root.as_deref()) {
             Ok(items) => {
                 self.undo_stack.push(crate::undo::UndoAction::Trash(items));
                 self.clear_selection();
@@ -1528,7 +1750,10 @@ impl AppState {
     /// bare file names. The original location and deletion date live in the
     /// companion `.trashinfo` records and are surfaced from here.
     pub fn trash_items(&self) -> Vec<trash::TrashItem> {
-        trash::list_trash().unwrap_or_default()
+        match &self.trash_root {
+            Some(root) => trash::list_trash_in_root(root).unwrap_or_default(),
+            None => trash::list_trash().unwrap_or_default(),
+        }
     }
 
     /// The `.trashinfo` record backing a trash listing row, if `name` is a
@@ -1570,16 +1795,30 @@ impl AppState {
 
     /// Permanently delete everything in the home Trash. Returns the count.
     pub fn empty_trash(&mut self) -> usize {
-        let count = trash::empty_trash().unwrap_or(0);
+        let count = match &self.trash_root {
+            Some(_) => {
+                let items = self.trash_items();
+                let count = items.len();
+                for item in &items {
+                    let _ = trash::purge_trash_item(item);
+                }
+                count
+            }
+            None => trash::empty_trash().unwrap_or(0),
+        };
         self.set_status(format!("Emptied Trash ({count} items deleted)"));
         self.refresh();
         count
     }
 
-    /// Whether `path` is this user's Trash (root or `files/`) — the sidebar
-    /// offers "Empty Trash" there.
-    pub fn is_trash_location(path: &str) -> bool {
+    /// Whether `path` is the Trash configured for this state (root or
+    /// `files/`) — the sidebar offers "Empty Trash" there.
+    #[must_use]
+    pub fn is_trash_location(&self, path: &str) -> bool {
         let path = Path::new(path);
+        if let Some(root) = &self.trash_root {
+            return path == root || path == root.join("files");
+        }
         trash::is_trash_files_dir(path)
             || path == Path::new(&trash::home_trash_root())
             || path == Path::new(&trash::home_trash_files_dir())
@@ -1705,6 +1944,110 @@ mod tests {
             dir.to_str().unwrap(),
         );
         (dir, state)
+    }
+
+    fn wait_for_navigation(state: &mut AppState) {
+        let start = std::time::Instant::now();
+        while state.is_navigating() {
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(5),
+                "navigation did not finish"
+            );
+            state.poll_navigation();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        // Drain the frame that published the listing.
+        state.poll_navigation();
+    }
+
+    #[test]
+    fn async_navigation_publishes_the_listing() {
+        let (dir, mut state) = fixture();
+        let child = dir.join("sub");
+        std::fs::write(child.join("inside.txt"), b"x").unwrap();
+
+        assert!(state.begin_navigate(child.to_str().unwrap()));
+        assert!(state.is_navigating());
+        assert_eq!(
+            state.cwd(),
+            dir.to_str().unwrap(),
+            "old listing stays visible"
+        );
+
+        wait_for_navigation(&mut state);
+        assert_eq!(state.cwd(), child.to_str().unwrap());
+        assert_eq!(
+            state
+                .entries()
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            ["inside.txt"]
+        );
+        assert!(!state.is_navigating());
+        assert!(state.status.is_none(), "the loading status is cleared");
+    }
+
+    #[test]
+    fn async_navigation_reports_an_invalid_path_without_moving() {
+        let (dir, mut state) = fixture();
+        let missing = dir.join("missing");
+        assert!(state.begin_navigate(missing.to_str().unwrap()));
+        wait_for_navigation(&mut state);
+
+        assert_eq!(state.cwd(), dir.to_str().unwrap());
+        assert!(!state.can_go_back(), "a failed read must not enter history");
+        assert!(
+            state
+                .status
+                .as_deref()
+                .is_some_and(|status| status.starts_with("Not a directory")),
+            "status was {:?}",
+            state.status
+        );
+    }
+
+    #[test]
+    fn newer_async_navigation_supersedes_an_older_one() {
+        let (dir, mut state) = fixture();
+        let first = dir.join("sub");
+        let second = dir.join("sub2");
+        std::fs::create_dir(&second).unwrap();
+
+        assert!(state.begin_navigate(first.to_str().unwrap()));
+        assert!(state.begin_navigate(second.to_str().unwrap()));
+        wait_for_navigation(&mut state);
+
+        assert_eq!(state.cwd(), second.to_str().unwrap());
+    }
+
+    #[test]
+    fn sync_navigation_cancels_an_in_flight_request() {
+        let (dir, mut state) = fixture();
+        let async_target = dir.join("sub");
+        assert!(state.begin_navigate(async_target.to_str().unwrap()));
+        state.navigate(dir.to_str().unwrap());
+        assert!(!state.is_navigating());
+        state.poll_navigation();
+        assert_eq!(state.cwd(), dir.to_str().unwrap());
+    }
+
+    #[test]
+    fn async_history_navigation_keeps_the_cursor() {
+        let (dir, mut state) = fixture();
+        let child = dir.join("sub");
+        std::fs::write(child.join("inside.txt"), b"x").unwrap();
+        state.navigate(child.to_str().unwrap());
+        assert!(state.can_go_back());
+
+        assert!(state.begin_go_back());
+        wait_for_navigation(&mut state);
+        assert_eq!(state.cwd(), dir.to_str().unwrap());
+        assert!(state.can_go_forward());
+
+        assert!(state.begin_go_forward());
+        wait_for_navigation(&mut state);
+        assert_eq!(state.cwd(), child.to_str().unwrap());
     }
 
     #[test]

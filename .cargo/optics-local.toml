@@ -1,39 +1,31 @@
-# Local-only source patches for cross-repository development.
+# Local-only Optics checkout discovery for cross-repository development.
 #
 # Enable this file only in a linked Arca worktree:
 #   cp .cargo/optics-local.toml .cargo/config.toml
 #   git config core.hooksPath .githooks
 #
-# The generated .cargo/config.toml is ignored by Git. Cargo resolves a local
-# lockfile in that worktree; the repository hook keeps the local lockfile out
-# of commits. Remove the generated file before promoting an Optics release.
+# This file deliberately does NOT patch Cargo manifests. The committed
+# Cargo.lock always resolves the tagged Optics Git sources, so canonical CI and
+# local development share one lockfile and one dependency graph. The
+# `-sys` build scripts locate the sibling Meson tree through the environment
+# variables below; OPTICS_DYNAMIC=1 selects the shared objects for fast
+# iteration without relinking Rust after C or shader edits.
 #
-# The Optics link mode is a build input, not a repository default (ADR-0014).
-# Upstream optics-build supports all configurations: OPTICS_STATIC=1 requires
-# the liboptics_*.a archives, OPTICS_DYNAMIC=1 forces the liboptics_*.so
-# objects, the additive `static` Cargo feature asks for the archives, and
-# leaving every request unset uses the shared-preferred probe (Optics v0.0.83).
-# This worktree's sibling Meson tree is configured with `default_library=both`,
-# so the default build links the shared objects and the Optics wrapper crates
-# relay `-Wl,-rpath` to the uninstalled tree. Export OPTICS_STATIC=1 to embed
-# the archives instead (relinking whenever the C sources change).
-# `scripts/check-optics-link.sh [--expect static|dynamic] <binary>` reports or
-# asserts which mode a built binary actually used.
+# The paths are relative to the workspace root (the directory containing
+# `.cargo/`). Keep the sibling layout:
 #
-# Optics v0.0.83 keeps the per-module binding trees in one Cargo workspace
-# rooted at the repository root (Optics ADR-0169), with every crate under
-# `crates/optics-<module>`. `optics-app` is the application shell above
-# `optics-window` and `optics-ui` (Optics ADR-0166 / ADR-0172). `optics-motion`
-# remains pure Safe Rust and has no `-sys` crate (Optics ADR-0158); there is no
-# native motion library to patch or rpath.
-[patch."https://github.com/ming2k/optics"]
-optics-app = { path = "../optics/crates/optics-app" }
-optics-app-sys = { path = "../optics/crates/optics-app-sys" }
-optics-build = { path = "../optics/crates/optics-build" }
-optics-gfx = { path = "../optics/crates/optics-gfx" }
-optics-gfx-sys = { path = "../optics/crates/optics-gfx-sys" }
-optics-ui = { path = "../optics/crates/optics-ui" }
-optics-ui-sys = { path = "../optics/crates/optics-ui-sys" }
-optics-window = { path = "../optics/crates/optics-window" }
-optics-window-sys = { path = "../optics/crates/optics-window-sys" }
-optics-motion = { path = "../optics/crates/optics-motion" }
+#   projects/
+#   ├── arca-dev/   ← this worktree
+#   └── optics/     ← source checkout with build/meson-uninstalled
+#
+# Add local build/toolchain overrides (`build.rustc-wrapper`, target linker)
+# alongside these variables if your environment uses them; they are not part of
+# the Optics discovery contract.
+[env]
+OPTICS_SOURCE_DIR = { value = "../optics", relative = true }
+OPTICS_BUILD_DIR = { value = "../optics/build", relative = true }
+# Override the workspace's default `static` Optics feature during local
+# iteration so C and shader changes in `../optics/build` take effect via rpath
+# without relinking Rust. Pass `OPTICS_DYNAMIC=0` in the shell to verify the
+# production static link on demand (`scripts/check-optics-link.sh --expect static`).
+OPTICS_DYNAMIC = "1"

@@ -32,7 +32,7 @@ Arca is a fast file manager for Wayland and a companion application for the Tess
 
 ### 1. Build
 
-Arca links the Optics C libraries (`optics-app` / `optics-window` / `optics-ui` / `optics-gfx`) through their official Rust bindings. Optics supports both link modes and the build chooses (`OPTICS_STATIC=1`, `OPTICS_DYNAMIC=1`, the additive `static` Cargo feature, or the shared-preferred default); release artifacts pin the static mode. The system Vulkan loader, Wayland client, and font stack always stay dynamic:
+Arca links the Optics C libraries (`optics-app` / `optics-window` / `optics-ui` / `optics-gfx`) through their official Rust bindings. The workspace enables Optics's `static` Cargo feature by default so canonical and release builds embed Optics automatically; pass `OPTICS_DYNAMIC=1` (as local development worktrees do) to link the shared objects instead. The system Vulkan loader, Wayland client, and font stack always stay dynamic:
 
 ```bash
 cargo build --release

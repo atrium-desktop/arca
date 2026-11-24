@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Arca Architecture Working Group
 - Consulted: Optics Build/Packaging Maintainers, Distribution Packers
 - Amends: [ADR-0014](0014-optics-link-mode-and-static-release.md)
+- Amended by: [ADR-0016](0016-default-static-optics-manifest-and-dev-dynamic-override.md) (workspace default-static manifest with worktree-local `OPTICS_DYNAMIC=1` override), [ADR-0018](0018-canonical-lockfile-and-environment-resolved-optics.md) (canonical lockfile and environment-resolved checkout)
 - Extends: [ADR-0013](0013-synchronize-with-optics-v0.0.82-semantic-module-naming.md)
 - References: Optics ADR-0169 / ADR-0170 / ADR-0172 / ADR-0173
 
@@ -197,6 +198,6 @@ comments describe the shared-preferred default, the `static` feature, and the
 
 - [ADR 0013: Synchronize with Optics v0.0.82](0013-synchronize-with-optics-v0.0.82-semantic-module-naming.md)
 - [ADR 0014: Optics Link Mode and Static Release Artifact](0014-optics-link-mode-and-static-release.md)
-- [Optics Development Worktree Workflow](../dev/optics-dev-worktree.md)
+- [Cross-Repository Development Workflow](../dev/cross-repository-development.md)
 - [Build & Run Guide](../dev/build-and-run.md)
 - [Distribution Packaging](../dev/packaging.md)

@@ -28,6 +28,8 @@ fn query_damage(ui: &mut optics_ui::Ui) -> (usize, f32) {
 fn test_trailing_row_removal_emits_regional_damage_and_settles() {
     let dir = std::env::temp_dir().join(format!("arca-test-dmg-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(dir.with_extension("conf"));
+    let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
     std::fs::create_dir_all(&dir).unwrap();
 
     for name in ["alpha.txt", "beta.txt"] {
@@ -35,11 +37,12 @@ fn test_trailing_row_removal_emits_regional_damage_and_settles() {
     }
 
     let state = AppState::with_config(
-        dir.join("cfg/arca.conf").to_str().unwrap().into(),
+        dir.with_extension("conf").to_str().unwrap().into(),
         Config::default(),
         dir.to_str().unwrap(),
     );
-    let mut app = arca_ui::UiApp::new(state);
+    let mut app =
+        arca_ui::UiApp::with_thumb_cache(state, dir.with_extension("cache")).sync_navigation();
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
     app.state.set_view_mode(ViewMode::List);
 
@@ -95,21 +98,26 @@ fn test_trailing_row_removal_emits_regional_damage_and_settles() {
     assert!(!ui.anim_pending());
 
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(dir.with_extension("conf"));
+    let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
 }
 
 #[test]
 fn test_quick_look_modal_preview_damage_and_settling() {
     let dir = std::env::temp_dir().join(format!("arca-test-preview-dmg-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(dir.with_extension("conf"));
+    let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("sample.txt"), b"quick look content").unwrap();
 
     let state = AppState::with_config(
-        dir.join("cfg/arca.conf").to_str().unwrap().into(),
+        dir.with_extension("conf").to_str().unwrap().into(),
         Config::default(),
         dir.to_str().unwrap(),
     );
-    let mut app = arca_ui::UiApp::new(state);
+    let mut app =
+        arca_ui::UiApp::with_thumb_cache(state, dir.with_extension("cache")).sync_navigation();
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
     let settled_input = Input::new((1040.0, 700.0), 1.0 / 60.0);
 
@@ -159,6 +167,8 @@ fn test_quick_look_modal_preview_damage_and_settling() {
     assert!(!ui.anim_pending());
 
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(dir.with_extension("conf"));
+    let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
 }
 
 #[test]
@@ -172,17 +182,20 @@ fn test_scrolling_virtualized_listing_damages_only_the_viewport_then_settles() {
             .as_nanos()
     ));
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(dir.with_extension("conf"));
+    let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
     std::fs::create_dir_all(&dir).unwrap();
     for index in 0..120 {
         std::fs::write(dir.join(format!("file-{index:03}.txt")), b"row").unwrap();
     }
 
     let state = AppState::with_config(
-        dir.join("cfg/arca.conf").to_str().unwrap().into(),
+        dir.with_extension("conf").to_str().unwrap().into(),
         Config::default(),
         dir.to_str().unwrap(),
     );
-    let mut app = arca_ui::UiApp::new(state);
+    let mut app =
+        arca_ui::UiApp::with_thumb_cache(state, dir.with_extension("cache")).sync_navigation();
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
     app.state.set_view_mode(ViewMode::List);
 
@@ -227,6 +240,8 @@ fn test_scrolling_virtualized_listing_damages_only_the_viewport_then_settles() {
     assert!(!ui.anim_pending());
 
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(dir.with_extension("conf"));
+    let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
 }
 
 #[test]
@@ -240,15 +255,18 @@ fn test_focused_location_caret_reports_only_phase_flips() {
             .as_nanos()
     ));
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(dir.with_extension("conf"));
+    let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("sample.txt"), b"sample").unwrap();
 
     let state = AppState::with_config(
-        dir.join("cfg/arca.conf").to_str().unwrap().into(),
+        dir.with_extension("conf").to_str().unwrap().into(),
         Config::default(),
         dir.to_str().unwrap(),
     );
-    let mut app = arca_ui::UiApp::new(state);
+    let mut app =
+        arca_ui::UiApp::with_thumb_cache(state, dir.with_extension("cache")).sync_navigation();
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
     let viewport_w = 1040.0;
     let viewport_h = 700.0;
@@ -364,6 +382,8 @@ fn test_focused_location_caret_reports_only_phase_flips() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(dir.with_extension("conf"));
+    let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
 }
 
 #[test]
