@@ -122,20 +122,85 @@ entire `.desktop` database. Slow network directories and continuously changing
 watched directories can also make navigation/refresh expensive.
 
 ### Resolution
-1. Use a current build: directory opens no longer request activation tokens and
+1. Ask Arca what it saw. While the window is still frozen, run from a
+   terminal:
+   ```bash
+   arca --diagnostics
+   grep -E 'arca::(alert|apm)' ~/.local/state/arca/logs/arca.log | tail
+   ```
+   - `ui_stall … in <operation>` names the work that blocked the window
+     (for example `fs.read_dir` on a slow mount, `ui.activation_token`).
+   - `frame_storm` means the window is spinning without drawing — usually a
+     lost compositor connection; restart Arca and include the log in a report.
+   See the [Observability Reference](../reference/observability.md).
+2. Use a current build: directory opens no longer request activation tokens and
    "Open with" results are cached per MIME type.
-2. If the stall happens only in one directory, check whether it is on a network
+3. If the stall happens only in one directory, check whether it is on a network
    mount or receives continuous writes (downloads, build output). Those
    directories make the synchronous directory read and watcher refresh visible.
-3. Capture a profile while reproducing and look for
+4. Capture a profile while reproducing and look for
    `optics_window_create_activation_token`, `discover_applications`,
    `read_dir`, or plan replay; report the stack with your bug report.
-4. Run the headless stress suites to separate an app-side stall from a
+5. Run the headless stress suites to separate an app-side stall from a
    compositor/GPU stall:
    ```bash
    cargo test -p arca-tests interaction_stress
    cargo test -p arca-tests virtualization
    ```
+
+---
+
+## Window Frozen: No Response at All
+
+### Symptom: the window stops redrawing and never recovers; one CPU core is pinned
+
+### Cause
+The UI thread is stuck in a loop. Either Arca's frame build blocks (named by
+`ui_stall … in <operation>`), or the toolkit loops after the build returned:
+layout, retained-store maintenance, or render inside Optics. The second kind
+is reported as `ui_stall … outside the frame build`. Example: the Optics
+v0.0.86 store-shrink bug (fixed in the next Optics release) rehashed a
+surviving population into a table too small to hold it and spun forever
+after you left a large thumbnail grid.
+
+### Resolution
+1. **Keep the frozen process running.** Restarting destroys the evidence.
+2. **Collect what Arca captured automatically:**
+   ```bash
+   arca --diagnostics                          # alerts + newest stall captures
+   ls -t ~/.local/state/arca/stalls/ | head -3
+   grep -E 'arca::(alert|capture)' ~/.local/state/arca/logs/arca.log | tail
+   ```
+   With stall capture on (debug builds by default, or
+   `ARCA_STALL_CAPTURE=1`), `stalls/stall-*.txt` holds every thread's stack
+   from inside the freeze. Thread 1 (`arca`) is the UI thread; its innermost
+   frames are the loop. See
+   [Stall Stack Capture](../reference/observability.md#stall-stack-capture).
+3. **Confirm the shape without a debugger:**
+   ```bash
+   pid=$(pgrep -x arca)
+   for t in /proc/$pid/task/*; do
+     printf '%-18s %s utime=%s\n' "$(cat $t/comm)" "$(awk '{print $3}' $t/stat)" "$(awk '{print $14}' $t/stat)"
+   done
+   grep voluntary_ctxt /proc/$pid/task/$pid/status
+   ```
+   A main thread in state `R`, with `utime` climbing and voluntary context
+   switches not moving, is a user-space spin, not an I/O wait.
+4. **If no capture exists** (release build without `ARCA_STALL_CAPTURE`, no
+   `gdb` installed, or `ptrace_scope` ≥ 2), take one by hand:
+   ```bash
+   sudo gdb -p "$pid" -batch -ex 'thread apply 1 bt 40' -ex 'thread apply all bt 15' > arca-bt.txt 2>&1
+   ```
+   Without root, `ptrace_scope=1` rejects the attach because the debugger is
+   not Arca's ancestor.
+5. **Frames in `liboptics_*`** point at the toolkit. In development builds
+   these libraries load from `../optics/build` (see
+   [Local Optics Development](../dev/optics-local-development.md)); fix
+   there, rebuild with `meson compile -C ../optics/build`, and restart Arca.
+   Debug Optics builds also validate the retained store every frame and abort
+   with `optics-ui: retained store invariant violated: …` instead of hanging.
+6. Report the capture file, the `arca --diagnostics` output, and the steps
+   that led to the freeze.
 
 ---
 

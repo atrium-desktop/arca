@@ -21,11 +21,7 @@ pub(crate) fn clear_device() {
 
 pub(crate) fn device() -> Option<*mut optics_gfx_sys::optics_gfx_device> {
     let ptr = DEVICE.load(Ordering::Acquire);
-    if ptr.is_null() {
-        None
-    } else {
-        Some(ptr)
-    }
+    if ptr.is_null() { None } else { Some(ptr) }
 }
 
 #[cfg(test)]

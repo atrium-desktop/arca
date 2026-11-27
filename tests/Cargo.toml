@@ -22,6 +22,7 @@ arca-engine.workspace = true
 test-support.workspace = true
 arca-xdg.workspace = true
 serde_json.workspace = true
+log.workspace = true
 
 arca-ui = { workspace = true, optional = true }
 # Direct native edges: their `links` metadata publishes the uninstalled Optics

@@ -3,7 +3,7 @@
 //! companion application for the tessera desktop, so both colour schemes read
 //! as the same product while remaining contrast-safe.
 
-use optics_ui::{Align, Color, Frame, LayoutOpts, Theme};
+use optics_ui::{Align, Color, CornerRadii, Frame, LabelOpts, LayoutOpts, Theme};
 
 #[derive(Clone, Copy)]
 pub struct Tones {
@@ -120,17 +120,8 @@ impl Tones {
 pub(crate) const SCROLLBAR_W: f32 = 5.0;
 
 pub fn branded_theme(dark: bool) -> Theme {
-    branded_theme_with_accent(dark, None)
-}
-
-pub fn branded_theme_with_accent(
-    dark: bool,
-    accent: Option<arca_engine::chooser::PromptAccent>,
-) -> Theme {
     let base = if dark { Theme::dark() } else { Theme::light() };
-    let accent_col = if let Some(a) = accent {
-        Color::rgba(a.red, a.green, a.blue, 255)
-    } else if dark {
+    let accent_col = if dark {
         Color::rgba(102, 156, 255, 255)
     } else {
         Color::rgba(43, 101, 232, 255)
@@ -192,7 +183,13 @@ pub fn label_colored(frame: &mut Frame, text: &str, color: Color) {
 pub fn label_colored_sized(frame: &mut Frame, text: &str, size: f32, color: Color) {
     let theme = frame.theme();
     frame.set_theme(theme.with_fg(color));
-    frame.label_compact_sized(text, size);
+    frame.label_with(
+        text,
+        &LabelOpts {
+            size,
+            ..Default::default()
+        },
+    );
     frame.set_theme(theme);
 }
 
@@ -210,21 +207,27 @@ pub(crate) fn label_centered_styled(
     let theme = frame.theme();
     frame.set_theme(theme.with_fg(fg));
     let has_bg = (bg.raw() & 0xFF000000) != 0;
-    frame.column_ex(
-        &LayoutOpts {
+    frame
+        .column()
+        .with_opts(&LayoutOpts {
             gap: 2.0,
             pad: if has_bg { 2.5 } else { 0.0 },
             bg,
-            radius: 4.0,
+            corner_radii: CornerRadii::uniform(4.0),
             cross: Align::Center,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             for line in lines {
-                frame.label_compact_sized(&line, size);
+                frame.label_with(
+                    &line,
+                    &LabelOpts {
+                        size,
+                        ..Default::default()
+                    },
+                );
             }
-        },
-    );
+        });
     frame.set_theme(theme);
 }
 
@@ -434,15 +437,11 @@ mod contrast_tests {
             let input = optics_ui::Input::new((800.0, 600.0), 1.0 / 60.0);
             let mut row_height = 0.0;
             let mut clicked = false;
+            let icons = crate::icons::IconSet::register(&mut ui);
             for _ in 0..2 {
                 ui.frame(&input, |f| {
                     f.push_id("test-selectable");
-                    clicked = crate::icons::selectable_icon(
-                        f,
-                        crate::icons::ids::Folder,
-                        "Documents",
-                        false,
-                    );
+                    clicked = icons.selectable(f, crate::icons::ids::Folder, "Documents", false);
                     row_height = f.response().rect.h;
                     f.pop_id();
                 });

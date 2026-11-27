@@ -163,6 +163,6 @@ iteration.
 
 - [ADR 0014: Optics Link Mode and Static Release Artifact](0014-optics-link-mode-and-static-release.md)
 - [ADR 0015: Synchronize with Optics v0.0.83 and Shared-Preferred Linking](0015-synchronize-with-optics-v0.0.83-and-shared-preferred-linking.md)
-- [Cross-Repository Development Workflow](../dev/cross-repository-development.md)
+- [Local Optics Development](../dev/optics-local-development.md)
 - [Build & Run Guide](../dev/build-and-run.md)
 - [Distribution Packaging](../dev/packaging.md)

@@ -1,14 +1,14 @@
-//! Three production content presentations: grid, detailed list and Miller
+//! Three production content presentations (`docs/reference/view-modes.md`): grid, detailed list and Miller
 //! columns. All share the same selection and file-operation model.
 
 use arca_engine::entry::{FileType, SortKey};
 use arca_engine::format::{format_size, format_time};
 use arca_engine::{Entry, ViewMode};
-use optics_ui::{Align, Color, Frame, LayoutOpts};
+use optics_ui::{Align, Color, CornerRadii, Frame, LabelOpts, LayoutOpts, TextEditOpts};
 use std::path::PathBuf;
 
-use crate::app::{focus_any, FocusTarget, UiApp};
-use crate::icons::{self, ids};
+use crate::app::{FocusTarget, UiApp, focus_any};
+use crate::icons::{AssetId, IconSet, entry_icon, ids};
 use crate::theme::{self, Tones};
 
 pub(crate) const GRID_MIN_CARD_WIDTH: f32 = 104.0;
@@ -177,20 +177,23 @@ fn row_spacer(frame: &mut Frame, id: &str, height: f32) {
 }
 
 pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
+    let icons = app.icons;
     frame.flex(1.0);
-    frame.column_ex(
-        &LayoutOpts {
+    frame
+        .column()
+        .with_opts(&LayoutOpts {
             flex: 1.0,
             gap: 8.0,
             pad: 12.0,
             cross: Align::Stretch,
             bg: tones.content,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             if let Some(error) = app.state.read_error().map(str::to_string) {
                 placeholder(
                     frame,
+                    &icons,
                     tones,
                     ids::AlertCircle,
                     "Cannot read this folder",
@@ -204,6 +207,7 @@ pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 if app.state.filter().is_empty() {
                     placeholder(
                         frame,
+                        &icons,
                         tones,
                         ids::Folder,
                         "This folder is empty",
@@ -212,6 +216,7 @@ pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 } else {
                     placeholder(
                         frame,
+                        &icons,
                         tones,
                         ids::Search,
                         "No matching files",
@@ -226,8 +231,7 @@ pub(crate) fn build_content(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                 ViewMode::List => build_list(app, frame, tones, &visible),
                 ViewMode::Miller => build_miller(app, frame, tones),
             }
-        },
-    );
+        });
 }
 
 fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usize]) {
@@ -256,14 +260,15 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
     let geometry = scroll_geometry(frame, "grid-files");
     frame.flex(1.0);
     frame.scroll("grid-files", |frame| {
-        frame.column_ex(
-            &LayoutOpts {
+        frame
+            .column()
+            .with_opts(&LayoutOpts {
                 gap: GRID_GAP,
                 pad: 4.0,
                 cross: Align::Stretch,
                 ..Default::default()
-            },
-            |frame| {
+            })
+            .show(|frame| {
                 let (first, last) = visible_rows(geometry, row_count, row_pitch, fallback);
                 row_spacer(
                     frame,
@@ -274,13 +279,14 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                     let start = row * columns;
                     let chunk = &visible[start..(start + columns).min(visible.len())];
                     frame.push_id(&format!("grid-row-{row}"));
-                    frame.row_ex(
-                        &LayoutOpts {
+                    frame
+                        .row()
+                        .with_opts(&LayoutOpts {
                             gap: GRID_GAP,
                             cross: Align::Start,
                             ..Default::default()
-                        },
-                        |frame| {
+                        })
+                        .show(|frame| {
                             for (column, &entry_index) in chunk.iter().enumerate() {
                                 let visible_index = row * columns + column;
                                 build_grid_card(
@@ -293,8 +299,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                                     card_height,
                                 );
                             }
-                        },
-                    );
+                        });
                     frame.pop_id();
                 }
                 row_spacer(
@@ -302,8 +307,7 @@ fn build_grid(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                     "##grid-vbot",
                     spacer_height(row_count - last, row_pitch, GRID_GAP),
                 );
-            },
-        );
+            });
     });
 }
 
@@ -316,6 +320,7 @@ fn build_grid_card(
     card_width: f32,
     card_height: f32,
 ) {
+    let icons = app.icons;
     // A row handler earlier in this frame's build may have navigated and
     // re-read the directory; the cloned `visible` list then holds stale
     // indices. Skip such rows — the next frame is consistent again.
@@ -334,11 +339,11 @@ fn build_grid_card(
     } else {
         None
     };
-    if let Some(drop) = &drop_info {
-        if let Some(payload) = &drop.payload {
-            app.state
-                .drop_into(payload, &full_path, arca_engine::TransferAction::Move);
-        }
+    if let Some(drop) = &drop_info
+        && let Some(payload) = &drop.payload
+    {
+        app.state
+            .drop_into(payload, &full_path, arca_engine::TransferAction::Move);
     }
     let is_drag_active = app.active_drag.as_ref().is_some_and(|d| d.started);
     let drop_hovered = is_drag_active && drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false);
@@ -380,7 +385,7 @@ fn build_grid_card(
         bg: card_bg,
         border: card_border,
         border_width: card_border_w,
-        radius: 6.0,
+        corner_radii: CornerRadii::uniform(6.0),
         ..Default::default()
     };
 
@@ -391,23 +396,30 @@ fn build_grid_card(
 
     if app.renaming.as_deref() == Some(entry.name.as_str()) {
         frame.push_id(&entry.name);
-        frame.column_ex(
-            &LayoutOpts {
+        frame
+            .column()
+            .with_opts(&LayoutOpts {
                 cross: Align::Center,
                 ..options
-            },
-            |frame| {
-                icons::icon(frame, icons::entry_icon(&entry), GRID_ICON_SIZE);
+            })
+            .show(|frame| {
+                icons.icon(frame, entry_icon(&entry), GRID_ICON_SIZE);
                 frame.size_next(0.0, 2.0);
                 frame.spacer(2.0);
                 frame.size_next(text_width, 0.0);
-                let resp = frame.textedit_ex("##grid-rename", &mut app.rename, false, false, false);
+                let resp = frame.textedit(
+                    "##grid-rename",
+                    &mut app.rename,
+                    &TextEditOpts {
+                        submit_on_enter: true,
+                        ..Default::default()
+                    },
+                );
                 capture_rename(app, frame, "##grid-rename");
                 if resp.submitted {
                     app.commit_rename(frame);
                 }
-            },
-        );
+            });
         frame.pop_id();
         if is_dragged {
             frame.set_opacity(prev_opacity);
@@ -430,25 +442,26 @@ fn build_grid_card(
         .id_label(&grid_id, &entry.name)
         .with_opts(&options)
         .show(|frame| {
-            frame.column_ex(
-                &LayoutOpts {
+            frame
+                .column()
+                .with_opts(&LayoutOpts {
                     width: text_width,
                     gap: GRID_ART_LABEL_GAP,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |frame| {
-                    frame.column_ex(
-                        &LayoutOpts {
+                })
+                .show(|frame| {
+                    frame
+                        .column()
+                        .with_opts(&LayoutOpts {
                             width: text_width,
                             height: GRID_ICON_SIZE,
                             cross: Align::Center,
                             ..Default::default()
-                        },
-                        |frame| {
+                        })
+                        .show(|frame| {
                             card_art(app, frame, &entry, GRID_ICON_SIZE, selected);
-                        },
-                    );
+                        });
                     theme::label_centered_styled(
                         frame,
                         &entry.name,
@@ -458,8 +471,7 @@ fn build_grid_card(
                         text_color,
                         label_bg,
                     );
-                },
-            );
+                });
         });
 
     frame.set_theme(prev_theme);
@@ -493,13 +505,21 @@ fn build_grid_card(
     } else if response.right_clicked {
         app.row_right_clicked(visible_index, response.rect);
     }
-    suppress_item_pointer_cursor(frame);
+    suppress_item_pointer_cursor(frame, response.hovered);
 }
 
 /// Restore standard desktop arrow cursor over content listing items (ADR desktop conventions:
 /// file manager items are desktop objects, not web hyperlinks, so they use the standard arrow cursor).
-pub(crate) fn suppress_item_pointer_cursor(frame: &mut Frame) {
-    frame.set_cursor_hint(optics_ui::CursorHint::Default);
+///
+/// The cursor hint is a single per-frame value where the last writer wins, so
+/// this only overrides it while `hovered` — the item just built is the one
+/// under the pointer. An unconditional reset would clobber hints set by
+/// widgets built earlier in the frame, such as the toolbar text fields'
+/// I-beam.
+pub(crate) fn suppress_item_pointer_cursor(frame: &mut Frame, hovered: bool) {
+    if hovered {
+        frame.set_cursor_hint(optics_ui::CursorHint::Default);
+    }
 }
 
 fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usize]) {
@@ -508,14 +528,15 @@ fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
     let geometry = scroll_geometry(frame, "list-files");
     frame.flex(1.0);
     frame.scroll("list-files", |frame| {
-        frame.column_ex(
-            &LayoutOpts {
+        frame
+            .column()
+            .with_opts(&LayoutOpts {
                 gap: 2.0,
                 pad: 2.0,
                 cross: Align::Stretch,
                 ..Default::default()
-            },
-            |frame| {
+            })
+            .show(|frame| {
                 let (first, last) = visible_rows(geometry, visible.len(), LIST_ROW_PITCH, fallback);
                 #[cfg(test)]
                 record_list_window((first, last));
@@ -534,8 +555,7 @@ fn build_list(app: &mut UiApp, frame: &mut Frame, tones: &Tones, visible: &[usiz
                     "##list-vbot",
                     spacer_height(visible.len() - last, LIST_ROW_PITCH, 2.0),
                 );
-            },
-        );
+            });
     });
 }
 
@@ -557,8 +577,9 @@ fn header_trailing_inset(app: &UiApp, rows: usize) -> f32 {
 
 fn build_list_header(app: &mut UiApp, frame: &mut Frame, tones: &Tones, trailing: f32) {
     frame.size_next(0.0, 32.0);
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             height: 32.0,
             // No container gap: every separation is an explicit spacer so the
             // scroll-geometry insets (2 px scroll pad, scrollbar gutter) land
@@ -567,10 +588,10 @@ fn build_list_header(app: &mut UiApp, frame: &mut Frame, tones: &Tones, trailing
             pad: 7.0,
             cross: Align::Center,
             bg: tones.card,
-            radius: 7.0,
+            corner_radii: CornerRadii::uniform(7.0),
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             // 24 px icon slot + 2 px the scroll column pads its content with.
             frame.size_next(26.0, 16.0);
             frame.label("");
@@ -582,8 +603,7 @@ fn build_list_header(app: &mut UiApp, frame: &mut Frame, tones: &Tones, trailing
             frame.spacer(10.0);
             sort_cell(app, frame, tones, SortKey::Mtime, "Modified", 124.0);
             frame.spacer(trailing);
-        },
-    );
+        });
 }
 
 fn build_list_row(
@@ -593,6 +613,7 @@ fn build_list_row(
     entry_index: usize,
     visible_index: usize,
 ) {
+    let icons = app.icons;
     // See build_grid_card: indices from the cloned `visible` list may be
     // stale after a mid-build navigation.
     let Some(entry) = app.state.entries().get(entry_index).cloned() else {
@@ -628,11 +649,11 @@ fn build_list_row(
     } else {
         None
     };
-    if let Some(drop) = &drop_info {
-        if let Some(payload) = &drop.payload {
-            app.state
-                .drop_into(payload, &full_path, arca_engine::TransferAction::Move);
-        }
+    if let Some(drop) = &drop_info
+        && let Some(payload) = &drop.payload
+    {
+        app.state
+            .drop_into(payload, &full_path, arca_engine::TransferAction::Move);
     }
     let is_drag_active = app.active_drag.as_ref().is_some_and(|d| d.started);
     let drop_hovered = is_drag_active && drop_info.as_ref().map(|d| d.is_hovered).unwrap_or(false);
@@ -654,7 +675,7 @@ fn build_list_row(
         } else {
             Color::TRANSPARENT
         },
-        radius: 7.0,
+        corner_radii: CornerRadii::uniform(7.0),
         ..Default::default()
     };
 
@@ -665,10 +686,17 @@ fn build_list_row(
 
     if app.renaming.as_deref() == Some(entry.name.as_str()) {
         frame.push_id(&entry.name);
-        frame.row_ex(&options, |frame| {
-            row_icon(frame, &entry);
+        frame.row().with_opts(&options).show(|frame| {
+            row_icon(frame, &icons, &entry);
             frame.flex(1.0);
-            let resp = frame.textedit_ex("##list-rename", &mut app.rename, false, false, false);
+            let resp = frame.textedit(
+                "##list-rename",
+                &mut app.rename,
+                &TextEditOpts {
+                    submit_on_enter: true,
+                    ..Default::default()
+                },
+            );
             capture_rename(app, frame, "##list-rename");
             if resp.submitted {
                 app.commit_rename(frame);
@@ -696,10 +724,16 @@ fn build_list_row(
         .id_label(&entry.name, &entry.name)
         .with_opts(&options)
         .show(|frame| {
-            row_icon(frame, &entry);
+            row_icon(frame, &icons, &entry);
             frame.flex(1.0);
             let font_size = frame.theme().font_size();
-            frame.label_compact_sized(&entry.name, font_size);
+            frame.label_with(
+                &entry.name,
+                &LabelOpts {
+                    size: font_size,
+                    ..Default::default()
+                },
+            );
             metadata_label(frame, tones, &size, 86.0);
             metadata_label(frame, tones, &modified, 124.0);
         });
@@ -732,42 +766,89 @@ fn build_list_row(
     } else if response.right_clicked {
         app.row_right_clicked(visible_index, response.rect);
     }
-    suppress_item_pointer_cursor(frame);
+    suppress_item_pointer_cursor(frame, response.hovered);
 }
 
-fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
-    let all_columns = app.state.miller_columns();
-    let available = (app.viewport.0 - 212.0 - 48.0).max(240.0);
-    let fit = if available < 500.0 {
-        1
+/// Narrowest a Miller column may get before the layout drops to one column.
+const MILLER_MIN_COLUMN: f32 = 220.0;
+const MILLER_GAP: f32 = 8.0;
+
+/// One horizontal slot of the Miller layout, left to right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MillerSlot {
+    /// The active directory's parent (blank at the filesystem root, so the
+    /// active column never shifts sideways).
+    Parent,
+    /// The active directory: always the centre slot.
+    Active,
+    /// What the cursor points at: a directory listing or a file's details.
+    Preview,
+}
+
+/// Slots for `available` width: parent | active | preview when three
+/// columns fit, otherwise the active column alone. Never two columns: with
+/// an even count the active directory could not sit in the middle.
+pub(crate) fn miller_slots(available: f32) -> &'static [MillerSlot] {
+    if available >= 3.0 * MILLER_MIN_COLUMN + 2.0 * MILLER_GAP {
+        &[MillerSlot::Parent, MillerSlot::Active, MillerSlot::Preview]
     } else {
-        (available / 248.0).floor().max(2.0) as usize
+        &[MillerSlot::Active]
+    }
+}
+
+/// Miller view: the active directory in the centre column, its parent on
+/// the left and a preview of the entry under the cursor on the right
+/// (`docs/reference/view-modes.md`).
+fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
+    let icons = app.icons;
+    // The preview follows the cursor, which key handling may just have
+    // moved; its directory read runs off-thread in the interactive window.
+    app.state.request_miller_preview(app.async_navigation);
+    app.state.poll_miller_preview();
+    if app.state.is_loading_miller_preview() {
+        optics_window::request_animation_frame();
+    }
+
+    let model = app.state.miller_columns().to_vec();
+    let Some(active) = model.last().cloned() else {
+        return;
     };
-    let first = all_columns.len().saturating_sub(fit);
-    let columns = all_columns[first..].to_vec();
-    let column_width = ((available - 8.0 * columns.len().saturating_sub(1) as f32)
-        / columns.len().max(1) as f32)
-        .max(220.0);
+    let parent = model.len().checked_sub(2).map(|index| model[index].clone());
+    let available = (app.viewport.0 - 212.0 - 48.0).max(MILLER_MIN_COLUMN);
+    let slots = miller_slots(available);
+    let column_width = ((available - MILLER_GAP * (slots.len() - 1) as f32) / slots.len() as f32)
+        .max(MILLER_MIN_COLUMN);
     let column_height = (app.viewport.1 - 200.0).max(280.0);
     let active_path = app.state.cwd().to_string();
     let seed_scroll = app.miller_seeded_for.as_deref() != Some(active_path.as_str());
+    let preview_key = app.state.miller_preview_key();
+    let preview_path = preview_key.as_ref().map(|key| key.path.clone());
+    let seed_preview = app.miller_preview_seeded_for != preview_path;
     let visible = app.state.visible();
+
     frame.flex(1.0);
     frame.scroll("miller-columns", |frame| {
-        frame.row_ex(
-            &LayoutOpts {
-                gap: 8.0,
+        frame
+            .row()
+            .with_opts(&LayoutOpts {
+                gap: MILLER_GAP,
                 pad: 2.0,
                 cross: Align::Stretch,
                 ..Default::default()
-            },
-            |frame| {
-                for (column_index, column) in columns.iter().enumerate() {
-                    let current = column.path == active_path;
-                    frame.push_id(&format!("miller-column-{column_index}"));
+            })
+            .show(|frame| {
+                for &slot in slots {
+                    let current = slot == MillerSlot::Active;
+                    let blank = match slot {
+                        MillerSlot::Parent => parent.is_none(),
+                        MillerSlot::Active => false,
+                        MillerSlot::Preview => app.state.selected_entry().is_none(),
+                    };
+                    frame.push_id(&format!("miller-column-{slot:?}"));
                     frame.size_next(column_width, column_height);
-                    frame.column_ex(
-                        &LayoutOpts {
+                    frame
+                        .column()
+                        .with_opts(&LayoutOpts {
                             width: column_width,
                             height: column_height,
                             min_height: 280.0,
@@ -775,108 +856,236 @@ fn build_miller(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             pad: 7.0,
                             cross: Align::Stretch,
                             bg: if current { tones.card } else { tones.content },
-                            radius: 9.0,
+                            corner_radii: CornerRadii::uniform(9.0),
                             ..Default::default()
-                        },
-                        |frame| {
-                            miller_header(frame, tones, &column.path, current);
-                            frame.flex(1.0);
-                            let scroll_id = format!("miller-list-{column_index}");
-                            let fallback = (column_height / MILLER_ROW_PITCH).ceil() as usize
-                                + OVERSCAN_ROWS
-                                + 2;
-                            let geometry = scroll_geometry(frame, &scroll_id);
-                            frame.scroll(&scroll_id, |frame| {
-                                frame.column_ex(
-                                    &LayoutOpts {
-                                        gap: 2.0,
-                                        cross: Align::Stretch,
-                                        ..Default::default()
-                                    },
-                                    |frame| {
-                                        let entry_count = if current {
-                                            visible.len()
-                                        } else {
-                                            column.entries.len()
-                                        };
-                                        let (first, last) = visible_rows(
-                                            geometry,
-                                            entry_count,
-                                            MILLER_ROW_PITCH,
-                                            fallback,
-                                        );
-                                        row_spacer(
-                                            frame,
-                                            "##miller-vtop",
-                                            spacer_height(first, MILLER_ROW_PITCH, 2.0),
-                                        );
-                                        if current {
-                                            for (visible_index, &entry_index) in
-                                                visible.iter().enumerate().take(last).skip(first)
-                                            {
-                                                if let Some(entry) = column.entries.get(entry_index)
-                                                {
-                                                    miller_row(
-                                                        app,
-                                                        frame,
-                                                        tones,
-                                                        &column.path,
-                                                        entry,
-                                                        true,
-                                                        Some(visible_index),
-                                                        column.selected == Some(entry_index),
-                                                    );
-                                                }
-                                            }
-                                        } else {
-                                            for (entry_index, entry) in column
-                                                .entries
-                                                .iter()
-                                                .enumerate()
-                                                .take(last)
-                                                .skip(first)
-                                            {
-                                                miller_row(
-                                                    app,
-                                                    frame,
-                                                    tones,
-                                                    &column.path,
-                                                    entry,
-                                                    false,
-                                                    None,
-                                                    column.selected == Some(entry_index),
-                                                );
-                                            }
-                                        }
-                                        row_spacer(
-                                            frame,
-                                            "##miller-vbot",
-                                            spacer_height(
-                                                entry_count - last,
-                                                MILLER_ROW_PITCH,
-                                                2.0,
-                                            ),
-                                        );
-                                    },
-                                );
-                            });
-                            if seed_scroll && !current {
-                                if let Some(selected) = column.selected {
-                                    let offset = (selected as f32 * 38.0 - 260.0).max(0.0);
-                                    scroll_to(frame, &scroll_id, 0.0, offset);
+                        })
+                        .show(|frame| {
+                            if blank {
+                                return;
+                            }
+                            match slot {
+                                MillerSlot::Parent => {
+                                    let column = parent.as_ref().expect("not blank");
+                                    miller_header(frame, &icons, tones, &column.path, false);
+                                    let scroll_id = "miller-list-parent";
+                                    miller_list(
+                                        app,
+                                        frame,
+                                        tones,
+                                        scroll_id,
+                                        &column.path,
+                                        &column.entries,
+                                        None,
+                                        column.selected,
+                                        column_height,
+                                    );
+                                    if seed_scroll {
+                                        seed_to_selection(frame, scroll_id, column.selected);
+                                    }
+                                }
+                                MillerSlot::Active => {
+                                    miller_header(frame, &icons, tones, &active.path, true);
+                                    miller_list(
+                                        app,
+                                        frame,
+                                        tones,
+                                        "miller-list-active",
+                                        &active.path,
+                                        &active.entries,
+                                        Some(&visible),
+                                        active.selected,
+                                        column_height,
+                                    );
+                                }
+                                MillerSlot::Preview => {
+                                    miller_preview_column(
+                                        app,
+                                        frame,
+                                        tones,
+                                        column_height,
+                                        seed_preview,
+                                    );
                                 }
                             }
-                        },
-                    );
+                        });
                     frame.pop_id();
                 }
-            },
-        );
+            });
     });
     app.miller_seeded_for = Some(active_path);
+    app.miller_preview_seeded_for = preview_path;
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Scroll a non-active column so its highlighted row is in view.
+fn seed_to_selection(frame: &mut Frame, scroll_id: &str, selected: Option<usize>) {
+    if let Some(selected) = selected {
+        let offset = (selected as f32 * MILLER_ROW_PITCH - 260.0).max(0.0);
+        scroll_to(frame, scroll_id, 0.0, offset);
+    }
+}
+
+/// Right-hand column: the listing of the directory under the cursor, or the
+/// details of the file under it.
+fn miller_preview_column(
+    app: &mut UiApp,
+    frame: &mut Frame,
+    tones: &Tones,
+    column_height: f32,
+    seed: bool,
+) {
+    let icons = app.icons;
+    let Some(entry) = app.state.selected_entry().cloned() else {
+        return;
+    };
+    if !entry.navigable {
+        miller_file_details(app, frame, tones, &entry);
+        return;
+    }
+    let path = arca_engine::entry::child_path(app.state.cwd(), &entry.name);
+    miller_header(frame, &icons, tones, &path, false);
+    let scroll_id = "miller-list-preview";
+    let listing = app
+        .state
+        .miller_preview()
+        .map(|preview| preview.listing.clone());
+    match listing {
+        None => miller_note(frame, tones, "Loading…"),
+        Some(Err(error)) => miller_note(frame, tones, &error),
+        Some(Ok(entries)) if entries.is_empty() => miller_note(frame, tones, "Empty folder"),
+        Some(Ok(entries)) => {
+            miller_list(
+                app,
+                frame,
+                tones,
+                scroll_id,
+                &path,
+                &entries,
+                None,
+                None,
+                column_height,
+            );
+            if seed {
+                scroll_to(frame, scroll_id, 0.0, 0.0);
+            }
+        }
+    }
+}
+
+fn miller_note(frame: &mut Frame, tones: &Tones, text: &str) {
+    frame.size_next(0.0, 28.0);
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
+            height: 28.0,
+            pad: 8.0,
+            cross: Align::Center,
+            ..Default::default()
+        })
+        .show(|frame| theme::label_colored_sized(frame, text, 12.0, tones.muted));
+}
+
+/// File under the cursor: large artwork (thumbnail when available) and the
+/// metadata the list view shows.
+fn miller_file_details(app: &mut UiApp, frame: &mut Frame, tones: &Tones, entry: &Entry) {
+    frame
+        .column()
+        .with_opts(&LayoutOpts {
+            gap: 10.0,
+            pad: 12.0,
+            cross: Align::Center,
+            ..Default::default()
+        })
+        .show(|frame| {
+            frame.size_next(0.0, 16.0);
+            frame.spacer(16.0);
+            card_art(app, frame, entry, 128.0, false);
+            let font_size = frame.theme().font_size();
+            frame.label_with(
+                &entry.name,
+                &LabelOpts {
+                    size: font_size,
+                    ..Default::default()
+                },
+            );
+            let kind = if entry.mime_type.is_empty() {
+                "File"
+            } else {
+                entry.mime_type.as_str()
+            };
+            theme::label_colored_sized(frame, kind, 12.0, tones.muted);
+            theme::label_colored_sized(frame, &format_size(entry.size), 12.0, tones.muted);
+            theme::label_colored_sized(frame, &format_time(entry.mtime), 12.0, tones.muted);
+        });
+}
+
+/// Virtualized rows of one Miller column. `visible` maps visible indices to
+/// `entries` for the active column (filter-aware, right-clickable); other
+/// columns list every entry.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "per-column render state threaded through one immediate-mode call"
+)]
+fn miller_list(
+    app: &mut UiApp,
+    frame: &mut Frame,
+    tones: &Tones,
+    scroll_id: &str,
+    directory: &str,
+    entries: &[Entry],
+    visible: Option<&[usize]>,
+    selected: Option<usize>,
+    column_height: f32,
+) {
+    frame.flex(1.0);
+    let fallback = (column_height / MILLER_ROW_PITCH).ceil() as usize + OVERSCAN_ROWS + 2;
+    let geometry = scroll_geometry(frame, scroll_id);
+    frame.scroll(scroll_id, |frame| {
+        frame
+            .column()
+            .with_opts(&LayoutOpts {
+                gap: 2.0,
+                cross: Align::Stretch,
+                ..Default::default()
+            })
+            .show(|frame| {
+                let entry_count = visible.map_or(entries.len(), <[usize]>::len);
+                let (first, last) = visible_rows(geometry, entry_count, MILLER_ROW_PITCH, fallback);
+                row_spacer(
+                    frame,
+                    "##miller-vtop",
+                    spacer_height(first, MILLER_ROW_PITCH, 2.0),
+                );
+                for row in first..last {
+                    let (entry_index, visible_index) = match visible {
+                        Some(visible) => (visible[row], Some(row)),
+                        None => (row, None),
+                    };
+                    if let Some(entry) = entries.get(entry_index) {
+                        miller_row(
+                            app,
+                            frame,
+                            tones,
+                            directory,
+                            entry,
+                            visible.is_some(),
+                            visible_index,
+                            selected == Some(entry_index),
+                        );
+                    }
+                }
+                row_spacer(
+                    frame,
+                    "##miller-vbot",
+                    spacer_height(entry_count - last, MILLER_ROW_PITCH, 2.0),
+                );
+            });
+    });
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "per-column render state threaded through one immediate-mode call"
+)]
 fn miller_row(
     app: &mut UiApp,
     frame: &mut Frame,
@@ -887,6 +1096,7 @@ fn miller_row(
     visible_index: Option<usize>,
     selected: bool,
 ) {
+    let icons = app.icons;
     let options = LayoutOpts {
         height: 36.0,
         gap: 7.0,
@@ -897,7 +1107,7 @@ fn miller_row(
         } else {
             Color::TRANSPARENT
         },
-        radius: 6.0,
+        corner_radii: CornerRadii::uniform(6.0),
         ..Default::default()
     };
     frame.push_id(&entry.name);
@@ -914,35 +1124,43 @@ fn miller_row(
         .id_label(&miller_id, &entry.name)
         .with_opts(&options)
         .show(|frame| {
-            icons::icon(frame, icons::entry_icon(entry), 17.0);
+            icons.icon(frame, entry_icon(entry), 17.0);
             frame.flex(1.0);
             let font_size = frame.theme().font_size();
-            frame.label_compact_sized(&entry.name, font_size);
+            frame.label_with(
+                &entry.name,
+                &LabelOpts {
+                    size: font_size,
+                    ..Default::default()
+                },
+            );
             if entry.navigable {
-                icons::icon(frame, ids::ChevronRight, 13.0);
+                icons.icon(frame, ids::ChevronRight, 13.0);
             }
         });
     frame.set_theme(prev_theme);
     frame.pop_id();
     if response.clicked {
         app.miller_clicked(directory, &entry.name);
-    } else if response.right_clicked && current {
-        if let Some(index) = visible_index {
-            app.row_right_clicked(index, response.rect);
-        }
+    } else if response.right_clicked
+        && current
+        && let Some(index) = visible_index
+    {
+        app.row_right_clicked(index, response.rect);
     }
-    suppress_item_pointer_cursor(frame);
+    suppress_item_pointer_cursor(frame, response.hovered);
 }
 
-fn miller_header(frame: &mut Frame, tones: &Tones, path: &str, current: bool) {
+fn miller_header(frame: &mut Frame, icons: &IconSet, tones: &Tones, path: &str, current: bool) {
     let name = std::path::Path::new(path)
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "Computer".into());
     frame.size_next(0.0, 34.0);
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             height: 34.0,
             gap: 7.0,
             // 8 + 15 + 7 lands the title at the same inset as the rows'
@@ -950,11 +1168,11 @@ fn miller_header(frame: &mut Frame, tones: &Tones, path: &str, current: bool) {
             pad: 8.0,
             cross: Align::Center,
             bg: if current { tones.selected } else { tones.card },
-            radius: 6.0,
+            corner_radii: CornerRadii::uniform(6.0),
             ..Default::default()
-        },
-        |frame| {
-            icons::icon(frame, ids::Folder, 15.0);
+        })
+        .show(|frame| {
+            icons.icon(frame, ids::Folder, 15.0);
             // Compact labels: the padded label/heading carry theme padding
             // that breaks row-inset alignment (and padded labels used to
             // overflow fixed rows downward). The current column's header
@@ -964,13 +1182,18 @@ fn miller_header(frame: &mut Frame, tones: &Tones, path: &str, current: bool) {
             } else {
                 frame.theme().font_size()
             };
-            frame.label_compact_sized(&name, size);
-        },
-    );
+            frame.label_with(
+                &name,
+                &LabelOpts {
+                    size,
+                    ..Default::default()
+                },
+            );
+        });
 }
 
-fn row_icon(frame: &mut Frame, entry: &Entry) {
-    icons::icon(frame, icons::entry_icon(entry), 19.0);
+fn row_icon(frame: &mut Frame, icons: &IconSet, entry: &Entry) {
+    icons.icon(frame, entry_icon(entry), 19.0);
 }
 
 /// Grid-card artwork: the entry's decoded thumbnail (album cover, image
@@ -978,6 +1201,7 @@ fn row_icon(frame: &mut Frame, entry: &Entry) {
 /// When selected, the art is slightly shaded (macOS Finder-grade darkening filter).
 /// Only built — i.e. visible — cards ever reach here, so requests stay lazy.
 fn card_art(app: &mut UiApp, frame: &mut Frame, entry: &Entry, size: f32, selected: bool) {
+    let icons = app.icons;
     let prev_opacity = frame.opacity();
     if selected {
         frame.set_opacity(0.72);
@@ -1014,7 +1238,7 @@ fn card_art(app: &mut UiApp, frame: &mut Frame, entry: &Entry, size: f32, select
             return;
         }
     }
-    icons::icon(frame, icons::entry_icon(entry), size);
+    icons.icon(frame, entry_icon(entry), size);
     if selected {
         frame.set_opacity(prev_opacity);
     }
@@ -1038,6 +1262,7 @@ fn sort_cell(
     label: &str,
     width: f32,
 ) {
+    let icons = app.icons;
     let active = app.state.sort_key == key;
     let ascending = app.state.sort_ascending;
     let options = LayoutOpts {
@@ -1046,7 +1271,7 @@ fn sort_cell(
         gap: 4.0,
         pad: 0.0,
         cross: Align::Center,
-        radius: 6.0,
+        corner_radii: CornerRadii::uniform(6.0),
         ..Default::default()
     };
     let sort_id = format!("sort-{label}");
@@ -1074,11 +1299,11 @@ fn sort_cell(
                 } else {
                     ids::ChevronDown
                 };
-                icons::icon(frame, icon, 12.0);
+                icons.icon(frame, icon, 12.0);
             }
         });
     frame.set_theme(prev_theme);
-    suppress_item_pointer_cursor(frame);
+    suppress_item_pointer_cursor(frame, response.hovered);
     if response.clicked {
         app.state.toggle_sort(key);
     }
@@ -1086,58 +1311,55 @@ fn sort_cell(
 
 fn capture_rename(app: &mut UiApp, frame: &mut Frame, label: &str) {
     app.rename_focused_now = frame.response().focused;
-    if app.pending_focus == Some(FocusTarget::Rename) {
-        if let Some(name) = &app.renaming {
-            let stem_len = if let Some(dot_idx) = name.rfind('.') {
-                if dot_idx > 0 {
-                    dot_idx
-                } else {
-                    name.len()
-                }
-            } else {
-                name.len()
-            };
-            frame.textedit_set_selection(label, 0, stem_len as u32);
-            if focus_any(frame, &[label]) {
-                app.pending_focus = None;
-            }
+    if app.pending_focus == Some(FocusTarget::Rename)
+        && let Some(name) = &app.renaming
+    {
+        let stem_len = if let Some(dot_idx) = name.rfind('.') {
+            if dot_idx > 0 { dot_idx } else { name.len() }
+        } else {
+            name.len()
+        };
+        frame.textedit_set_selection(label, 0, stem_len as u32);
+        if focus_any(frame, &[label]) {
+            app.pending_focus = None;
         }
     }
 }
 
 fn placeholder(
     frame: &mut Frame,
+    icons: &IconSet,
     tones: &Tones,
-    icon: icons::AssetId,
+    icon: AssetId,
     headline: &str,
     detail: &str,
 ) {
     frame.flex(1.0);
-    frame.column_ex(
-        &LayoutOpts {
+    frame
+        .column()
+        .with_opts(&LayoutOpts {
             flex: 1.0,
             gap: 14.0,
             pad: 40.0,
             cross: Align::Center,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             frame.size_next(64.0, 64.0);
-            frame.column_ex(
-                &LayoutOpts {
+            frame
+                .column()
+                .with_opts(&LayoutOpts {
                     width: 64.0,
                     height: 64.0,
                     cross: Align::Center,
                     bg: tones.card,
-                    radius: 16.0,
+                    corner_radii: CornerRadii::uniform(16.0),
                     ..Default::default()
-                },
-                |frame| icons::icon(frame, icon, 34.0),
-            );
+                })
+                .show(|frame| icons.icon(frame, icon, 34.0));
             frame.heading(headline, 3);
             theme::label_colored(frame, detail, tones.muted);
-        },
-    );
+        });
 }
 
 #[cfg(test)]
@@ -1225,6 +1447,63 @@ mod tests {
                 frame(&mut app, &mut ui, &input);
             }
         }
+    }
+
+    #[test]
+    fn miller_keeps_the_active_directory_in_the_centre() {
+        // Wide: parent | active | preview. Never two columns, which would
+        // push the active directory off-centre.
+        let wide = miller_slots(1200.0);
+        assert_eq!(
+            wide,
+            [MillerSlot::Parent, MillerSlot::Active, MillerSlot::Preview]
+        );
+        assert_eq!(wide[wide.len() / 2], MillerSlot::Active);
+        let threshold = 3.0 * MILLER_MIN_COLUMN + 2.0 * MILLER_GAP;
+        assert_eq!(miller_slots(threshold).len(), 3);
+        assert_eq!(miller_slots(threshold - 1.0), [MillerSlot::Active]);
+    }
+
+    #[test]
+    fn miller_preview_column_follows_the_cursor() {
+        let (_dir, mut app) = fixture();
+        std::fs::write(app.state.cwd().to_string() + "/sub/inner.txt", b"x").unwrap();
+        app.state.set_view_mode(arca_engine::ViewMode::Miller);
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1280.0, 760.0), 1.0 / 60.0);
+        let select = |app: &mut UiApp, name: &str| {
+            let visible = app.state.visible();
+            let row = visible
+                .iter()
+                .position(|&i| app.state.entries()[i].name == name)
+                .expect("entry is visible");
+            app.state.select_visible(row);
+        };
+
+        // Directory under the cursor: its listing is the preview.
+        select(&mut app, "sub");
+        frame(&mut app, &mut ui, &input);
+        let preview = app
+            .state
+            .miller_preview()
+            .expect("preview loaded during build");
+        let names: Vec<_> = preview
+            .listing
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(names, ["inner.txt"]);
+
+        // File under the cursor: details instead of a listing; still builds.
+        select(&mut app, "a.txt");
+        frame(&mut app, &mut ui, &input);
+        assert!(app.state.miller_preview().is_none());
+
+        // At the filesystem root the parent slot is blank but the build holds.
+        app.state.navigate("/");
+        frame(&mut app, &mut ui, &input);
     }
 
     #[test]

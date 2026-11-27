@@ -14,3 +14,6 @@ optics-ui.workspace = true
 optics-ui-sys.workspace = true
 optics-gfx-sys.workspace = true
 optics-motion.workspace = true
+log.workspace = true
+roxmltree.workspace = true
+svgtypes.workspace = true

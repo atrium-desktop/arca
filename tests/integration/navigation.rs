@@ -144,10 +144,12 @@ fn path_completion_returns_prefix_and_candidates() {
     let completion = arca_engine::complete_path(one.to_str().unwrap(), &input)
         .expect("a matching child completes");
     assert!(completion.completed.ends_with("alpha.txt"));
-    assert!(completion
-        .candidates
-        .iter()
-        .any(|path| path.ends_with("alpha.txt")));
+    assert!(
+        completion
+            .candidates
+            .iter()
+            .any(|path| path.ends_with("alpha.txt"))
+    );
 
     let empty = arca_engine::complete_path(one.to_str().unwrap(), "zzz");
     assert!(empty.is_none(), "a miss returns no completion");

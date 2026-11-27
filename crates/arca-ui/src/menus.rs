@@ -9,11 +9,11 @@
 //! for the opening click), which these builders mirror back into app state.
 
 use arca_engine::config::ThemeMode;
-use optics_ui::patterns::{popup_menu, MenuItem};
-use optics_ui::{Align, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
+use optics_ui::patterns::{MenuItem, popup_menu};
+use optics_ui::{Align, CornerRadii, Frame, LayoutOpts, PlaceMode, PlaceOpts, Rect};
 
-use crate::app::{UiApp, CTX_MENU_ID, SETTINGS_MENU_ID, SIDEBAR_MENU_ID};
-use crate::icons::{self, ids};
+use crate::app::{CTX_MENU_ID, SETTINGS_MENU_ID, SIDEBAR_MENU_ID, UiApp};
+use crate::icons::ids;
 use crate::theme::Tones;
 
 /// Frosted popover body shared by both menus (tessera `popover` material:
@@ -30,7 +30,7 @@ fn popover_opts(tones: &Tones, anchor: Rect) -> PlaceOpts {
             bg: tones.popover,
             border: tones.popover_border,
             border_width: 1.0,
-            radius: 10.0,
+            corner_radii: CornerRadii::uniform(10.0),
             min_width: 180.0,
             ..Default::default()
         },
@@ -54,6 +54,7 @@ fn ensure_open(f: &mut Frame, id: &str, opened: &mut bool) -> bool {
 }
 
 pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
+    let icons = app.icons;
     let Some(mut menu) = app.ctx_menu.take() else {
         return;
     };
@@ -81,12 +82,12 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
     let mut items = Vec::new();
     let mut actions = Vec::new();
 
-    items.push(MenuItem::new("Open").icon(icons::icon_id(ids::Folder)));
+    items.push(MenuItem::new("Open").icon(icons.id(ids::Folder)));
     actions.push(Action::Open);
 
     items.push(
         MenuItem::new("Quick Look")
-            .icon(icons::icon_id(ids::Eye))
+            .icon(icons.id(ids::Eye))
             .shortcut("Space"),
     );
     actions.push(Action::QuickLook);
@@ -97,7 +98,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
         .filter(|entry| entry.navigable)
         .and_then(|_| app.state.selected_path());
     if let Some(ref path) = selected_directory {
-        items.push(MenuItem::new("Open in New Tab").icon(icons::icon_id(ids::Plus)));
+        items.push(MenuItem::new("Open in New Tab").icon(icons.id(ids::Plus)));
         actions.push(Action::OpenInNewTab(path.clone()));
 
         let is_bookmarked = app.state.is_bookmarked(path);
@@ -106,7 +107,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
         } else {
             "Add to Bookmarks"
         };
-        items.push(MenuItem::new(bookmark_label).icon(icons::icon_id(ids::Folder)));
+        items.push(MenuItem::new(bookmark_label).icon(icons.id(ids::Folder)));
         actions.push(Action::ToggleBookmark(path.clone()));
     }
 
@@ -117,33 +118,33 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
 
     items.push(
         MenuItem::new("Copy")
-            .icon(icons::icon_id(ids::FileText))
+            .icon(icons.id(ids::FileText))
             .shortcut("Ctrl+C"),
     );
     actions.push(Action::Copy);
 
     items.push(
         MenuItem::new("Cut")
-            .icon(icons::icon_id(ids::FileText))
+            .icon(icons.id(ids::FileText))
             .shortcut("Ctrl+X"),
     );
     actions.push(Action::Cut);
 
     items.push(
         MenuItem::new("Paste")
-            .icon(icons::icon_id(ids::FileText))
+            .icon(icons.id(ids::FileText))
             .shortcut("Ctrl+V"),
     );
     actions.push(Action::Paste);
 
     if let Some(path) = app.state.selected_path() {
-        items.push(MenuItem::new("Copy Path").icon(icons::icon_id(ids::Link2)));
+        items.push(MenuItem::new("Copy Path").icon(icons.id(ids::Link2)));
         actions.push(Action::CopyPath(path));
     }
 
     for app_entry in menu.open_with.iter().take(3) {
         let label = format!("Open with {}", app_entry.name);
-        items.push(MenuItem::new(label).icon(icons::icon_id(ids::Terminal)));
+        items.push(MenuItem::new(label).icon(icons.id(ids::Terminal)));
         actions.push(Action::OpenWith(app_entry.clone()));
     }
 
@@ -157,7 +158,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
         } else {
             "Restore".to_string()
         };
-        items.push(MenuItem::new(label).icon(icons::icon_id(ids::RefreshCw)));
+        items.push(MenuItem::new(label).icon(icons.id(ids::RefreshCw)));
         actions.push(Action::Restore);
 
         let purge_label = if names.len() > 1 {
@@ -165,12 +166,12 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
         } else {
             "Delete permanently".to_string()
         };
-        items.push(MenuItem::new(purge_label).icon(icons::icon_id(ids::Trash)));
+        items.push(MenuItem::new(purge_label).icon(icons.id(ids::Trash)));
         actions.push(Action::Purge(names));
     } else {
         items.push(
             MenuItem::new("Move to Trash")
-                .icon(icons::icon_id(ids::Trash))
+                .icon(icons.id(ids::Trash))
                 .shortcut("Delete"),
         );
         actions.push(Action::Trash);
@@ -254,6 +255,7 @@ pub(crate) fn build_ctx_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
 
 /// Context menu for items in the places / bookmarks sidebar.
 pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones) {
+    let icons = app.icons;
     let Some(mut menu) = app.sidebar_menu.take() else {
         return;
     };
@@ -272,17 +274,17 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones)
     let mut items = Vec::new();
     let mut actions = Vec::new();
 
-    items.push(MenuItem::new("Open in New Tab").icon(icons::icon_id(ids::Plus)));
+    items.push(MenuItem::new("Open in New Tab").icon(icons.id(ids::Plus)));
     actions.push(Action::OpenInNewTab);
 
-    items.push(MenuItem::new("Copy Path").icon(icons::icon_id(ids::Link2)));
+    items.push(MenuItem::new("Copy Path").icon(icons.id(ids::Link2)));
     actions.push(Action::CopyPath);
 
     if menu.is_folder {
         items.push(MenuItem::separator());
         actions.push(Action::None);
 
-        items.push(MenuItem::new("Remove from Bookmarks").icon(icons::icon_id(ids::Folder)));
+        items.push(MenuItem::new("Remove from Bookmarks").icon(icons.id(ids::Folder)));
         actions.push(Action::RemoveBookmark);
     }
 
@@ -290,7 +292,7 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones)
         items.push(MenuItem::separator());
         actions.push(Action::None);
 
-        items.push(MenuItem::new("Empty Trash").icon(icons::icon_id(ids::Trash)));
+        items.push(MenuItem::new("Empty Trash").icon(icons.id(ids::Trash)));
         actions.push(Action::EmptyTrash);
     }
 
@@ -324,6 +326,7 @@ pub(crate) fn build_sidebar_menu(app: &mut UiApp, f: &mut Frame, _tones: &Tones)
 
 /// Appearance picker hanging off the toolbar settings button.
 pub(crate) fn build_settings_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones) {
+    let icons = app.icons;
     let Some(mut menu) = app.settings_menu.take() else {
         // Toggled off this frame: keep the optics-ui overlay in sync.
         if f.place_is_open(SETTINGS_MENU_ID) {
@@ -342,7 +345,7 @@ pub(crate) fn build_settings_menu(app: &mut UiApp, f: &mut Frame, tones: &Tones)
             (ThemeMode::Light, ids::Sun, "Light"),
             (ThemeMode::Dark, ids::Moon, "Dark"),
         ] {
-            if icons::selectable_icon(f, icon, label, app.state.theme == mode) {
+            if icons.selectable(f, icon, label, app.state.theme == mode) {
                 app.state.set_theme(mode);
                 keep_open = false;
             }

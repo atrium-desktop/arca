@@ -7,10 +7,10 @@ verifying Arca across Wayland desktop sessions, portal file pickers, and headles
 
 ## 1. Prerequisites & Toolchain Setup
 
-Arca requires Rust 1.85+ and the native Optics graphics stack (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`):
+Arca requires Rust 1.88+ and the native Optics graphics stack (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`):
 
 ```bash
-rustc --version                  # rustc >= 1.85
+rustc --version                  # rustc >= 1.88
 ```
 
 ### Choosing the Optics link mode

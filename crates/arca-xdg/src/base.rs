@@ -13,11 +13,7 @@ use std::path::PathBuf;
 fn non_empty_abs_env(var: &str) -> Option<PathBuf> {
     env::var_os(var).and_then(|v| {
         let p = PathBuf::from(v);
-        if p.is_absolute() {
-            Some(p)
-        } else {
-            None
-        }
+        if p.is_absolute() { Some(p) } else { None }
     })
 }
 

@@ -26,8 +26,8 @@ in Arca.
 |----------|---------|--------|
 | `Up Arrow` / `Down Arrow` | Listing | Move selection up or down. |
 | `Left Arrow` / `Right Arrow` | Grid | Move selection horizontally across grid items. |
-| `Left Arrow` | Miller columns | Navigate to parent column. |
-| `Right Arrow` | Miller columns | Expand selected directory into child column. |
+| `Left Arrow` | Miller columns | Go to the parent directory; it moves into the centre column. |
+| `Right Arrow` | Miller columns | Enter the selected directory (it moves into the centre column); on a file, open it. |
 | `Enter` | Listing | Open selected directory or launch default application for file. |
 | `Backspace` | Listing | Navigate up to parent directory. |
 | `Alt+Up Arrow` | Listing | Navigate up to parent directory. |

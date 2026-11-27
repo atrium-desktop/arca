@@ -1,17 +1,21 @@
 //! Icon glyphs for files, folders and chrome.
 //!
-//! Arca maintains its own icon set in `assets/icons/*.svg` (see the
-//! README there). Each glyph is registered with optics-ui on first use
-//! (`optics_ui_icon_register_svg` — the runtime counterpart of optics-ui's
-//! baked-in table, backed by the shared optics-svg vector compiler since
-//! Optics v0.0.79) and drawn through the native icon widgets: vector-crisp at
-//! any size, theme-tinted, no raster assets or generator scripts involved.
+//! Arca owns its icon artwork as SVG in `assets/icons/*.svg` (see the README
+//! there). Optics carries no format parsers (Optics ADR-0174), so
+//! [`vector`] decodes each asset into format-agnostic vector commands and
+//! [`IconSet::register`] registers the whole set on one `optics_ui` context
+//! (ADR-0025). Icon ids are generational handles owned by that context: an
+//! [`IconSet`] is valid only for the [`Ui`] it was registered on, and is
+//! released with [`IconSet::unregister`] before the context goes away. Glyphs
+//! are drawn through the native icon widgets: vector-crisp at any size,
+//! theme-tinted where the artwork uses `currentColor`, no raster assets.
 
-use std::sync::OnceLock;
+mod vector;
 
 use arca_engine::bookmarks::BookmarkKind;
 use arca_engine::entry::{Entry, FileType};
-use optics_ui::Frame;
+use optics_ui::{Frame, Ui};
+use optics_ui_sys::optics_ui_icon_id;
 
 /// One glyph of arca's icon set; the variant name is the PascalCase of
 /// the SVG file name in `assets/icons/`.
@@ -56,12 +60,14 @@ pub(crate) enum AssetId {
 
 pub(crate) mod ids {
     //! Keeps call sites reading `ids::X`.
-    #[allow(unused_imports)]
     pub(crate) use super::AssetId::*;
 }
 
 impl AssetId {
-    pub(crate) const ALL: &'static [AssetId] = &[
+    /// Number of glyphs in the set.
+    pub(crate) const COUNT: usize = AssetId::X as usize + 1;
+
+    pub(crate) const ALL: [AssetId; Self::COUNT] = [
         AssetId::AlertCircle,
         AssetId::Aperture,
         AssetId::Archive,
@@ -139,68 +145,179 @@ impl AssetId {
             AssetId::X => include_str!("../../../assets/icons/x.svg"),
         }
     }
+}
 
-    fn index(self) -> usize {
-        self as usize
+/// Arca's glyphs registered on one `optics_ui` context.
+///
+/// A plain table of generational ids, `Copy` so builders can hold it across
+/// closures that also borrow the app mutably. [`IconSet::EMPTY`] maps every
+/// glyph to `OPTICS_UI_ICON_NONE`, for which widgets draw no glyph.
+///
+/// Generational ids do not name their context: two fresh contexts hand out
+/// the same first ids. The set therefore records the address of the context
+/// it was registered on, so releasing it on a different context (which would
+/// free that context's same-numbered glyphs) is caught instead of silent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct IconSet {
+    ids: [optics_ui_icon_id; AssetId::COUNT],
+    /// Address of the owning `optics_ui`, or 0 for [`IconSet::EMPTY`]. Kept
+    /// as an address, never dereferenced.
+    owner: usize,
+}
+
+impl Default for IconSet {
+    fn default() -> Self {
+        Self::EMPTY
     }
 }
 
-/// The process-global registration table, built once on first use.
-static REGISTERED: OnceLock<Vec<optics_ui_sys::optics_ui_icon_id>> = OnceLock::new();
+impl IconSet {
+    pub(crate) const EMPTY: IconSet = IconSet {
+        ids: [optics_ui_icon_id::OPTICS_UI_ICON_NONE; AssetId::COUNT],
+        owner: 0,
+    };
 
-/// The optics-ui icon id for an asset, registering the whole set on first
-/// call. A failed parse yields the invalid id (widgets then draw nothing); the
-/// `all_icon_assets_register` test keeps that from shipping.
-pub(crate) fn icon_id(id: AssetId) -> optics_ui_sys::optics_ui_icon_id {
-    let ids = REGISTERED.get_or_init(|| {
-        AssetId::ALL
-            .iter()
-            .map(|asset| {
-                // OPTICS_UI_ICON_INVALID is (optics_ui_icon_id)-1.
-                optics_ui::register_svg_icon(asset.svg())
-                    .unwrap_or(optics_ui_sys::optics_ui_icon_id(u32::MAX))
+    /// Decode every asset and register it on `ui`. A glyph that fails to
+    /// decode or register is logged and left as `OPTICS_UI_ICON_NONE`; the
+    /// `every_asset_registers` test keeps that from shipping.
+    pub(crate) fn register(ui: &mut Ui) -> IconSet {
+        let mut set = IconSet {
+            owner: ui.as_raw() as usize,
+            ..IconSet::EMPTY
+        };
+        for asset in AssetId::ALL {
+            let registered = vector::decode(asset.svg())
+                .map_err(|e| e.to_string())
+                .and_then(|icon| {
+                    ui.register_icon(
+                        &icon.cmds,
+                        &icon.runs,
+                        optics_ui_sys::optics_ui_icon_paint::OPTICS_UI_ICON_PAINT_FILL,
+                    )
+                    .ok_or_else(|| "optics-ui rejected the command stream".to_owned())
+                });
+            match registered {
+                Ok(id) => set.ids[asset as usize] = id,
+                Err(e) => log::warn!(target: "arca_ui", "icon {asset:?} unavailable: {e}"),
+            }
+        }
+        set
+    }
+
+    /// Release every glyph from `ui` and reset to [`IconSet::EMPTY`].
+    ///
+    /// # Panics
+    ///
+    /// If `ui` is not the context the set was registered on. An empty set
+    /// may be released on any context.
+    pub(crate) fn unregister(&mut self, ui: &mut Ui) {
+        if self.owner == 0 {
+            return;
+        }
+        assert_eq!(
+            self.owner,
+            ui.as_raw() as usize,
+            "IconSet released on a context it was not registered on"
+        );
+        for id in self.ids {
+            ui.unregister_icon(id);
+        }
+        *self = IconSet::EMPTY;
+    }
+
+    /// Whether every glyph is live on `ui` itself. The address check rules
+    /// out ids from another context. The registry lookup rules out a new
+    /// context allocated at a dropped one's address.
+    #[cfg(test)]
+    pub(crate) fn is_registered_on(&self, ui: &mut Ui) -> bool {
+        let raw = ui.as_raw();
+        self.owner == raw as usize
+            && self.ids.iter().all(|&id| {
+                // SAFETY: `raw` is live for this borrow; icon_info only reads
+                // the context's registry.
+                !unsafe { optics_ui_sys::optics_ui_icon_info(raw, id) }.is_null()
             })
-            .collect()
-    });
-    ids[id.index()]
+    }
+
+    /// The context-local icon id for `asset`.
+    pub(crate) fn id(&self, asset: AssetId) -> optics_ui_icon_id {
+        self.ids[asset as usize]
+    }
+
+    pub(crate) fn icon(&self, frame: &mut Frame, asset: AssetId, size: f32) {
+        frame.icon(self.id(asset), size);
+    }
+
+    /// Ghost icon button in a square `box_size` hit target.
+    /// Borderless and transparent at rest, subtle background fill on hover/press.
+    pub(crate) fn button(&self, frame: &mut Frame, asset: AssetId, box_size: f32) -> bool {
+        subtle_icon_button(
+            frame,
+            &format!("##icon-{asset:?}"),
+            self.id(asset),
+            box_size,
+            false,
+        )
+    }
+
+    /// Icon button that swaps glyph with its checked state (eye/eye-off, star…).
+    /// Borderless and transparent at rest; reveals subtle background on hover,
+    /// and accent/active surface when checked.
+    pub(crate) fn toggle_button(
+        &self,
+        frame: &mut Frame,
+        unchecked: AssetId,
+        checked: AssetId,
+        box_size: f32,
+        is_checked: bool,
+    ) -> bool {
+        let glyph = if is_checked { checked } else { unchecked };
+        subtle_icon_button(
+            frame,
+            &format!("##icon-toggle-{unchecked:?}-{checked:?}"),
+            self.id(glyph),
+            box_size,
+            is_checked,
+        )
+    }
+
+    /// Full-width sidebar/menu row with a leading icon, compact 30px height, and 18px icon size.
+    pub(crate) fn selectable(
+        &self,
+        frame: &mut Frame,
+        asset: AssetId,
+        label: &str,
+        selected: bool,
+    ) -> bool {
+        self.selectable_sized(frame, asset, label, selected, 30.0, 18.0)
+    }
+
+    /// Full-width sidebar/menu row with explicit height and icon size.
+    pub(crate) fn selectable_sized(
+        &self,
+        frame: &mut Frame,
+        asset: AssetId,
+        label: &str,
+        selected: bool,
+        height: f32,
+        icon_size: f32,
+    ) -> bool {
+        frame.size_next(0.0, height);
+        frame.selectable_with_icon(label, self.id(asset), selected, icon_size)
+    }
 }
 
-pub fn icon(frame: &mut Frame, id: AssetId, size: f32) {
-    frame.icon_raw(icon_id(id), size);
-}
-
-/// Ghost icon button in a square `box_size` hit target.
-/// Borderless and transparent at rest, subtle background fill on hover/press.
-pub fn icon_button(frame: &mut Frame, id: AssetId, box_size: f32) -> bool {
-    let id_str = format!("##icon-{id:?}");
-    let c = std::ffi::CString::new(id_str).unwrap();
-    let opts = optics_ui_sys::optics_ui_button_opts {
-        box_: optics_ui_sys::optics_ui_box {
-            id: c.as_ptr(),
-            width: box_size,
-            height: box_size,
-            ..Default::default()
-        },
-        icon: icon_id(id),
-        variant: optics_ui_sys::optics_ui_button_variant::OPTICS_UI_BUTTON_SUBTLE,
-        ..Default::default()
-    };
-    unsafe { optics_ui_sys::optics_ui_button(frame.as_raw(), &opts).clicked }
-}
-
-/// Icon button that swaps glyph with its checked state (eye/eye-off, star…).
-/// Borderless and transparent at rest; reveals subtle background on hover,
-/// and accent/active surface when checked.
-pub fn icon_toggle_button(
+/// A subtle-variant icon button with an explicit widget id and square hit
+/// target. The safe `Frame::icon_button` takes neither, so this drops to
+/// the `optics_ui_button` descriptor.
+fn subtle_icon_button(
     frame: &mut Frame,
-    unchecked: AssetId,
-    checked: AssetId,
+    id: &str,
+    icon: optics_ui_icon_id,
     box_size: f32,
-    is_checked: bool,
+    active: bool,
 ) -> bool {
-    let glyph = if is_checked { checked } else { unchecked };
-    let id_str = format!("##icon-toggle-{unchecked:?}-{checked:?}");
-    let c = std::ffi::CString::new(id_str).unwrap();
+    let c = std::ffi::CString::new(id).expect("icon widget ids contain no NUL");
     let opts = optics_ui_sys::optics_ui_button_opts {
         box_: optics_ui_sys::optics_ui_box {
             id: c.as_ptr(),
@@ -208,30 +325,14 @@ pub fn icon_toggle_button(
             height: box_size,
             ..Default::default()
         },
-        icon: icon_id(glyph),
+        icon,
         variant: optics_ui_sys::optics_ui_button_variant::OPTICS_UI_BUTTON_SUBTLE,
-        active: is_checked,
+        active,
         ..Default::default()
     };
+    // SAFETY: the frame's context is live inside its begin/end pair, and
+    // `c` outlives the call.
     unsafe { optics_ui_sys::optics_ui_button(frame.as_raw(), &opts).clicked }
-}
-
-/// Full-width sidebar/menu row with a leading icon, compact 30px height, and 18px icon size.
-pub fn selectable_icon(frame: &mut Frame, id: AssetId, label: &str, selected: bool) -> bool {
-    selectable_icon_sized(frame, id, label, selected, 30.0, 18.0)
-}
-
-/// Full-width sidebar/menu row with explicit height and icon size.
-pub fn selectable_icon_sized(
-    frame: &mut Frame,
-    id: AssetId,
-    label: &str,
-    selected: bool,
-    height: f32,
-    icon_size: f32,
-) -> bool {
-    frame.size_next(0.0, height);
-    frame.selectable_icon_sized(label, icon_id(id), selected, icon_size)
 }
 
 /// Icon for a directory entry (type glyph + MIME / extension mapping).
@@ -300,11 +401,7 @@ fn file_icon(name: &str) -> AssetId {
         _ => ids::File,
     };
     // No extension (or the extension is the whole name, e.g. ".gitignore").
-    if ext == lower {
-        ids::File
-    } else {
-        icon
-    }
+    if ext == lower { ids::File } else { icon }
 }
 
 fn dir_icon(name: &str) -> AssetId {
@@ -324,18 +421,77 @@ fn dir_icon(name: &str) -> AssetId {
 #[cfg(test)]
 mod tests {
     //! Behaviour tests for this module.
-    //!
-    //! Migrated out of the former monolithic `lib.rs::tests` block so each
-    //! test lives next to the code it constrains.
 
     use super::*;
 
     #[test]
-    fn all_icon_assets_register() {
-        for &asset in AssetId::ALL {
-            let id = crate::icons::icon_id(asset);
-            assert_ne!(id.0, u32::MAX, "{asset:?} failed to parse/register");
-            assert!(id.0 >= optics_ui_sys::optics_ui_icon_id::OPTICS_UI_ICON_COUNT.0);
+    fn every_asset_decodes() {
+        for asset in AssetId::ALL {
+            let icon = vector::decode(asset.svg()).unwrap_or_else(|e| panic!("{asset:?}: {e}"));
+            let covered: u32 = icon.runs.iter().map(|r| r.count).sum();
+            assert_eq!(
+                covered as usize,
+                icon.cmds.len(),
+                "{asset:?}: runs cover every command"
+            );
         }
+    }
+
+    #[test]
+    fn all_is_complete_and_ordered() {
+        for (i, asset) in AssetId::ALL.into_iter().enumerate() {
+            assert_eq!(
+                asset as usize, i,
+                "ALL must list variants in declaration order"
+            );
+        }
+    }
+
+    #[test]
+    fn every_asset_registers() {
+        let mut ui = Ui::headless().expect("headless ui");
+        let mut set = IconSet::register(&mut ui);
+        for asset in AssetId::ALL {
+            let id = set.id(asset);
+            assert_ne!(
+                id,
+                optics_ui_icon_id::OPTICS_UI_ICON_NONE,
+                "{asset:?} failed to register"
+            );
+            assert!(
+                id.0 >= optics_ui_icon_id::OPTICS_UI_ICON_BUILTIN_COUNT.0,
+                "{asset:?} aliases a built-in"
+            );
+        }
+        set.unregister(&mut ui);
+        assert_eq!(set, IconSet::EMPTY);
+    }
+
+    #[test]
+    fn icon_sets_are_per_context() {
+        let mut a = Ui::headless().expect("headless ui");
+        let mut b = Ui::headless().expect("headless ui");
+        let mut set_a = IconSet::register(&mut a);
+        let mut set_b = IconSet::register(&mut b);
+        assert!(set_a.is_registered_on(&mut a) && set_b.is_registered_on(&mut b));
+        assert!(
+            !set_a.is_registered_on(&mut b),
+            "ids alone must not pass for another context"
+        );
+        // Unregistering from one context leaves the other's glyphs intact.
+        set_a.unregister(&mut a);
+        // SAFETY: `b` is live; icon_info only reads its registry.
+        let desc = unsafe { optics_ui_sys::optics_ui_icon_info(b.as_raw(), set_b.id(ids::Folder)) };
+        assert!(!desc.is_null(), "context b still owns its folder glyph");
+        set_b.unregister(&mut b);
+    }
+
+    #[test]
+    #[should_panic(expected = "not registered on")]
+    fn releasing_on_another_context_panics() {
+        let mut a = Ui::headless().expect("headless ui");
+        let mut b = Ui::headless().expect("headless ui");
+        let mut set = IconSet::register(&mut a);
+        set.unregister(&mut b);
     }
 }

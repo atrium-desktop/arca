@@ -5,9 +5,11 @@
 //! once per frame via [`ThumbService::drain`]. A single worker was not
 //! enough: embedded JPEG covers take tens to hundreds of milliseconds each,
 //! so scrolling a large music folder outran one serial decoder. Decoded
-//! thumbs are also written through to the standard FreeDesktop thumbnail cache under
-//! `$XDG_CACHE_HOME/thumbnails/normal/`, so covers survive app restarts and are
-//! shared with other desktop applications.
+//! thumbs are also written through to the shared FreeDesktop thumbnail cache
+//! (`$XDG_CACHE_HOME/thumbnails/normal/`, see [`arca_xdg::thumbnail`]), so
+//! covers survive app restarts and are shared with other desktop
+//! applications. That cache belongs to the whole desktop: arca reads and
+//! writes it per the Thumbnail Managing Standard and never prunes it.
 //! Audio covers (FLAC PICTURE blocks, ID3v2 APIC frames) are parsed by hand
 //! with bounded reads — audio files run to tens of megabytes and only their
 //! leading metadata is relevant — then fed to the same `image`-crate
@@ -20,7 +22,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::SystemTime;
+
+use crate::xdg;
 
 /// Longest edge of a decoded thumbnail.
 const THUMB_SIZE: u32 = 128;
@@ -35,8 +38,8 @@ const MAX_CACHED: usize = 512;
 const MAX_CACHE_BYTES: usize = 64 * 1024 * 1024;
 /// Decode pool size: `available_parallelism` capped at this, at least 1.
 const MAX_WORKERS: usize = 4;
-/// Bound on the on-disk cache; enforced once per startup by the janitor.
-const MAX_DISK_ENTRIES: usize = 4096;
+/// Largest cached thumbnail PNG worth reading; a `normal` PNG is far smaller.
+const MAX_DISK_THUMB_BYTES: u64 = 1024 * 1024;
 
 /// A decoded thumbnail: tightly packed RGBA8 (not premultiplied).
 #[derive(Clone, Debug)]
@@ -80,17 +83,22 @@ struct Shared {
     queue: VecDeque<PathBuf>,
     /// Set by `Drop` so detached workers exit instead of parking forever.
     shutdown: bool,
+    /// Called after a finished decode (see [`ThumbService::set_wake_fn`]).
+    wake: Option<crate::watch::WakeFn>,
+    /// A wake was sent and [`ThumbService::drain`] has not run since. Further
+    /// results ride on that wake instead of each scheduling its own frame.
+    wake_pending: bool,
 }
 
 /// Worker-pool background decode service with an LRU pixel cache.
 ///
 /// Requests are pushed onto a shared `Mutex<VecDeque>` + `Condvar` that
 /// `min(available_parallelism, 4)` workers pop from; finished thumbs flow
-/// back on a single mpsc channel. When the pending count hits
-/// `MAX_PENDING` the OLDEST queued request is dropped (and removed from
-/// the dedupe set, so a re-request works) — the newest requests are the
-/// rows the user is looking at. Workers read through a per-startup-pruned
-/// disk cache before touching [`decode_thumb`].
+/// back on a single mpsc channel. The newest requests are the rows the user
+/// is looking at, so workers take the NEWEST queued request first, and when
+/// the pending count hits `MAX_PENDING` the OLDEST is dropped (and removed
+/// from the dedupe set, so a re-request works). Workers read through the
+/// shared spec-conformant disk cache before touching [`decode_thumb`].
 pub struct ThumbService {
     shared: Arc<(Mutex<Shared>, Condvar)>,
     result_rx: Receiver<(PathBuf, Option<Thumb>)>,
@@ -107,8 +115,8 @@ pub struct ThumbService {
 }
 
 impl ThumbService {
-    /// Service backed by the system cache dir (`$XDG_CACHE_HOME` or
-    /// `$HOME/.cache`, then `arca/thumbs/`).
+    /// Service backed by the shared `normal` (128 px) thumbnail directory,
+    /// `$XDG_CACHE_HOME/thumbnails/normal/`.
     pub fn new() -> ThumbService {
         Self::with_cache_dir(default_cache_dir())
     }
@@ -119,15 +127,16 @@ impl ThumbService {
             .map(|n| n.get())
             .unwrap_or(1)
             .min(MAX_WORKERS);
-        Self::assemble(cache_dir, workers, true)
+        Self::assemble(cache_dir, workers)
     }
 
-    fn assemble(cache_dir: PathBuf, worker_count: usize, prune: bool) -> ThumbService {
-        let _ = std::fs::create_dir_all(&cache_dir);
+    fn assemble(cache_dir: PathBuf, worker_count: usize) -> ThumbService {
         let shared = Arc::new((
             Mutex::new(Shared {
                 queue: VecDeque::new(),
                 shutdown: false,
+                wake: None,
+                wake_pending: false,
             }),
             Condvar::new(),
         ));
@@ -140,11 +149,6 @@ impl ThumbService {
             // `Drop` flips the shutdown flag and wakes the pool, so the
             // threads exit promptly instead of parking on the condvar.
             thread::spawn(move || worker_loop(&worker_shared, &worker_dir, &worker_tx));
-        }
-        if prune {
-            // Janitor: bound the on-disk cache once per startup, off the
-            // caller's thread so startup never blocks on it.
-            thread::spawn(move || prune_cache_dir(&cache_dir, MAX_DISK_ENTRIES));
         }
         ThumbService {
             shared,
@@ -172,10 +176,10 @@ impl ThumbService {
         let (lock, condvar) = &*self.shared;
         {
             let mut shared = lock.lock().unwrap();
-            if self.pending_set.len() >= MAX_PENDING {
-                if let Some(dropped) = shared.queue.pop_front() {
-                    self.pending_set.remove(&dropped);
-                }
+            if self.pending_set.len() >= MAX_PENDING
+                && let Some(dropped) = shared.queue.pop_front()
+            {
+                self.pending_set.remove(&dropped);
             }
             shared.queue.push_back(owned.clone());
         }
@@ -183,9 +187,23 @@ impl ThumbService {
         self.pending_set.insert(owned);
     }
 
+    /// Register a callback run on a worker thread after every finished
+    /// decode, so an event-driven UI can wake and [`Self::drain`].
+    pub fn set_wake_fn(&mut self, wake: Option<crate::watch::WakeFn>) {
+        self.shared
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .wake = wake;
+    }
+
     /// Collect everything finished since the last call, caching the results
     /// (and negatively caching failures). Non-blocking.
     pub fn drain(&mut self) -> Vec<(String, Thumb)> {
+        // Re-arm before reading: a result sent after this point wakes again.
+        if let Ok(mut shared) = self.shared.0.lock() {
+            shared.wake_pending = false;
+        }
         let mut ready = Vec::new();
         while let Ok((path, thumb)) = self.result_rx.try_recv() {
             let key = path.to_string_lossy().into_owned();
@@ -278,6 +296,25 @@ impl Drop for ThumbService {
     }
 }
 
+/// The request a free worker should take: the newest. During a scroll the
+/// newest requests are the rows now in view; serving the oldest first would
+/// spend up to `MAX_PENDING` decodes on rows already scrolled past.
+fn next_request(queue: &mut VecDeque<PathBuf>) -> Option<PathBuf> {
+    queue.pop_back()
+}
+
+/// The wake callback to run after a finished decode, or `None` when one is
+/// already pending: a burst of disk-cache hits then costs one frame, not one
+/// frame per thumbnail.
+fn claim_wake(shared: &mut Shared) -> Option<crate::watch::WakeFn> {
+    if shared.wake_pending {
+        return None;
+    }
+    let wake = shared.wake.clone()?;
+    shared.wake_pending = true;
+    Some(wake)
+}
+
 fn worker_loop(
     shared: &Arc<(Mutex<Shared>, Condvar)>,
     cache_dir: &Path,
@@ -291,7 +328,7 @@ fn worker_loop(
                 if shared.shutdown {
                     return;
                 }
-                if let Some(path) = shared.queue.pop_front() {
+                if let Some(path) = next_request(&mut shared.queue) {
                     break path;
                 }
                 shared = condvar.wait(shared).unwrap();
@@ -300,49 +337,109 @@ fn worker_loop(
         // `Option` already absorbs all parse/decode failures; catch_unwind
         // is insurance against panics inside the decoder so one corrupt
         // file can never kill the pool.
-        let thumb = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            cached_thumb(cache_dir, &path)
-        }))
-        .ok()
-        .flatten();
+        let decoded = {
+            let _span = crate::telemetry::span("thumb.decode");
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                cached_thumb(cache_dir, &path)
+            }))
+        };
+        let thumb = match decoded {
+            Ok(thumb) => thumb,
+            Err(_) => {
+                log::warn!(target: "arca_engine::thumbs", "decoder panicked on {}", path.display());
+                crate::telemetry::counter("thumb.panics", 1);
+                None
+            }
+        };
+        crate::telemetry::counter(
+            if thumb.is_some() {
+                "thumb.decoded"
+            } else {
+                "thumb.unavailable"
+            },
+            1,
+        );
         if result_tx.send((path, thumb)).is_err() {
             return;
+        }
+        // Tell the UI a result is waiting: without this a finished decode sat
+        // in the channel until the next unrelated input event.
+        let wake = shared.0.lock().ok().and_then(|mut s| claim_wake(&mut s));
+        if let Some(wake) = wake {
+            wake();
         }
     }
 }
 
 // ---- on-disk cache --------------------------------------------------------
+//
+// Thumbnail Managing Standard: see `arca_xdg::thumbnail` for the rules.
 
 fn default_cache_dir() -> PathBuf {
-    crate::xdg::cache_home().join("thumbnails").join("normal")
+    xdg::thumbnail::flavor_dir(xdg::thumbnail::Flavor::Normal)
 }
 
-/// Standard FreeDesktop Thumbnail Managing Standard key: MD5(canonical_file_uri) + ".png".
-fn cache_key(path: &Path) -> String {
-    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let uri = crate::xdg::encode_file_uri(&canonical);
-    format!("{}.png", crate::xdg::md5_hex(uri.as_bytes()))
+/// What the spec needs to know about a source file to name, tag and
+/// validate its thumbnail.
+struct SourceIdentity {
+    uri: String,
+    file_name: String,
+    mtime: u64,
+    size: u64,
 }
 
-/// Read a cached thumbnail conforming to the FreeDesktop Thumbnail standard.
-/// Reads standard PNG files, verifying that the cached thumbnail is not older
-/// than the source file mtime.
-fn disk_read(dir: &Path, key: &str, path: &Path) -> Option<Thumb> {
-    let target = dir.join(key);
-    let bytes = std::fs::read(&target).ok()?;
+/// Identity of a regular file, or `None` when it cannot have a cached
+/// thumbnail (missing, not a regular file, pre-epoch mtime).
+fn source_identity(absolute: &Path) -> Option<SourceIdentity> {
+    let metadata = std::fs::metadata(absolute).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let mtime = xdg::thumbnail::mtime_secs(metadata.modified().ok()?)?;
+    let uri = xdg::thumbnail::thumbnail_uri(absolute);
+    Some(SourceIdentity {
+        file_name: xdg::thumbnail::file_name_for_uri(&uri),
+        uri,
+        mtime,
+        size: metadata.len(),
+    })
+}
 
-    if let (Ok(src_m), Ok(thumb_m)) = (std::fs::metadata(path), std::fs::metadata(&target)) {
-        if let (Ok(src_t), Ok(thumb_t)) = (src_m.modified(), thumb_m.modified()) {
-            if src_t > thumb_t {
-                return None; // Source modified after thumbnail creation
+/// Absolute path with `.` and `..` removed lexically, which is how GIO
+/// builds the URI it hashes. Symlinks are deliberately NOT resolved: GIO
+/// hashes the path the user browsed, so resolving them would fork the
+/// shared cache.
+fn absolute_lexical(path: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    let absolute = std::path::absolute(path).ok()?;
+    let mut out = PathBuf::from("/");
+    for component in absolute.components() {
+        match component {
+            Component::Normal(part) => out.push(part),
+            Component::ParentDir => {
+                out.pop();
             }
+            Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
         }
     }
+    Some(out)
+}
 
-    let dyn_img = image::load_from_memory(&bytes).ok()?;
-    let rgba = dyn_img.to_rgba8();
-    let width = rgba.width();
-    let height = rgba.height();
+/// The cached thumbnail for `source`, if its `Thumb::URI` and
+/// `Thumb::MTime` match the source exactly. Entries written by any other
+/// conforming application are accepted.
+fn disk_read(dir: &Path, source: &SourceIdentity) -> Option<Thumb> {
+    let target = dir.join(&source.file_name);
+    if std::fs::metadata(&target).ok()?.len() > MAX_DISK_THUMB_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(&target).ok()?;
+    let text = xdg::thumbnail::png_text(&bytes)?;
+    if !xdg::thumbnail::is_current(&text, &source.uri, source.mtime) {
+        return None;
+    }
+    let rgba = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let (width, height) = rgba.dimensions();
     if width == 0 || width > THUMB_SIZE || height == 0 || height > THUMB_SIZE {
         return None;
     }
@@ -353,58 +450,77 @@ fn disk_read(dir: &Path, key: &str, path: &Path) -> Option<Thumb> {
     })
 }
 
-/// Write a decoded thumb to disk in standard PNG format per FreeDesktop Thumbnail Spec.
-fn disk_write(dir: &Path, key: &str, _path: &Path, thumb: &Thumb) {
-    let mut png_buf = Vec::new();
-    let encoder = image::codecs::png::PngEncoder::new(&mut png_buf);
+/// Write `thumb` as a spec-tagged PNG, atomically. Best-effort: a
+/// read-only or full cache only costs a re-decode next time.
+fn disk_write(dir: &Path, source: &SourceIdentity, path: &Path, thumb: &Thumb) {
     use image::ImageEncoder;
-    if encoder
+    use xdg::thumbnail as spec;
+    let mut png = Vec::new();
+    if image::codecs::png::PngEncoder::new(&mut png)
         .write_image(
             &thumb.rgba,
             thumb.width,
             thumb.height,
             image::ExtendedColorType::Rgba8,
         )
-        .is_ok()
+        .is_err()
     {
-        let _ = std::fs::write(dir.join(key), png_buf);
+        return;
+    }
+    let mtime = source.mtime.to_string();
+    let size = source.size.to_string();
+    let mut pairs = vec![
+        (spec::KEY_URI, source.uri.as_str()),
+        (spec::KEY_MTIME, mtime.as_str()),
+        (spec::KEY_SIZE, size.as_str()),
+    ];
+    if let Some(mime) = source_mime(path) {
+        pairs.push((spec::KEY_MIMETYPE, mime));
+    }
+    pairs.push((
+        spec::KEY_SOFTWARE,
+        concat!("arca ", env!("CARGO_PKG_VERSION")),
+    ));
+    let Some(tagged) = spec::png_with_text(&png, &pairs) else {
+        return;
+    };
+    if let Err(error) = spec::write_atomic(dir, &source.file_name, &tagged) {
+        log::debug!(target: "arca_engine::thumbs", "thumbnail cache write failed: {error}");
     }
 }
 
-/// Worker-side read-through: a disk hit skips decoding entirely; a decode
-/// is written behind. Negative results are never written.
+/// MIME type of the formats [`decode_thumb`] accepts, for `Thumb::Mimetype`.
+fn source_mime(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "flac" => Some("audio/flac"),
+        "mp3" => Some("audio/mpeg"),
+        _ => None,
+    }
+}
+
+/// Worker-side read-through: a current disk entry skips decoding; a fresh
+/// decode is written behind. Failures are never written. Files inside the
+/// thumbnail root (the cache dir's parent) are decoded for display but
+/// never cached, since the spec forbids thumbnailing thumbnails.
 fn cached_thumb(cache_dir: &Path, path: &Path) -> Option<Thumb> {
-    let key = cache_key(path);
-    if let Some(thumb) = disk_read(cache_dir, &key, path) {
+    let source = absolute_lexical(path)
+        .filter(|absolute| {
+            cache_dir
+                .parent()
+                .is_none_or(|root| !xdg::thumbnail::is_inside_thumbnail_root(absolute, root))
+        })
+        .and_then(|absolute| source_identity(&absolute));
+    let Some(source) = source else {
+        return decode_thumb(path);
+    };
+    if let Some(thumb) = disk_read(cache_dir, &source) {
         return Some(thumb);
     }
     let thumb = decode_thumb(path)?;
-    disk_write(cache_dir, &key, path, &thumb);
+    disk_write(cache_dir, &source, path, &thumb);
     Some(thumb)
-}
-
-/// Delete oldest-by-mtime files until `dir` holds at most `max_entries`.
-/// Best-effort: every I/O error is ignored.
-fn prune_cache_dir(dir: &Path, max_entries: usize) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut files: Vec<(PathBuf, SystemTime)> = entries
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .filter_map(|entry| {
-            let mtime = entry.metadata().and_then(|m| m.modified()).ok()?;
-            Some((entry.path(), mtime))
-        })
-        .collect();
-    if files.len() <= max_entries {
-        return;
-    }
-    files.sort_by_key(|(_, mtime)| *mtime);
-    let excess = files.len() - max_entries;
-    for (path, _) in files.into_iter().take(excess) {
-        let _ = std::fs::remove_file(path);
-    }
 }
 
 /// Read at most `READ_CAP` bytes. Regular files only — a FIFO or device
@@ -647,7 +763,7 @@ fn text_terminated(buf: &[u8], encoding: u8) -> Option<(&[u8], &[u8])> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     /// A valid `width`×`height` PNG, encoded per test via the same crate.
     fn fixture_png(width: u32, height: u32) -> Vec<u8> {
@@ -813,6 +929,30 @@ mod tests {
         all
     }
 
+    /// Regression: finished decodes used to wait in the channel until some
+    /// unrelated input woke the event loop, so thumbnails "popped in" only
+    /// when the mouse moved. Each result now runs the wake callback.
+    #[test]
+    fn a_finished_decode_wakes_the_ui() {
+        let dir = temp_dir("wake");
+        let file = dir.join("photo.png");
+        std::fs::write(&file, fixture_png(8, 8)).unwrap();
+        let wakes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = wakes.clone();
+
+        let mut service = ThumbService::assemble(dir.join("cache").join("normal"), 1);
+        service.set_wake_fn(Some(std::sync::Arc::new(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        })));
+        service.request(file.to_str().unwrap());
+
+        assert!(test_support::poll::wait_until(|| wakes
+            .load(std::sync::atomic::Ordering::SeqCst)
+            > 0));
+        assert_eq!(service.drain().len(), 1, "the wake means a result is ready");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn service_roundtrip_and_dedupe() {
         let dir = temp_dir("svc");
@@ -820,7 +960,7 @@ mod tests {
         std::fs::write(&file, fixture_png(8, 4)).unwrap();
         let path = file.to_str().unwrap().to_string();
 
-        let mut service = ThumbService::with_cache_dir(dir.join("cache"));
+        let mut service = ThumbService::with_cache_dir(dir.join("cache").join("normal"));
         service.request(&path);
         service.request(&path); // duplicate while pending: ignored
         assert_eq!(service.pending_set.len(), 1);
@@ -844,7 +984,7 @@ mod tests {
         std::fs::write(&file, b"plain text".as_slice()).unwrap();
         let path = file.to_str().unwrap().to_string();
 
-        let mut service = ThumbService::with_cache_dir(dir.join("cache"));
+        let mut service = ThumbService::with_cache_dir(dir.join("cache").join("normal"));
         service.request(&path);
         let results = drain_until(&mut service, 1);
         assert!(results.is_empty(), "text file yields no thumbnail");
@@ -870,7 +1010,7 @@ mod tests {
         std::fs::write(&file, fixture_png(8, 4)).unwrap();
         let path = file.to_str().unwrap().to_string();
 
-        let mut service = ThumbService::with_cache_dir(dir.join("cache"));
+        let mut service = ThumbService::with_cache_dir(dir.join("cache").join("normal"));
         service.request(&path);
         service.clear_pending();
         assert!(service.shared.0.lock().unwrap().queue.is_empty());
@@ -890,7 +1030,7 @@ mod tests {
     fn pending_overflow_drops_oldest() {
         let dir = temp_dir("flood");
         // No workers: the queue stays put, making the flood deterministic.
-        let mut service = ThumbService::assemble(dir.join("cache"), 0, false);
+        let mut service = ThumbService::assemble(dir.join("cache").join("normal"), 0);
         let total = MAX_PENDING + 4;
         for i in 0..total {
             service.request(&format!("/some/dir/{i}.png"));
@@ -918,11 +1058,38 @@ mod tests {
     }
 
     #[test]
-    fn disk_cache_roundtrip_survives_source_delete() {
+    fn a_burst_of_results_shares_one_wake_until_drained() {
+        let mut service = ThumbService::assemble(temp_dir("wake-coalesce").join("normal"), 0);
+        service.set_wake_fn(Some(std::sync::Arc::new(|| {})));
+        let mut shared = service.shared.0.lock().unwrap();
+        assert!(claim_wake(&mut shared).is_some(), "first result wakes");
+        assert!(
+            claim_wake(&mut shared).is_none(),
+            "later results ride on it"
+        );
+        drop(shared);
+        service.drain();
+        let mut shared = service.shared.0.lock().unwrap();
+        assert!(claim_wake(&mut shared).is_some(), "drain re-arms the wake");
+    }
+
+    #[test]
+    fn workers_take_the_newest_request_first() {
+        let mut queue: VecDeque<PathBuf> =
+            (0..3).map(|i| PathBuf::from(format!("{i}.png"))).collect();
+        assert_eq!(next_request(&mut queue), Some(PathBuf::from("2.png")));
+        queue.push_back(PathBuf::from("3.png"));
+        assert_eq!(next_request(&mut queue), Some(PathBuf::from("3.png")));
+        assert_eq!(next_request(&mut queue), Some(PathBuf::from("1.png")));
+    }
+
+    #[test]
+    fn disk_cache_is_reused_across_restarts() {
         let dir = temp_dir("disk");
-        let cache = dir.join("cache");
+        let cache = dir.join("cache").join("normal");
         let file = dir.join("cover.png");
         std::fs::write(&file, fixture_png(8, 4)).unwrap();
+        let mtime = std::fs::metadata(&file).unwrap().modified().unwrap();
         let path = file.to_str().unwrap().to_string();
 
         let mut first = ThumbService::with_cache_dir(cache.clone());
@@ -930,8 +1097,14 @@ mod tests {
         assert_eq!(drain_until(&mut first, 1).len(), 1);
         drop(first);
 
-        // Source gone: the second service must still serve the cover.
-        std::fs::remove_file(&file).unwrap();
+        // Same mtime but undecodable bytes: only a disk hit can succeed.
+        std::fs::write(&file, b"no longer an image".as_slice()).unwrap();
+        File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
         let mut second = ThumbService::with_cache_dir(cache);
         second.request(&path);
         let results = drain_until(&mut second, 1);
@@ -941,9 +1114,109 @@ mod tests {
     }
 
     #[test]
+    fn written_entries_follow_the_thumbnail_spec() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("disk-spec");
+        let cache = dir.join("cache").join("normal");
+        let file = dir.join("Song (Live) #1.png");
+        std::fs::write(&file, fixture_png(8, 4)).unwrap();
+        let mut service = ThumbService::with_cache_dir(cache.clone());
+        service.request(file.to_str().unwrap());
+        assert_eq!(drain_until(&mut service, 1).len(), 1);
+
+        let uri = format!("file://{}/Song%20(Live)%20%231.png", dir.display());
+        let entry = cache.join(xdg::thumbnail::file_name_for_uri(&uri));
+        let bytes = std::fs::read(&entry).expect("entry named MD5(glib-style URI).png");
+        let text = xdg::thumbnail::png_text(&bytes).unwrap();
+        let get = |k: &str| {
+            text.iter()
+                .find(|(key, _)| key == k)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(get("Thumb::URI").as_deref(), Some(uri.as_str()));
+        let mtime = std::fs::metadata(&file).unwrap().modified().unwrap();
+        assert_eq!(
+            get("Thumb::MTime"),
+            xdg::thumbnail::mtime_secs(mtime).map(|m| m.to_string())
+        );
+        assert_eq!(get("Thumb::Mimetype").as_deref(), Some("image/png"));
+        assert_eq!(
+            std::fs::metadata(&entry).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        // Only the entry itself: no leftover temporaries.
+        assert_eq!(std::fs::read_dir(&cache).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn foreign_entry_is_used_only_when_its_mtime_matches() {
+        let dir = temp_dir("disk-foreign");
+        let cache = dir.join("cache").join("normal");
+        let file = dir.join("photo.png");
+        std::fs::write(&file, fixture_png(8, 4)).unwrap();
+        let mtime =
+            xdg::thumbnail::mtime_secs(std::fs::metadata(&file).unwrap().modified().unwrap())
+                .unwrap();
+        let uri = xdg::thumbnail::thumbnail_uri(&file);
+        // Another application's 16x16 thumbnail, tagged per the spec.
+        let foreign = |tag_mtime: u64| {
+            let png = fixture_png(16, 16);
+            let tagged = xdg::thumbnail::png_with_text(
+                &png,
+                &[
+                    ("Thumb::URI", &uri),
+                    ("Thumb::MTime", &tag_mtime.to_string()),
+                ],
+            )
+            .unwrap();
+            xdg::thumbnail::write_atomic(&cache, &xdg::thumbnail::file_name_for_uri(&uri), &tagged)
+                .unwrap();
+        };
+
+        foreign(mtime);
+        let mut service = ThumbService::with_cache_dir(cache.clone());
+        service.request(file.to_str().unwrap());
+        let results = drain_until(&mut service, 1);
+        assert_eq!(
+            (results[0].1.width, results[0].1.height),
+            (16, 16),
+            "current entry reused"
+        );
+        drop(service);
+
+        // Stale tag, even though the PNG file is newer than the source.
+        foreign(mtime - 1);
+        let mut service = ThumbService::with_cache_dir(cache);
+        service.request(file.to_str().unwrap());
+        let results = drain_until(&mut service, 1);
+        assert_eq!(
+            (results[0].1.width, results[0].1.height),
+            (128, 64),
+            "stale entry re-decoded"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn files_inside_the_thumbnail_root_are_not_cached() {
+        let dir = temp_dir("disk-recursion");
+        let cache = dir.join("thumbnails").join("normal");
+        let inner = dir.join("thumbnails").join("large");
+        std::fs::create_dir_all(&inner).unwrap();
+        let file = inner.join("abc.png");
+        std::fs::write(&file, fixture_png(8, 4)).unwrap();
+        let mut service = ThumbService::with_cache_dir(cache.clone());
+        service.request(file.to_str().unwrap());
+        assert_eq!(drain_until(&mut service, 1).len(), 1, "still shown");
+        assert!(!cache.exists(), "but never written to the cache");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn disk_cache_invalidates_on_source_change() {
         let dir = temp_dir("disk-mtime");
-        let cache = dir.join("cache");
+        let cache = dir.join("cache").join("normal");
         let file = dir.join("cover.png");
         std::fs::write(&file, fixture_png(8, 4)).unwrap();
         let path = file.to_str().unwrap().to_string();
@@ -974,10 +1247,10 @@ mod tests {
     #[test]
     fn corrupt_cache_entry_is_miss_and_replaced() {
         let dir = temp_dir("disk-corrupt");
-        let cache = dir.join("cache");
+        let cache = dir.join("cache").join("normal");
         let file = dir.join("photo.png");
         std::fs::write(&file, fixture_png(8, 4)).unwrap();
-        let key = cache_key(&file);
+        let key = xdg::thumbnail::file_name_for_uri(&xdg::thumbnail::thumbnail_uri(&file));
         std::fs::create_dir_all(&cache).unwrap();
         std::fs::write(cache.join(&key), b"garbage-not-a-thumb".as_slice()).unwrap();
 
@@ -995,30 +1268,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    #[test]
-    fn janitor_prunes_oldest_entries() {
-        let dir = temp_dir("janitor");
-        let base = UNIX_EPOCH + Duration::from_secs(1_000_000);
-        for i in 0..20u64 {
-            let file = dir.join(format!("entry{i:02}"));
-            std::fs::write(&file, b"x".as_slice()).unwrap();
-            File::options()
-                .write(true)
-                .open(&file)
-                .unwrap()
-                .set_modified(base + Duration::from_secs(i))
-                .unwrap();
-        }
-        prune_cache_dir(&dir, 5);
-        let remaining = std::fs::read_dir(&dir).unwrap().count();
-        assert_eq!(remaining, 5);
-        for i in 15..20u64 {
-            assert!(dir.join(format!("entry{i:02}")).exists());
-        }
-        assert!(!dir.join("entry00").exists());
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
     fn tiny_thumb() -> Thumb {
         Thumb {
             width: 1,
@@ -1030,7 +1279,7 @@ mod tests {
     #[test]
     fn cache_evicts_least_recently_used_over_count_cap() {
         let dir = temp_dir("lru-count");
-        let mut service = ThumbService::with_cache_dir(dir.join("cache"));
+        let mut service = ThumbService::with_cache_dir(dir.join("cache").join("normal"));
         for i in 0..MAX_CACHED {
             service.insert(format!("p{i}"), tiny_thumb());
         }
@@ -1047,7 +1296,7 @@ mod tests {
     #[test]
     fn cache_evicts_over_byte_cap() {
         let dir = temp_dir("lru-bytes");
-        let mut service = ThumbService::with_cache_dir(dir.join("cache"));
+        let mut service = ThumbService::with_cache_dir(dir.join("cache").join("normal"));
         let big = || Thumb {
             width: 256,
             height: 256,

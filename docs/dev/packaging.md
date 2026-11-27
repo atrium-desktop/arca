@@ -4,7 +4,7 @@ This guide covers building distribution packages (Arch Linux, Debian/Ubuntu,
 Fedora, and Flatpak) for Arca from source releases.
 
 Daily source-tree development does not require packaging or installing Arca to the
-system; see [Cross-Repository Development](cross-repository-development.md) instead.
+system; see [Local Optics Development](optics-local-development.md) instead.
 
 ---
 
@@ -21,8 +21,10 @@ Arca links against the **Optics** C libraries via their official Rust bindings:
 - `optics-window` — Wayland windowing, platform surface, and frame cadence.
 - `optics-ui` and `optics-ui-sys` — Immediate-mode UI layout and primitives.
 - `optics-gfx` — GPU Vulkan rendering backend.
-- `optics-svg` — Vector-document compiler used by `optics-ui` to parse runtime
-  SVG icons (including Arca's own icon set).
+
+Optics `v0.0.88` ships no SVG library (Optics ADR-0174); Arca decodes its own
+icon set with the `roxmltree` and `svgtypes` crates, fetched by Cargo like
+every other Rust dependency, so no extra native package is needed.
 
 Arca's workspace manifest enables Optics's `static` Cargo feature by default so
 canonical and release builds embed `liboptics_*.a` without extra flags, while
@@ -44,7 +46,7 @@ expose the archives at build time.
 Verify that the native development files are installed on the packaging host:
 
 ```bash
-pkg-config --modversion optics-app optics-window optics-ui optics-gfx optics-svg
+pkg-config --modversion optics-app optics-window optics-ui optics-gfx
 pkg-config --variable=libdir optics-ui     # must contain liboptics_ui.a
 ```
 
@@ -292,7 +294,7 @@ URL:            https://github.com/aegis-shell/arca
 Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 BuildRequires:  cargo
-BuildRequires:  rust >= 1.85
+BuildRequires:  rust >= 1.88
 BuildRequires:  binutils
 # Static Optics link (ADR-0014): the pkgconfig packages must ship the
 # liboptics_*.a archives, not only the shared objects.
@@ -300,7 +302,6 @@ BuildRequires:  pkgconfig(optics-app)
 BuildRequires:  pkgconfig(optics-gfx)
 BuildRequires:  pkgconfig(optics-ui)
 BuildRequires:  pkgconfig(optics-window)
-BuildRequires:  pkgconfig(optics-svg)
 BuildRequires:  pkgconfig(wayland-client)
 BuildRequires:  pkgconfig(vulkan)
 BuildRequires:  pkgconfig(xkbcommon)
@@ -374,7 +375,7 @@ install -Dm644 assets/icons/folder.svg %{buildroot}%{_datadir}/icons/hicolor/sca
         {
           "type": "git",
           "url": "https://github.com/aegis-shell/optics.git",
-          "tag": "v0.0.86"
+          "tag": "v0.0.90"
         }
       ]
     },

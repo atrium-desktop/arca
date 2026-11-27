@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.18] - 2026-11-27
+
+### Added
+- **View Modes Reference** (`docs/reference/view-modes.md`) specifying Grid, List, and Miller columns, and ADR-0022 recording the decisions below.
+- **Miller preview column.** The right column lists the directory under the cursor, read off the UI thread with only the newest request publishing, or shows the selected file's artwork, type, size, and modification time.
+- **Local-first observability (ADR-0021).** A `log` facade across the engine, UI, and binary, with an in-tree logger writing `$XDG_STATE_HOME/arca/logs/arca.log` (2 MiB rotation, `ARCA_LOG` filters) and a `warn` stderr echo (`ARCA_LOG_STDERR`). Status-bar messages are logged under `arca::status`.
+- **APM spans and metrics** (`arca_engine::telemetry`): latency histograms for frames, navigation, directory reads, refresh, Miller/trash rebuilds, previews, activation tokens, "Open with" lookups, thumbnail decode/upload, transfers, and launches, plus outcome counters.
+- **UI watchdog and alerts:** per-UI-thread frame heartbeats sampled every 100 ms raise `ui_stall` (naming the blocking span; threshold `ARCA_STALL_MS`), `ui_stall_recovered`, `frame_storm` (a spinning render loop, e.g. a lost compositor connection), `error_burst`, and `slow_operation`. Alerts are logged, deduplicated, kept for diagnostics, and shown in the status bar.
+- **Stall stack capture.** On `ui_stall`, Arca saves every thread's backtrace to `$XDG_STATE_HOME/arca/stalls/` while still frozen, by spawning `gdb`/`eu-stack` against itself with a single-pid `PR_SET_PTRACER` grant (works under Yama `ptrace_scope=1`). On by default in debug builds; `ARCA_STALL_CAPTURE` overrides. `arca --diagnostics` lists the newest captures. A "Window Frozen" troubleshooting guide covers the full procedure.
+- **`arca --diagnostics`** renders the window's periodic `diagnostics-window.json` snapshot (latency table, counters, recent alerts), including while the window is frozen.
+- Tests for every tier: telemetry unit suites, `observability` / `observability_ui` integration modules, and the `diagnostics` end-to-end module; invariants `[INV-OBS-01]`, `[INV-OBS-02]`, `[INV-OPS-05]`, `[INV-NAV-01]`.
+
+### Changed
+- **Rust 2024 edition (ADR-0027).** The workspace builds as edition 2024 with resolver 3. The minimum supported Rust is now 1.88 (was 1.85).
+- **Optics `v0.0.90` (ADR-0026).** Corner radii are per-corner `CornerRadii` values, and the `Frame` widget helpers take one options struct each (Optics `v0.0.89`, ADR-0175). Arca uses the new API everywhere. Text fields that submit on Return now set `submit_on_enter` explicitly. `v0.0.90` fixes the icon-registry bug below.
+- **Optics `v0.0.88` (ADR-0025).** Optics no longer parses SVG and keeps icons per UI context (Optics ADR-0174). Arca decodes its own icon set with `roxmltree` and `svgtypes`, registers it on the window's UI context at start-up, and releases it at shutdown. The process-global icon table is gone. Packages no longer need `pkgconfig(optics-svg)`.
+- **Icons paint one colour run per SVG element.** The old converter merged same-colour shapes into one run, which could cancel overlapping shapes of opposite winding into holes. No shipped icon was affected.
+- **Grid is the default view.** New installs, and configs without a valid `view`, open in Grid so thumbnails show immediately. A saved `view = list` or `view = miller` is kept.
+- **Miller columns centre the current directory.** The layout is parent · current · preview, and the current folder no longer jumps to the right edge on navigation. Narrow windows show the current column alone. At the filesystem root the parent slot stays blank so the centre column does not shift. Miller now reads only the parent synchronously, down from up to three ancestors.
+
+### Fixed
+- **No more heap corruption from headless UI contexts.** Optics `v0.0.88`–`v0.0.89` left new icon-registry slots uninitialised when the table grew past 16 icons, so tearing down a headless `Ui` could free garbage pointers. This caused intermittent `free(): invalid pointer` aborts, and test binaries that crashed when their tests shared one process. Optics `v0.0.90` zeroes the grown slots. Device-backed windows were not affected.
+- **Scroll-damage tests match Optics's bounded damage list.** Since Optics `v0.0.87`, a moved row reports both its old and new position, so one wheel frame over a full-height List view exceeds the 64-rectangle damage list and Optics reports one full-viewport rectangle instead. The suite now requires local damage at a viewport that fits the list, and exactly that one fallback rectangle at full height.
+- **Scrolling no longer lags while thumbnails load.** GPU uploads run within a 4 ms per-frame budget, newest first, instead of all finished decodes landing in one frame. A burst of results triggers one wake instead of one frame per thumbnail. Dev builds optimize dependencies (`[profile.dev.package."*"]`): decoding a 3000x3000 cover went from 2.4 s to 66 ms in a debug build.
+- **Thumbnail cache now follows the FreeDesktop Thumbnail Managing Standard** (`arca_xdg::thumbnail`). Entries carry the mandatory `Thumb::URI`/`Thumb::MTime` metadata and are validated by it rather than by file mtime. URIs are escaped like GLib, so hashes match Nautilus and other GIO apps. Writes are atomic with `0600`/`0700` modes, and files inside the thumbnail directory are never cached. The startup janitor that cut `~/.cache/thumbnails/normal` to 4096 entries is removed: it deleted other applications' thumbnails.
+- **Thumbnails for visible rows load first.** Decode workers take the newest request instead of the oldest, so a fast scroll no longer decodes up to 256 rows already scrolled past before reaching the visible ones.
+- **Launched applications are reaped.** Opening a file no longer leaves a zombie process for the lifetime of the window.
+- **Thumbnails appear as soon as they decode** instead of on the next pointer motion: the decode pool wakes the event loop.
+- **A failed or superseded Back/Forward keeps the history cursor in place**, and rapid Back clicks walk further back instead of re-requesting the same entry.
+- **The watchdog sees freezes outside Arca's frame build.** A UI thread pinned near 100 % CPU for `ARCA_STALL_MS` without completing a frame (a toolkit layout/store/render loop) now raises `ui_stall` "outside the frame build"; previously the heartbeat read idle and nothing fired.
+- **Log records from concurrent processes no longer splice together.** Each record is written in one `write(2)`, so window, prompter, and chooser lines stay whole in the shared `arca.log`.
+
+---
+
 ## [0.2.17] - 2026-11-24
 
 ### Added

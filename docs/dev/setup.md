@@ -6,9 +6,9 @@ How to build, test, and run Arca for development.
 
 | Requirement | Notes |
 |-------------|-------|
-| Rust toolchain | `rustc` and `cargo`, edition 2021 workspace (1.85+) |
-| Optics stack | Sibling `../optics` checkout for cross-repository development or installed native libraries for the canonical build. `Cargo.toml` enables Optics's `static` feature by default so canonical and release builds embed `liboptics_*.a`; `arca-dev` sets `[env] OPTICS_SOURCE_DIR`, `OPTICS_BUILD_DIR`, and `OPTICS_DYNAMIC = "1"` in `.cargo/optics-local.toml` for fast shared-library iteration |
-| Meson and a C23 compiler | Required to build the native Optics libraries (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`); Optics v0.0.86 needs `#embed` support (GCC >= 15, Clang >= 19) |
+| Rust toolchain | `rustc` and `cargo`, edition 2024 workspace (1.88+) |
+| Optics stack | Sibling `../optics` checkout for cross-repository development or installed native libraries for the canonical build. `Cargo.toml` enables Optics's `static` feature by default so canonical and release builds embed `liboptics_*.a`; `arca-dev` copies `.cargo/optics-local.toml` to `.cargo/config.toml` to patch Optics crates to `../optics/crates/*` and set `[env] OPTICS_SOURCE_DIR`, `OPTICS_BUILD_DIR`, and `OPTICS_DYNAMIC = "1"` for fast shared-library iteration |
+| Meson and a C23 compiler | Required to build the native Optics libraries (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`); Optics needs `#embed` support (GCC >= 15, Clang >= 19) |
 | Vulkan 1.3 runtime and loader | `optics-gfx` is Vulkan-first; requires a Vulkan-capable GPU driver |
 | Wayland compositor | Runtime environment (`optics-window` creates Wayland xdg-shell surfaces) |
 | pkg-config | Required by build scripts to locate native dependencies |
@@ -18,19 +18,19 @@ How to build, test, and run Arca for development.
 | Role / Task | Workflow | Why |
 |-------------|----------|-----|
 | **Contributing to Arca only** | [Canonical workflow](#canonical-workflow-contributor) | You do not modify Optics. The tagged Optics release bindings and system-installed native libraries are all you need. No sibling checkout or Cargo patch. |
-| **Developing Arca and Optics together** | [Local workflow](#local-workflow-dual-maintainer) | You point the native build scripts at a live sibling Optics checkout and isolate the target directory in a linked `arca-dev` worktree; the Cargo graph and lockfile stay canonical. |
+| **Developing Arca and Optics together** | [Local workflow](#local-workflow-dual-maintainer) | You patch Optics crates and native discovery to a live sibling `../optics` checkout inside a linked `arca-dev` worktree so Rust and C stay co-versioned; the primary `main` worktree owns the canonical `Cargo.lock`. |
 
 ### How the Two Roles Differ
 
-Arca separates Rust source selection from native library discovery.
-This separation allows both modes to coexist cleanly:
+Arca isolates local Optics overrides in a linked `dev` worktree so canonical
+builds and live cross-repository iteration coexist cleanly:
 
 | Concern | Canonical workflow | Local workflow |
 |---------|--------------------|----------------|
-| Rust bindings | Pinned Optics Git source (`features = ["static"]`) | Same pinned Git source |
+| Rust bindings | Pinned Optics Git source (`features = ["static"]`) | Patched to `../optics/crates/*` via `.cargo/config.toml` |
 | Native linkage | Static `liboptics_*.a` archives by default (override with `OPTICS_DYNAMIC=1`) | Shared `../optics/build` via `[env] OPTICS_DYNAMIC = "1"` + `-rpath` |
-| `.cargo/config.toml` | Absent | `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR` + `OPTICS_DYNAMIC=1` (`.cargo/optics-local.toml`) |
-| `Cargo.lock` | Canonical and committed | Same canonical lockfile |
+| `.cargo/config.toml` | Absent | `[patch]` + `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR` + `OPTICS_DYNAMIC=1` (`.cargo/optics-local.toml`) |
+| `Cargo.lock` | Canonical and committed | Locally rewritten by `[patch]`; refused by pre-commit hook |
 | Target directory | Primary `target/` | Worktree-local `target/` |
 | Sibling `../optics` required | No | Yes |
 
@@ -90,9 +90,10 @@ cp .cargo/optics-local.toml .cargo/config.toml
 git config core.hooksPath .githooks
 ```
 
-The `.githooks/pre-commit` hook validates the canonical `Cargo.lock` and
-refuses a staged `.cargo/config.toml`; the lockfile itself is committed from
-every worktree.
+The read-only `.githooks/pre-commit` hook refuses a staged `.cargo/config.toml`
+and, while local `[patch]` mode is active, refuses staged `Cargo.lock` or
+release-shaped commits so the primary `main` worktree owns the canonical
+lockfile.
 
 ### 3. Build Sibling Optics Libraries
 
@@ -132,7 +133,7 @@ the shell to exercise the production static link on demand;
 `scripts/check-optics-link.sh <binary>` reports which mode was used.
 
 For full instructions on committing, synchronizing, and promoting Optics
-releases, see [Cross-Repository Development](cross-repository-development.md).
+releases, see [Local Optics Development](optics-local-development.md).
 
 ---
 
@@ -161,14 +162,14 @@ cargo test -p arca-ui
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| `pkg-config` cannot find `optics-app`, `optics-window`, `optics-ui`, or `optics-gfx` | Optics C libraries not installed and no sibling build discovered | In local mode, build `../optics/build` with Meson and keep `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR` in `.cargo/config.toml`. In canonical mode, install matching Optics packages. |
-| `Cargo.lock` fails `--locked` during `git commit` | Manifest changed without updating the lockfile | Run `cargo update` / `cargo check` and stage the canonical `Cargo.lock`. |
+| `pkg-config` cannot find `optics-app`, `optics-window`, `optics-ui`, or `optics-gfx`, or reports a version mismatch | Optics C libraries not installed, or local `Cargo.lock` still points at an older Optics version than `../optics` | In local mode, build `../optics/build` with Meson, keep `.cargo/optics-local.toml` copied to `.cargo/config.toml`, and run `cargo update -p optics-app -p optics-window -p optics-ui -p optics-ui-sys -p optics-gfx-sys -p optics-motion` after `../optics` bumps its version. In canonical mode, install matching Optics packages. |
+| `pre-commit` refuses `Cargo.lock` | `Cargo.lock` was staged in patched `arca-dev` mode, or canonical `Cargo.lock` is out of date in `main` | In `arca-dev`, run `git restore --staged -- Cargo.lock`. In `main`, run `cargo check --workspace` and stage the regenerated canonical `Cargo.lock`. |
 | Wayland surface creation fails | No active Wayland compositor | Run within a Wayland session (e.g. Aegis, Sway, Hyprland, or GNOME Wayland). |
 | Vulkan device initialization fails | Missing GPU drivers or loader | Ensure Vulkan ICD loader and drivers (Mesa / proprietary) are installed and `vulkaninfo` succeeds. |
 
 ## See Also
 
-- [Cross-Repository Development](cross-repository-development.md) — Detailed
+- [Local Optics Development](optics-local-development.md) — Detailed
   worktree lifecycle, commit protection, and release promotion.
 - [Optics Migration](optics-migration.md) — Architecture history and workspace
   structure.

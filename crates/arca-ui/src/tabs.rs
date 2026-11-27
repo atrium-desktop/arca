@@ -4,16 +4,15 @@ use optics_ui::patterns::{TabAction, TabItem, TabStrip};
 use optics_ui::{Align, Frame, LayoutOpts};
 
 use crate::app::UiApp;
-use crate::icons::{self, ids};
+use crate::icons::ids;
 use crate::theme::Tones;
 
 fn tab_title(cwd: &str) -> String {
-    let name = std::path::Path::new(cwd)
+    std::path::Path::new(cwd)
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "/".into());
-    name
+        .unwrap_or_else(|| "/".into())
 }
 
 pub(crate) fn build_tabs(
@@ -22,22 +21,24 @@ pub(crate) fn build_tabs(
     input: &optics_ui::Input,
     _tones: &Tones,
 ) {
+    let icons = app.icons;
     frame.size_next(0.0, 38.0);
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             gap: 6.0,
             pad: 4.0,
             cross: Align::Center,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             let tabs: Vec<TabItem> = app
                 .state
                 .tabs()
                 .iter()
                 .map(|tab| {
                     TabItem::new(tab_title(&tab.cwd))
-                        .icon(icons::icon_id(ids::Folder))
+                        .icon(icons.id(ids::Folder))
                         .closable(app.state.tabs().len() > 1)
                 })
                 .collect();
@@ -49,8 +50,8 @@ pub(crate) fn build_tabs(
                 .min_tab_width(100.0)
                 .max_tab_width(180.0)
                 .show_new_button(true)
-                .close_icon(icons::icon_id(ids::X))
-                .new_icon(icons::icon_id(ids::Plus));
+                .close_icon(icons.id(ids::X))
+                .new_icon(icons.id(ids::Plus));
 
             let action = strip.show(frame, &tabs, active_idx);
 
@@ -72,7 +73,7 @@ pub(crate) fn build_tabs(
             frame.spacer(0.0);
 
             // Window close button at the far right
-            let close_clicked = icons::icon_button(frame, ids::X, 26.0);
+            let close_clicked = icons.button(frame, ids::X, 26.0);
             if close_clicked {
                 optics_window::window_close();
             }
@@ -99,8 +100,7 @@ pub(crate) fn build_tabs(
                     optics_window::window_start_move();
                 }
             }
-        },
-    );
+        });
 }
 
 #[cfg(test)]

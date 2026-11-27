@@ -48,10 +48,10 @@ pub fn target_dir() -> PathBuf {
     // directory, while `deps` is unambiguous.
     for ancestor in exe.ancestors() {
         let name = ancestor.file_name().and_then(|name| name.to_str());
-        if name == Some("deps") || name == Some("build") {
-            if let Some(profile) = ancestor.parent() {
-                return profile.to_path_buf();
-            }
+        if (name == Some("deps") || name == Some("build"))
+            && let Some(profile) = ancestor.parent()
+        {
+            return profile.to_path_buf();
         }
     }
     exe.parent()

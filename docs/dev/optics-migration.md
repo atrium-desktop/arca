@@ -20,7 +20,7 @@ dynamic via `OPTICS_DYNAMIC=1` (ADR-0015, ADR-0016).
 |---------|------------------|-----|
 | Window, Wayland, event loop | Hand-written C shim (`c_src/platform.c`) generating xdg-shell / xdg-decoration / text-input protocol code in `build.rs` | `optics-window` owns the window, GPU device and event loop; the `optics-app` shell runs the `optics-ui` interface inside it |
 | Application shell | Hand-wired `Ui::run` loop | `optics_app::Application` with start/stop lifecycle and an optional host recorder |
-| UI toolkit | `flux-ui` via hand-written FFI (`src/ffi.rs`, icon ids as raw integers) | `optics-ui` safe bindings, plus narrow `optics_ui_sys` helpers for the full icon set / focus / clipboard |
+| UI toolkit | `flux-ui` via hand-written FFI (`src/ffi.rs`, icon ids as raw integers) | `optics-ui` safe bindings, plus narrow `optics_ui_sys` helpers for icon buttons / focus / clipboard; Arca decodes and registers its own SVG icon set per `optics_ui` context |
 | Layout | single crate, `app.rs` + `fs.rs` | workspace: `arca-engine` (logic) · `arca-ui` (view) · `arca` (bin) |
 | Theme | manual dark toggle only | follows the system colour scheme live; System → Light → Dark override, persisted |
 | Settings | none | `~/.config/arca/arca.conf` (hidden files, sort, theme, bookmarks) |
@@ -36,12 +36,13 @@ bar) and icon mapping were ported deliberately.
   `optics-motion`. The safe `optics-gfx` crate is not declared directly: it
   arrives transitively through `optics-app` and `optics-ui`, while Arca calls
   `optics-gfx-sys` only for thumbnail image uploads.
-  Each `*-sys` `build.rs` discovers the Optics checkout through
-  `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR` (set by the untracked
-  `.cargo/config.toml` in a development worktree), then links the meson build
-  tree through the `optics-*-uninstalled.pc` pkg-config files — no
-  `meson install` required and no manifest `[patch]`. The committed
-  `Cargo.lock` always resolves the tagged Git sources.
+  In canonical and CI builds, the committed `Cargo.lock` resolves the tagged
+  Git sources and links installed or sibling Optics libraries at the exact
+  pinned version. In a linked `dev` worktree, the untracked `.cargo/config.toml`
+  patches the Optics crates to `../optics/crates/*` and points
+  `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR` at the sibling Meson build tree
+  (`optics-*-uninstalled.pc`), keeping Rust bindings and native libraries
+  co-versioned without `meson install` (ADR-0024).
 - `optics-app` re-publishes its library directories as
   `links = "optics_app_rs"` rpath metadata, `optics-window` as
   `links = "optics_window_rs"`, and `optics-ui` as `links = "optics_ui_rs"`.
@@ -56,7 +57,7 @@ bar) and icon mapping were ported deliberately.
   library and no rpath relay.
 - Where the safe `optics-ui` surface is intentionally narrow, `arca-ui`
   drops to `optics_ui_sys` via `frame.as_raw()` inside dedicated helpers:
-  the full feather icon set (`icons.rs`), label-scoped focus
+  subtle icon buttons with explicit ids and hit targets (`icons.rs`), label-scoped focus
   (Ctrl+L / F3 / inline rename), and clipboard copy (`menus.rs`).
   Focus labels are resolved by `optics_ui_current_id` immediately after the
   target widget is built, while that widget's id scope is current; no
@@ -100,3 +101,7 @@ Following the initial 0.2.0 release:
 12. **Default-Static Manifest & Dev Dynamic Override (ADR-0016)**: Enabled `features = ["static"]` on all native Optics dependencies in the root `Cargo.toml` so canonical `main`, CI, and release builds embed `liboptics_*.a` without extra flags, while `.cargo/optics-local.toml` sets `[env] OPTICS_DYNAMIC = "1"` in linked `dev` worktrees for fast shared-library iteration via the rpath relay.
 13. **Optics v0.0.86 & Root Test Architecture (ADR-0017)**: Repinned to `v0.0.86`, which unifies `-sys` FFI type ownership (`v0.0.84`), resolves image snapshots to the original RenderPlan handle and ties `vk_image` lifetime to the shared owner (`v0.0.85`), and accepts falsy `OPTICS_DYNAMIC` values while retiring over-engineered tree guardrails (`v0.0.86`). No Arca call site changed. Moved the damage suite into the new root `arca-tests` package, added `test-support`, and made the architecture firewalls, prompter contract, IPC handshake, virtualization, and click-stress suites runnable from `cargo test`. Directory opens no longer request XDG activation tokens, and "Open with" discovery is cached per MIME type.
 14. **Canonical Lockfile, Explicit Test Resources, and Asynchronous Navigation (ADR-0018, ADR-0019, ADR-0020)**: Removed the `[patch]` workflow: the committed `Cargo.lock` always resolves the tagged Optics Git source, and a local `.cargo/config.toml` only points `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR` at `../optics`. The interactive window now reads directories on a worker and publishes only the newest request; thumbnail caches and Trash roots are injectable so tests never touch the user's real cache or Trash. CI builds the pinned Optics tag with a C23 Clang and runs the suite under nextest.
+15. **Co-Versioned Local Optics Patch & Read-Only Lockfile Guardrail (ADR-0024)**: Superseded ADR-0018 by restoring `[patch."https://github.com/ming2k/optics"]` in `.cargo/optics-local.toml` alongside `[env] OPTICS_DYNAMIC = "1"` so local `dev` builds keep Rust bindings and native libraries strictly co-versioned against `../optics` (avoiding `pkg-config --exact-version` failures whenever `../optics` bumps ahead of `Cargo.toml`), while `.githooks/pre-commit` enforces a strictly read-only guardrail that refuses staged local lockfiles and validates canonical `--locked` resolution on `main`.
+16. **Pure Graphics Core & App-Owned Icons (Optics v0.0.88, ADR-0025)**: Repinned to `v0.0.88`, which retires `liboptics_svg`, `liboptics_scene`, `liboptics_material`, the bundled icon pack and the process-global icon registry with no shims (Optics ADR-0174). Arca now decodes its SVG icons itself (`roxmltree` + `svgtypes`, `icons/vector.rs`), registers them per `optics_ui` context in the start hook (`IconSet`, `UiApp::start`), and unregisters them in the stop hook. `OPTICS_UI_ICON_NONE` (`0`) is the only empty id. The `v0.0.87` scene-codec change had no Arca call sites.
+17. **Per-Corner Radii & Single-Representation Frame Options (Optics v0.0.89, ADR-0026)**: Repinned to `v0.0.89` (Optics ADR-0175), which replaces scalar corner radii with `CornerRadii` and removes the `Frame` helper variants with no aliases. `LayoutOpts.radius` became `corner_radii: CornerRadii::uniform(r)`, `row_ex`/`column_ex` became `row()`/`column().with_opts(..).show(..)`, the `label_*` variants became `label` / `label_with(LabelOpts)`, the `textfield_*`/`textedit_ex` variants became `textedit(TextEditOpts)`, and `icon_raw`/`selectable_icon_sized`/`textfield_set_caret` became `icon`/`selectable_with_icon`/`textedit_set_caret`. Rendering is unchanged. Arca called none of the removed `optics-gfx` canvas variants.
+18. **Icon Registry Growth Fix (Optics v0.0.90, ADR-0026)**: Repinned to `v0.0.90`, which zeroes the grown tail of the per-context icon registry. In `v0.0.88`–`v0.0.89`, headless contexts (libc `malloc`) could free garbage slot pointers at teardown. That was the cause of the intermittent `free(): invalid pointer` aborts and the one-process test segfault. No Arca call site changed.

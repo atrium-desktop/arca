@@ -16,6 +16,8 @@ mod common;
 #[cfg(feature = "native")]
 mod cli;
 #[cfg(feature = "native")]
+mod diagnostics;
+#[cfg(feature = "native")]
 mod ipc_forward;
 #[cfg(feature = "native")]
 mod portal_prompter;

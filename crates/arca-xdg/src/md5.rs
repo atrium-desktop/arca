@@ -48,11 +48,12 @@ fn md5_digest(data: &[u8]) -> [u8; 16] {
     }
     msg.extend_from_slice(&bit_len.to_le_bytes());
 
-    for chunk in msg.chunks(64) {
-        let mut m = [0u32; 16];
-        for (i, word) in chunk.chunks_exact(4).enumerate() {
-            m[i] = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
-        }
+    // Padding above makes `msg` a whole number of 64-byte blocks.
+    let (blocks, rest) = msg.as_chunks::<64>();
+    debug_assert!(rest.is_empty());
+    for block in blocks {
+        let (words, _) = block.as_chunks::<4>();
+        let m: [u32; 16] = std::array::from_fn(|i| u32::from_le_bytes(words[i]));
 
         let mut a = a0;
         let mut b = b0;

@@ -2,9 +2,11 @@
 
 use arca_engine::{AppState, Preview, PreviewKind};
 use optics_motion::{Spring, SpringParams};
-use optics_ui::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, Rect};
+use optics_ui::{
+    Align, Band, CornerRadii, Frame, Input, LabelOpts, LayoutOpts, PlaceMode, PlaceOpts, Rect,
+};
 
-use crate::icons::{self, ids};
+use crate::icons::{AssetId, IconSet, ids};
 use crate::theme::{self, Tones};
 
 const PREVIEW_SPRING: SpringParams = SpringParams::new(320.0, 1.0);
@@ -100,6 +102,7 @@ pub(crate) fn build_preview(
     preview: &mut PreviewOverlay,
     thumbs: &mut crate::thumbs::ThumbStore,
     frame: &mut Frame,
+    icons: &IconSet,
     input: &Input,
     tones: &Tones,
 ) {
@@ -174,7 +177,7 @@ pub(crate) fn build_preview(
                 bg: tones.elevated,
                 border: frame.theme().border(),
                 border_width: 1.0,
-                radius: 18.0,
+                corner_radii: CornerRadii::uniform(18.0),
                 min_width: width,
                 ..Default::default()
             },
@@ -185,20 +188,20 @@ pub(crate) fn build_preview(
             let prev_opacity = frame.opacity();
             frame.set_opacity(ease);
             frame.size_next(width, height);
-            frame.column_ex(
-                &LayoutOpts {
+            frame
+                .column()
+                .with_opts(&LayoutOpts {
                     width,
                     height,
                     cross: Align::Stretch,
                     ..Default::default()
-                },
-                |frame| {
-                    build_header(preview, frame, tones, &data);
+                })
+                .show(|frame| {
+                    build_header(preview, frame, icons, tones, &data);
                     frame.flex(1.0);
-                    build_body(thumbs, frame, tones, &data, width, height - 132.0);
+                    build_body(thumbs, frame, icons, tones, &data, width, height - 132.0);
                     build_footer(frame, tones, &data);
-                },
-            );
+                });
             frame.set_opacity(prev_opacity);
         },
     );
@@ -215,40 +218,47 @@ pub(crate) fn build_preview(
 /// Transient id of the Quick Look card (see `optics_ui_place_open`).
 const PREVIEW_OVERLAY_ID: &str = "quick-look";
 
-fn build_header(preview: &mut PreviewOverlay, frame: &mut Frame, tones: &Tones, data: &Preview) {
+fn build_header(
+    preview: &mut PreviewOverlay,
+    frame: &mut Frame,
+    icons: &IconSet,
+    tones: &Tones,
+    data: &Preview,
+) {
     frame.size_next(0.0, 76.0);
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             height: 76.0,
             gap: 12.0,
             pad: 16.0,
             cross: Align::Center,
             bg: tones.card,
             ..Default::default()
-        },
-        |frame| {
-            icons::icon(frame, preview_icon(data.kind), 30.0);
+        })
+        .show(|frame| {
+            icons.icon(frame, preview_icon(data.kind), 30.0);
             frame.flex(1.0);
-            frame.column_ex(
-                &LayoutOpts {
+            frame
+                .column()
+                .with_opts(&LayoutOpts {
                     gap: 3.0,
                     ..Default::default()
-                },
-                |frame| {
+                })
+                .show(|frame| {
                     frame.heading(&data.title, 3);
                     theme::label_colored_sized(frame, &data.subtitle, 12.0, tones.muted);
-                },
-            );
-            if icons::icon_button(frame, ids::X, 32.0) {
+                });
+            if icons.button(frame, ids::X, 32.0) {
                 preview.close();
             }
-        },
-    );
+        });
 }
 
 fn build_body(
     thumbs: &mut crate::thumbs::ThumbStore,
     frame: &mut Frame,
+    icons: &IconSet,
     tones: &Tones,
     data: &Preview,
     width: f32,
@@ -256,55 +266,62 @@ fn build_body(
 ) {
     let facts_width = 190.0;
     frame.size_next(width, height);
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             width,
             height,
             cross: Align::Stretch,
             bg: tones.elevated,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             frame.flex(1.0);
-            frame.column_ex(
-                &LayoutOpts {
+            frame
+                .column()
+                .with_opts(&LayoutOpts {
                     flex: 1.0,
                     gap: 12.0,
                     pad: 18.0,
                     cross: Align::Stretch,
                     bg: tones.preview_well,
                     ..Default::default()
-                },
-                |frame| {
+                })
+                .show(|frame| {
                     if let Some(text) = &data.text {
                         frame.flex(1.0);
                         frame.scroll("preview-text", |frame| {
-                            frame.column_ex(
-                                &LayoutOpts {
+                            frame
+                                .column()
+                                .with_opts(&LayoutOpts {
                                     pad: 10.0,
                                     cross: Align::Stretch,
                                     ..Default::default()
-                                },
-                                |frame| {
-                                    frame.label_wrapped_sized(
+                                })
+                                .show(|frame| {
+                                    frame.label_with(
                                         text,
-                                        13.0,
-                                        width - facts_width - 72.0,
+                                        &LabelOpts {
+                                            size: 13.0,
+                                            wrap: true,
+                                            max_width: width - facts_width - 72.0,
+                                            ..Default::default()
+                                        },
                                     )
-                                },
-                            );
+                                });
                         });
                     } else {
                         frame.flex(1.0);
-                        frame.column_ex(
-                            &LayoutOpts {
+                        frame
+                            .column()
+                            .with_opts(&LayoutOpts {
                                 flex: 1.0,
                                 gap: 16.0,
                                 pad: 28.0,
                                 cross: Align::Center,
                                 ..Default::default()
-                            },
-                            |frame| {
+                            })
+                            .show(|frame| {
                                 // Album cover / the picture itself when the
                                 // thumbnail store has it decoded; the kind
                                 // glyph otherwise.
@@ -332,18 +349,17 @@ fn build_body(
                                         // SAFETY: as above.
                                         unsafe { frame.image(image, dw, dh) };
                                     }
-                                    None => icons::icon(frame, preview_icon(data.kind), 92.0),
+                                    None => icons.icon(frame, preview_icon(data.kind), 92.0),
                                 }
                                 theme::label_colored(frame, &data.subtitle, tones.muted);
-                            },
-                        );
+                            });
                     }
-                },
-            );
+                });
 
             frame.size_next(facts_width, height);
-            frame.column_ex(
-                &LayoutOpts {
+            frame
+                .column()
+                .with_opts(&LayoutOpts {
                     width: facts_width,
                     height,
                     gap: 14.0,
@@ -351,48 +367,54 @@ fn build_body(
                     cross: Align::Stretch,
                     bg: tones.card,
                     ..Default::default()
-                },
-                |frame| {
+                })
+                .show(|frame| {
                     theme::label_colored_sized(frame, "DETAILS", 11.0, tones.muted);
                     for (label, value) in &data.facts {
-                        frame.column_ex(
-                            &LayoutOpts {
+                        frame
+                            .column()
+                            .with_opts(&LayoutOpts {
                                 gap: 2.0,
                                 cross: Align::Stretch,
                                 ..Default::default()
-                            },
-                            |frame| {
+                            })
+                            .show(|frame| {
                                 theme::label_colored_sized(frame, label, 11.0, tones.muted);
-                                frame.label_wrapped_sized(value, 13.0, facts_width - 36.0);
-                            },
-                        );
+                                frame.label_with(
+                                    value,
+                                    &LabelOpts {
+                                        size: 13.0,
+                                        wrap: true,
+                                        max_width: facts_width - 36.0,
+                                        ..Default::default()
+                                    },
+                                );
+                            });
                     }
-                },
-            );
-        },
-    );
+                });
+        });
 }
 
 fn build_footer(frame: &mut Frame, tones: &Tones, data: &Preview) {
     frame.size_next(0.0, 52.0);
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             height: 52.0,
             gap: 12.0,
             pad: 14.0,
             cross: Align::Center,
             bg: tones.card,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             frame.flex(1.0);
             theme::label_colored_sized(frame, &data.path, 11.0, tones.muted);
             theme::label_colored_sized(frame, "SPACE  Close preview", 11.0, tones.muted);
-        },
-    );
+        });
 }
 
-fn preview_icon(kind: PreviewKind) -> icons::AssetId {
+fn preview_icon(kind: PreviewKind) -> AssetId {
     match kind {
         PreviewKind::Directory => ids::Folder,
         PreviewKind::Text => ids::FileText,

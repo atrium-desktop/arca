@@ -1,9 +1,8 @@
 //! Relay the rpaths published by `optics-app` (`links = "optics_app_rs"`),
 //! `optics-window` (`links = "optics_window_rs"`), and `optics-ui`
 //! (`links = "optics_ui_rs"`) so this crate's test binaries find
-//! liboptics_app/liboptics_ui/liboptics_window/liboptics_gfx/liboptics_text/
-//! liboptics_svg in the optics meson build tree at runtime without
-//! `LD_LIBRARY_PATH`.
+//! liboptics_app/liboptics_ui/liboptics_window/liboptics_gfx/liboptics_text
+//! in the optics meson build tree at runtime without `LD_LIBRARY_PATH`.
 //!
 //! # Link mode is a build input, not a property of this script
 //!
@@ -11,7 +10,7 @@
 //! and decides per build: by default it links `liboptics_*.so` when the
 //! pkg-config probe finds the shared objects and falls back to
 //! `liboptics_*.a` on a static-only tree (shared-preferred since Optics
-//! v0.0.86). Callers select explicitly with the upstream switches:
+//! v0.0.83). Callers select explicitly with the upstream switches:
 //!
 //! - `OPTICS_STATIC=1` (or the additive `static` Cargo feature) — require
 //!   static; fails when no archive exists.
@@ -33,7 +32,7 @@
 //! Release artifacts are verified with
 //! `scripts/check-optics-link.sh --expect static`.
 //!
-//! Optics v0.0.86 publishes one crate per semantic module with a matching
+//! Optics v0.0.90 publishes one crate per semantic module with a matching
 //! `links` key (Optics ADR-0169 / ADR-0170). `optics-app` covers the UI host
 //! seam and its window/ui/gfx dependencies; the narrower `optics-window` and
 //! `optics-ui` entries keep the platform and widget layers visible at the call

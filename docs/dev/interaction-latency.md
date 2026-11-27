@@ -93,8 +93,9 @@ stays interactive with a "Loading …" status until the worker publishes. The
 synchronous API remains for the CLI, chooser, and deterministic tests, and a
 synchronous call cancels any pending request.
 
-**Residual:** when the active listing publishes, Miller **ancestor** columns
-(up to three smaller directories) are still read synchronously; tab switching
+**Residual:** when the active listing publishes, the Miller **parent** column
+is still read synchronously (one directory; up to three before ADR-0022, and the
+Miller preview column reads off-thread); tab switching
 and watcher-driven refresh still read synchronously; startup reads the initial
 directory synchronously. Those are the next profiling targets.
 
@@ -118,16 +119,87 @@ thread, and evicting the 513th upload releases an `optics_gfx_image`. Optics
 original image resolved to different RenderPlan handles, and where the
 `VkImage` lifetime was observed per wrapper rather than per shared owner. Those
 bugs could produce missed passes, stale pixels, or a stalled frame in
-image-heavy directories. Arca now pins `v0.0.86`, which includes the fix.
+image-heavy directories. Every Arca pin since `v0.0.86` includes the fix.
 
 The store still releases on eviction; the Optics contract retains any snapshot
 a recorded DisplayList captured, so release is safe as long as the device is
 alive (Arca already tears textures down from the lifecycle stop hook).
 
+### 2.6a Scrolling lags while a large media folder loads thumbnails
+
+**Measured** (`diagnostics-window.json` from a `target/debug/arca` session over a
+music folder): `thumb.decode` p50 500 ms and p95 6.2 s; `ui.frame` p50 10 ms,
+p95 50 ms, p99 83 ms.
+
+**Root causes:**
+
+1. **Unoptimized dependencies in dev builds.** `image` JPEG decoding and
+   resizing at opt-level 0 took 2,364 ms for a 3000x3000 cover, against 33 ms
+   in release. Four workers spent seconds per thumbnail, so visible cards
+   stayed blank and the decode backlog grew while scrolling.
+2. **Unbounded uploads per frame.** `ThumbStore::drain_uploads` uploaded every
+   finished decode in one frame (~1 ms each, p95 2.5 ms). Entering a folder
+   whose thumbnails were already on disk finished dozens at once.
+3. **One wake per decode.** Each result posted its own event-loop wake, adding
+   a full UI rebuild per thumbnail on top of the scroll frames.
+4. **Oldest-first decoding** spent work on rows already scrolled past (fixed
+   with the Thumbnail Managing Standard change: workers take the newest
+   request first).
+
+**Fixed:**
+
+- `[profile.dev.package."*"] opt-level = 3`: dependencies are optimized in dev
+  builds, and Arca's crates stay debuggable. Debug decode of the same cover
+  now takes 66 ms.
+- `ThumbStore` uploads within a 4 ms per-frame budget, newest first. The rest
+  wait for the next frame (`ui.thumb_upload_deferred` counts them), and
+  re-uploads of evicted textures share the same budget.
+- Thumbnail results share one wake until the UI drains them.
+
+**Residual:** a JPEG cover is still decoded at full resolution before it is
+downscaled. Release builds at ~33 ms per cover are bounded by the worker pool,
+not the UI thread.
+
+### 2.7 A lost compositor connection spins the loop instead of exiting
+
+Observed 2026-11-25 under a debugger: once the compositor closed Arca's
+Wayland connection (`wl_display_get_error` = `EPIPE`), the display fd reported
+`POLLIN|POLLHUP` on every poll. Optics' `pump_events` (optics v0.0.86,
+`libs/window/src/app_wayland.c`) ignores the failed `wl_display_read_events`
+and reports "woke on event", so the main loop rebuilt the UI ~500 times per
+second at 100% CPU while no frame was ever presented. `presented_revision`
+froze, so every build compared against stale presentation state and reported
+damage again — a self-sustaining spin that looks exactly like a frozen window.
+
+A compositor drops a client whose socket buffer fills, which a client stalled
+inside one long frame invites while the pointer keeps moving. So a §2.1–2.5
+stall can escalate into this permanent one.
+
+**Detected:** the watchdog raises `frame_storm` (≥ 400 frames/s for 3 s,
+[ADR-0021](../adr/0021-local-first-observability.md)).
+**Residual:** the fix belongs in `optics-window`: treat `POLLHUP`/`POLLERR`
+on the display fd, or a negative `wl_display_dispatch_pending`, as a fatal
+disconnect and leave the run loop with an error.
+
+### 2.8 Smaller defects fixed alongside the telemetry
+
+- Launched applications were never waited on and accumulated as zombies;
+  `desktop::spawn_detached` now reaps each child on a background thread.
+- Finished thumbnail decodes did not wake the event loop, so artwork appeared
+  only on the next input; the decode pool now runs a wake callback.
+- Asynchronous Back/Forward moved the history cursor before the read, so a
+  failed Back desynchronised history from the visible listing; the cursor now
+  moves only when the listing publishes, and rapid clicks stack.
+
 ---
 
 ## 3. Diagnostic recipe
 
+0. Start from the evidence Arca already recorded: `arca --diagnostics` (works
+   while the window is frozen) and
+   `grep -E 'arca::(alert|apm)' ~/.local/state/arca/logs/arca.log`. A
+   `ui_stall` names the blocking span; a `frame_storm` points at §2.7. Raise
+   detail with `ARCA_LOG=debug` or lower the threshold with `ARCA_STALL_MS=250`.
 1. Reproduce with a directory containing many entries and a few images.
 2. Record a profile (`perf record -g -p $(pidof arca) -- sleep 20`) while
    clicking rapidly, then inspect stacks for:
@@ -157,3 +229,10 @@ alive (Arca already tears textures down from the lifecycle stop hook).
 | Repeated directory round-trips stay bounded | `interaction_stress::rapid_directory_double_clicks_are_bounded` |
 | Large/scrolled listings stay virtualized | `virtualization::*` |
 | A settled UI produces zero damage and no pending animation | `damage_and_quiescence::*` |
+| Interactive navigation performs no UI-thread directory read (counted) | `observability_ui::interactive_navigation_keeps_blocking_reads_off_the_ui_thread`, `state::tests::async_navigation_keeps_directory_reads_off_the_ui_thread` |
+| A failed or superseded Back/Forward never moves the history cursor | `state::tests::a_failed_async_back_leaves_the_history_cursor_in_place` |
+| A finished thumbnail decode wakes the event loop | `thumbs::tests::a_finished_decode_wakes_the_ui` |
+| A burst of thumbnail results costs one wake, not one per thumbnail | `thumbs::tests::a_burst_of_results_shares_one_wake_until_drained` |
+| Decode workers serve the newest (visible) request first | `thumbs::tests::workers_take_the_newest_request_first` |
+| Launched applications are reaped, not left as zombies | `desktop::tests::detached_children_are_reaped` |
+| A stall is alerted with the blocking span; a spin is alerted as a frame storm | `watchdog::tests::*`, `observability::a_stalled_ui_thread_is_alerted_with_the_blocking_operation` |

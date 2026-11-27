@@ -27,7 +27,7 @@ prevent truncation or file corruption during unexpected termination.
 | `sort` | String | `name` | `name`, `size`, `mtime` (alias `modified`) | The primary sort attribute used to order directory listings. The file is always rewritten with the canonical `mtime`. |
 | `sort_ascending` | Boolean | `true` | `true`, `false` | When `true`, items are sorted ascending (A-Z, smallest to largest, oldest to newest). |
 | `theme` | String | `system` | `system`, `light`, `dark` | Visual theme mode. `system` follows the compositor live; `light` and `dark` force fixed schemes. |
-| `view` | String | `list` | `grid`, `list`, `miller` | The default content presentation mode used for new windows and tabs. |
+| `view` | String | `grid` | `grid`, `list`, `miller` | The default content presentation mode used for new windows and tabs. An unrecognised value falls back to `grid`. See [View Modes Reference](view-modes.md). |
 | `bookmark` | String | *(empty)* | Filesystem path | Pinned custom bookmark path. May appear multiple times. |
 
 ---
@@ -53,7 +53,7 @@ show_thumbnails = true
 sort = name
 sort_ascending = true
 theme = system
-view = list
+view = grid
 
 # Custom pinned bookmarks
 bookmark = /home/username/projects

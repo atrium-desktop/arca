@@ -156,7 +156,9 @@ fn purge_permanently_removes_a_trashed_record() {
     arca_xdg::trash::purge_trash_item(&items[0]).expect("purge it");
     assert!(!items[0].file_path.exists(), "the payload is deleted");
     assert!(!items[0].info_path.exists(), "the metadata is deleted");
-    assert!(arca_xdg::trash::list_trash_in_root(&root)
-        .expect("list custom root")
-        .is_empty());
+    assert!(
+        arca_xdg::trash::list_trash_in_root(&root)
+            .expect("list custom root")
+            .is_empty()
+    );
 }

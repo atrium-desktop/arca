@@ -48,6 +48,8 @@ For project introduction, feature summary, and quick build steps, see the root
 ### Configuration & Customization
 - Theming, thumbnail toggles, and view modes: read
   [How to Customize Appearance and Settings](how-to/customize-appearance-and-settings.md).
+- What each view mode (Grid, List, Miller) shows and how it behaves: read
+  [View Modes Reference](reference/view-modes.md).
 - Config file syntax: read [Configuration Reference](reference/configuration.md).
 
 ### Packaging & Installation

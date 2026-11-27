@@ -1,40 +1,30 @@
-//! End-to-end single-instance forwarding.
+//! End-to-end single-instance forwarding (ADR-0023 `arca-ipc-v2`).
 //!
-//! A second `arca <path>` invocation must connect to the running window's Unix
-//! socket and exit without opening a window. The suite plays the window: it
-//! binds the endpoint, spawns the real binary, accepts the handshake, and
-//! asserts the absolute path the window would open.
+//! A second `arca <path>` invocation must connect to the running window's
+//! private Unix socket (`$XDG_RUNTIME_DIR/arca/ipc.sock`) and exit without
+//! opening a window. The suite plays the window: it starts an `IpcServer`,
+//! spawns the real binary, and asserts the forwarded path and activation token
+//! the window would receive.
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixListener;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use arca_engine::ipc::{IpcServer, SOCKET_SUBPATH};
 use test_support::fs::TestDir;
 
 #[test]
 fn a_second_invocation_forwards_its_path_and_exits() {
     let dir = TestDir::new("e2e-ipc");
     let runtime = dir.subdir("runtime");
-    let socket = runtime.join("arca-ipc.sock");
-    let listener = UnixListener::bind(&socket).expect("bind the fake window endpoint");
+    let socket = runtime.join(SOCKET_SUBPATH);
+    let server = IpcServer::start_at(&socket, || {}).expect("bind the fake window endpoint");
     let scratch = dir.subdir("scratch");
-
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let server = std::thread::spawn(move || {
-        let (stream, _) = listener.accept().expect("accept the forwarded request");
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        reader.read_line(&mut line).expect("read the request line");
-        let mut writer = reader.into_inner();
-        writer.write_all(b"OK\n").expect("acknowledge the forward");
-        sender.send(line).expect("send request line");
-    });
 
     let mut child = Command::new(crate::common::binary("arca"))
         .arg("relative-target")
         .current_dir(&scratch)
         .env("XDG_RUNTIME_DIR", &runtime)
+        .env("XDG_ACTIVATION_TOKEN", "e2e-token")
         .env_remove("WAYLAND_DISPLAY")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -60,24 +50,29 @@ fn a_second_invocation_forwards_its_path_and_exits() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let line = receiver
-        .recv_timeout(Duration::from_secs(5))
-        .expect("server received the request");
-    server.join().expect("server thread");
-    let path = line
-        .trim()
-        .strip_prefix("OPEN\t")
-        .expect("request uses the OPEN verb");
+    let forwarded = server.drain();
+    assert_eq!(
+        forwarded.len(),
+        1,
+        "server should receive exactly one forwarded open request"
+    );
+    let req = &forwarded[0];
+    let path = req.path.to_path_buf();
     assert!(
-        path.starts_with('/'),
+        path.is_absolute(),
         "the window receives an absolute path, got {path:?}"
     );
     assert!(
-        path.ends_with("/relative-target"),
+        path.ends_with("relative-target"),
         "the client resolves relative arguments against its own cwd, got {path:?}"
     );
     assert!(
-        path.starts_with(scratch.to_str().unwrap()),
+        path.starts_with(&scratch),
         "the path is resolved inside the client cwd {scratch:?}, got {path:?}"
+    );
+    assert_eq!(
+        req.activation_token.as_deref(),
+        Some("e2e-token"),
+        "the client forwards XDG_ACTIVATION_TOKEN to the running window"
     );
 }

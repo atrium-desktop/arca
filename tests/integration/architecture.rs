@@ -107,12 +107,6 @@ fn engine_layer_never_links_the_graphics_stack() {
         "optics-gfx-sys",
         "optics-text",
         "optics-text-sys",
-        "optics-material",
-        "optics-material-sys",
-        "optics-svg",
-        "optics-svg-sys",
-        "optics-scene",
-        "optics-scene-sys",
         "optics-motion",
         "optics",
         "arca-ui",
@@ -130,6 +124,8 @@ fn engine_layer_never_links_the_graphics_stack() {
     let allowed = BTreeSet::from([
         "arca-xdg".to_string(),
         "image".to_string(),
+        // ADR-0021: the logging facade only; the concrete logger is in-tree.
+        "log".to_string(),
         "serde".to_string(),
         "serde_json".to_string(),
     ]);

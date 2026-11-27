@@ -193,7 +193,7 @@ only in its historical evolution log.
 - [ADR 0011: Synchronize with Optics v0.0.79](0011-synchronize-with-optics-v0.0.79-and-unified-bindings.md)
 - [ADR 0012: Synchronize with Optics v0.0.80](0012-synchronize-with-optics-v0.0.80-and-aperture-shell.md)
 - [Optics Migration History](../dev/optics-migration.md)
-- [Cross-Repository Development Workflow](../dev/cross-repository-development.md)
+- [Local Optics Development](../dev/optics-local-development.md)
 - Optics ADR-0169: Root `crates/` Layout and Shared Build Helper
 - Optics ADR-0170: Semantic Module Naming and the `optics_` Namespace
 - Optics ADR-0172: Zero-Stutter Public API and Clean window vs. app Runtime Boundary

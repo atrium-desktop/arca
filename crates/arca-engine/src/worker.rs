@@ -3,9 +3,9 @@
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use arca_xdg::TransferAction;
@@ -198,6 +198,7 @@ fn count_path(p: &Path, bytes: &mut u64, files: &mut usize) {
 }
 
 fn run_job(req: JobRequest, prog_tx: &Sender<JobProgress>, comp_tx: &Sender<JobCompleted>) {
+    let span = crate::telemetry::span("io.job");
     let (sources, dest, is_move) = match &req.kind {
         JobKind::Copy {
             sources,
@@ -269,6 +270,33 @@ fn run_job(req: JobRequest, prog_tx: &Sender<JobProgress>, comp_tx: &Sender<JobC
             }
         }
     }
+
+    crate::telemetry::counter("io.bytes", bytes_copied);
+    crate::telemetry::counter(
+        if job_error.is_some() {
+            "io.jobs_failed"
+        } else {
+            "io.jobs_completed"
+        },
+        1,
+    );
+    let verb = if is_move { "move" } else { "copy" };
+    match &job_error {
+        None => log::info!(
+            target: "arca_engine::worker",
+            "job {} {verb} of {files_completed} file(s), {bytes_copied} bytes into {} finished in {} ms",
+            req.id,
+            dest.display(),
+            span.elapsed().as_millis()
+        ),
+        Some(error) => log::warn!(
+            target: "arca_engine::worker",
+            "job {} {verb} into {} failed after {files_completed}/{total_files} file(s): {error}",
+            req.id,
+            dest.display()
+        ),
+    }
+    drop(span);
 
     let _ = prog_tx.send(JobProgress {
         job_id: req.id,

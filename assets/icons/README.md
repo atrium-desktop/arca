@@ -4,11 +4,27 @@ Arca maintains its own solid, vibrant icon set designed for Wayland desktop file
 management, inspired by modern Windows 11 (Fluent Design / Files App) and macOS
 visual languages.
 
-Each SVG here is registered with optics-ui at runtime
-(`optics_ui_icon_register_svg`, via the lazy registration table in
-`crates/arca-ui/src/icons.rs`) and drawn through the native optics-ui icon
-widgets — vector-crisp at any scale (from 12px list glyphs to 46px grid cards
-and 92px hero icons).
+Optics has no SVG parser (Optics ADR-0174). Arca decodes each SVG here itself
+(`crates/arca-ui/src/icons/vector.rs`, ADR-0025), lowers it to optics-ui vector
+commands, and registers the set on the window's `optics_ui` context at start-up
+(`IconSet::register` in `crates/arca-ui/src/icons.rs`). Glyphs draw through the
+native optics-ui icon widgets — vector-crisp at any scale (from 12px list glyphs
+to 46px grid cards and 92px hero icons).
+
+## Authoring rules
+
+The decoder accepts the subset icon artwork needs and rejects the rest, so a
+non-conforming asset fails `cargo test` (`every_asset_decodes`) instead of
+rendering wrongly:
+
+- Elements: `<g>`, `<path>`, `<rect>` (with `rx`/`ry`), `<circle>`, `<ellipse>`,
+  `<line>`, `<polyline>`, `<polygon>`; `transform` on any of them.
+- Paint: solid colours or `currentColor` in `fill` / `stroke`, with `opacity`,
+  `fill-opacity` and `stroke-opacity`. No gradients, patterns, `style`
+  attributes, `<use>`, `<text>`, `<image>`, masks, clips or filters.
+- Holes: the icon rasterizer fills with the non-zero rule and ignores
+  `fill-rule`, so draw a hole with the opposite winding to its outline.
+- Stroke width, caps and joins come from the widget, not the file.
 
 ## Design Philosophy
 

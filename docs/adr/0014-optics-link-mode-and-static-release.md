@@ -280,7 +280,7 @@ Safe Rust and needs no archive at all (Optics ADR-0158).
 
 - [ADR 0013: Synchronize with Optics v0.0.82](0013-synchronize-with-optics-v0.0.82-semantic-module-naming.md)
 - [ADR 0015: Synchronize with Optics v0.0.83 and Shared-Preferred Linking](0015-synchronize-with-optics-v0.0.83-and-shared-preferred-linking.md)
-- [Cross-Repository Development Workflow](../dev/cross-repository-development.md)
+- [Local Optics Development](../dev/optics-local-development.md)
 - [Build & Run Guide](../dev/build-and-run.md)
 - [Distribution Packaging](../dev/packaging.md)
 - [Distribution Packaging (public)](../how-to/install-and-package.md)

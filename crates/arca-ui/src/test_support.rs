@@ -6,8 +6,8 @@
 //! cannot silently apply to some suites and not others.
 
 use crate::app::UiApp;
-use arca_engine::config::Config;
 use arca_engine::AppState;
+use arca_engine::config::Config;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Distinguishes scratch directories created in the same clock tick. The
@@ -120,7 +120,16 @@ pub(crate) fn state_for(dir: &ScratchDir) -> AppState {
 }
 
 /// Run one headless frame and activate its snapshot.
+///
+/// Stands in for the window's start hook: whenever the app's icon set is not
+/// live on `ui` (the first frame, or a test that switched to a fresh
+/// context), it registers the set there, so headless frames draw the same
+/// glyphs as the window. A set left on another context is abandoned, not
+/// released: that context may already be gone.
 pub(crate) fn frame(app: &mut UiApp, ui: &mut optics_ui::Ui, input: &optics_ui::Input) {
+    if !app.icons.is_registered_on(ui) {
+        app.start(ui);
+    }
     ui.frame(input, |f| app.build(f, input));
     if let Ok(snapshot) = ui.snapshot() {
         let _ = ui.activate(&snapshot);

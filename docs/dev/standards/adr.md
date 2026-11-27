@@ -26,12 +26,15 @@ ADRs evolve strictly in-place through YAML frontmatter transitions. Files are ne
 
 ```text
        [ draft ] ───► [ accepted ] ───► [ superseded ]
+           │               │
+           │               └───► [ deprecated ]
            │
            └───► [ rejected ]
 ```
 
 - **draft**: Proposal under active deliberation.
 - **accepted**: Ratified invariant or architectural contract binding on the repository.
+- **deprecated**: Retired without a direct replacement (e.g., due to subsystem, feature, or external dependency removal). Preserved in-place for historical context with `superseded_by: null`, a brief deprecation note (date and rationale), and any associated system invariants retired per [`invariants.md`](invariants.md).
 - **superseded**: Formally replaced by a subsequent ADR (`superseded_by: ADR-NNNN`).
 - **rejected**: Discarded alternative preserved in-place for negative knowledge audit.
 
@@ -40,10 +43,10 @@ ADRs evolve strictly in-place through YAML frontmatter transitions. Files are ne
 ---
 id: ADR-NNNN
 title: "[Title of Decision]"
-status: accepted # [draft | accepted | superseded | rejected]
+status: accepted # [draft | accepted | deprecated | superseded | rejected]
 date: YYYY-MM-DD
 scope: [subsystems affected, e.g. ui/arca-ui, engine/arca-engine, portal/prompter]
-superseded_by: null # e.g., ADR-0004 (mandatory when status is superseded)
+superseded_by: null # e.g., ADR-0004 (mandatory when status is superseded; null when deprecated)
 negative_knowledge: true
 ---
 ```
@@ -65,7 +68,7 @@ negative_knowledge: true
 
 # NNNN. [Title of Decision]
 
-- Status: Draft | Accepted | Superseded by ADR-NNNN | Rejected
+- Status: Draft | Accepted | Deprecated | Superseded by ADR-NNNN | Rejected
 - Date: YYYY-MM-DD
 - Deciders: [Arca Architecture Working Group, Core Engineering]
 - Amends: [Optional links to amended ADRs]

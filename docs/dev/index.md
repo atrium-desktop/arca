@@ -12,7 +12,7 @@ For the user-facing project overview, see the root [README](../../README.md).
 | :--- | :--- |
 | **[Setup](setup.md)** | Prerequisites, canonical vs local workflows, building native dependencies, running, and troubleshooting |
 | **[Build & Run Guide](build-and-run.md)** | Compiling, sandbox execution, CLI picker mode, portal prompter, and headless tests |
-| **[Cross-Repository Development](cross-repository-development.md)** | Developing against a live sibling `optics` checkout via `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR`, linked worktrees, and dynamic-link overrides without patching the Cargo graph |
+| **[Local Optics Development](optics-local-development.md)** | Developing against a live sibling `optics` checkout via local `[patch]`, `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR`, linked worktrees, dynamic-link overrides, and read-only lockfile guardrails |
 | **[Automated Testing](testing.md)** | Four-tier test architecture, root integration/E2E suites, native-free lane, and invariant validation |
 | **[Interaction Latency](interaction-latency.md)** | Click-stall analysis, synchronous token/desktop-scan causes, and the stress guards that bound them |
 | **[Acceptance Scenarios](acceptance.md)** | Outside-in deliverable acceptance criteria, end-to-end user journeys, and scenario matrices |

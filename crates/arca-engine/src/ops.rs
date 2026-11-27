@@ -8,7 +8,13 @@ use std::path::{Path, PathBuf};
 /// Open `path` with the desktop's default application (`mimeapps.list` / `.desktop` / `xdg-open`),
 /// detached — Arca never blocks on the child.
 pub fn open_with_token(path: &str, token: Option<&str>) -> io::Result<()> {
-    crate::desktop::open_path_with_token(Path::new(path), token)
+    let _span = crate::telemetry::span("launch.open");
+    let result = crate::desktop::open_path_with_token(Path::new(path), token);
+    match &result {
+        Ok(()) => log::info!(target: "arca_engine::ops", "opened {path}"),
+        Err(error) => log::warn!(target: "arca_engine::ops", "cannot open {path}: {error}"),
+    }
+    result
 }
 
 /// Open `path` with the desktop's default application.

@@ -27,7 +27,7 @@ layer, and texture ownership in the UI layer.
          v
 +------------------+     Miss     +--------------------+
 | In-Memory Cache  | ------------>|  Disk Cache Check  |
-| (GPU / RGBA LRU) |              |  (~/.cache/arca/)  |
+| (GPU / RGBA LRU) |              | (thumbnails/normal)|
 +------------------+              +--------------------+
          | Hit                              |
          |                                  | Miss
@@ -54,14 +54,34 @@ Decoded pixel buffers ready for GPU upload reside in an in-memory Least Recently
 (LRU) cache bounded by both total entry count and maximum byte capacity. When the
 cache reaches capacity, older items are evicted automatically.
 
-### 2. On-Disk Cache
+### 2. On-Disk Cache (Thumbnail Managing Standard)
 When a thumbnail is successfully decoded, a downscaled PNG representation is saved to
-the standard FreeDesktop cache directory (`$XDG_CACHE_HOME/thumbnails/normal/`).
-- The cache key is the FreeDesktop-mandated `MD5(canonical file URI)` + `.png`.
-- The cached PNG's mtime is compared against the source file's: a source modified
-  after its thumbnail was written is treated as a miss and re-decoded.
+the shared FreeDesktop cache directory (`$XDG_CACHE_HOME/thumbnails/normal/`). The
+directory is shared with every other desktop application, so Arca follows the
+[Thumbnail Managing Standard](https://specifications.freedesktop.org/thumbnail-spec/latest/)
+exactly (implemented in `arca_xdg::thumbnail`):
+- **Name**: `MD5(URI)` + `.png`, where the URI is the absolute, lexically normalized
+  path escaped the way GLib's `g_filename_to_uri` does. Any other escaping would hash
+  `Song (Live).flac` differently from Nautilus and fork the cache. Symlinks are not
+  resolved, matching GIO.
+- **Metadata**: every entry carries `tEXt` chunks `Thumb::URI` and `Thumb::MTime`
+  (mandatory), plus `Thumb::Size`, `Thumb::Mimetype` and `Software`.
+- **Validity**: an entry is used only when its `Thumb::URI` equals the source URI and
+  its `Thumb::MTime` equals the source mtime in whole seconds. The PNG file's own
+  mtime is ignored. Entries written by other conforming applications are reused.
+- **Writing**: a `0600` temporary file in the target directory (`0700`) is renamed
+  into place, so readers never see a partial PNG.
+- **No recursion**: files inside `$XDG_CACHE_HOME/thumbnails/` are decoded for display
+  but never cached.
+- **No pruning**: the cache belongs to the desktop, so Arca never deletes entries.
+  Desktop environments and `rm` (see *Customize Appearance and Settings*) handle cleanup.
 - When navigating back to a previously visited folder, Arca loads the pre-scaled
   cache files, bypassing expensive full-resolution image decoding.
+
+### Request ordering
+Only cards in the virtualized visible window request thumbnails. Workers take the
+**newest** queued request first, because during a scroll the newest requests are the
+rows now in view. When more than 256 requests are pending, the oldest is dropped.
 
 ---
 

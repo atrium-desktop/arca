@@ -12,10 +12,11 @@ use crate::entry::SortKey;
 /// Content presentation used by the active browser tab.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum ViewMode {
-    /// Large square file tiles with names below their icons.
+    /// Large square file tiles with names below their icons (default:
+    /// thumbnails make media folders recognisable at a glance).
+    #[default]
     Grid,
     /// Dense rows with sortable metadata columns.
-    #[default]
     List,
     /// Hierarchical side-by-side directory columns.
     Miller,
@@ -32,9 +33,9 @@ impl ViewMode {
 
     fn from_str(value: &str) -> ViewMode {
         match value {
-            "grid" => ViewMode::Grid,
+            "list" => ViewMode::List,
             "miller" => ViewMode::Miller,
-            _ => ViewMode::List,
+            _ => ViewMode::default(),
         }
     }
 }
@@ -88,7 +89,7 @@ impl Default for Config {
             sort_key: SortKey::Name,
             sort_ascending: true,
             theme: ThemeMode::System,
-            view_mode: ViewMode::List,
+            view_mode: ViewMode::default(),
             bookmarks: Vec::new(),
         }
     }
@@ -193,7 +194,7 @@ mod tests {
         assert_eq!(cfg.sort_key, SortKey::Name);
         assert!(cfg.sort_ascending);
         assert_eq!(cfg.theme, ThemeMode::System);
-        assert_eq!(cfg.view_mode, ViewMode::List);
+        assert_eq!(cfg.view_mode, ViewMode::Grid);
         assert!(cfg.bookmarks.is_empty());
     }
 

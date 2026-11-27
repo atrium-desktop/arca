@@ -151,7 +151,8 @@ reads; a fully stripped artifact fails `--expect static` unless
 | `crates/arca/src/cli.rs` | unit | Every argv combination, including forwarding decisions |
 | `tests/integration/architecture.rs` | integration | Zero-dependency XDG and test support, headless engine, concentric dependencies, one binary, test-only crates |
 | `tests/integration/navigation.rs` | integration | Tabs, per-tab history/filter, hidden files, sorting, completion, bookmarks |
-| `crates/arca-engine/src/state.rs` | unit | Synchronous and asynchronous navigation, last-writer-wins, history cursor, cancel-on-sync |
+| `crates/arca-engine/src/state.rs` | unit | Synchronous and asynchronous navigation, last-writer-wins, deferred history cursor, cancel-on-sync, no UI-thread reads |
+| `crates/arca-engine/src/telemetry/**` | unit | Log filters, line format, rotation, metrics/quantiles, spans, alert dedupe, watchdog rules (stall, storm, error burst), diagnostics snapshots |
 | `tests/integration/file_operations.rs` | integration | Anti-clobber rename, unique folders, copy/paste, drop payloads, trash + undo/purge |
 | `tests/integration/chooser_contract.rs` | integration | Prompter contract v6 request/response encoding, validation, filters |
 | `tests/integration/ipc.rs` | integration | Single-instance handshake, queueing, stale endpoints, concurrent clients |
@@ -159,9 +160,12 @@ reads; a fully stripped artifact fails `--expect static` unless
 | `tests/integration/damage_and_quiescence.rs` | integration | Regional damage, departure damage, caret phase edges, animation termination |
 | `tests/integration/virtualization.rs` | integration | 2 500-entry directories and scrolling stay inside the frame arena |
 | `tests/integration/interaction_stress.rs` | integration | Hundreds of clicks / view changes stay bounded and quiescent |
+| `tests/integration/observability.rs` | integration | Engine operations feed the diagnostics report; transfers are measured; a stalled UI thread is alerted with its span; `telemetry::init` routes logs into the file |
+| `tests/integration/observability_ui.rs` | integration | Headless UI journeys keep directory reads off the UI thread; frames beat the heartbeat |
 | `tests/e2e/cli.rs` | e2e | `--help`/`--version`, documented flags, unknown-option reporting |
 | `tests/e2e/portal_prompter.rs` | e2e | One JSON response line, malformed/foreign requests fail closed |
 | `tests/e2e/ipc_forward.rs` | e2e | Real binary forwards a relative path to a running instance and exits |
+| `tests/e2e/diagnostics.rs` | e2e | `--diagnostics` rendering and exit codes, log file creation, stdout stays protocol-clean, `ARCA_LOG_STDERR` |
 
 ---
 
@@ -179,6 +183,8 @@ reads; a fully stripped artifact fails `--expect static` unless
 | `hundreds_of_row_clicks_are_bounded...` fails | Per-click stall or unbounded allocation | `docs/dev/interaction-latency.md` |
 | `trash_roundtrip_through_engine_and_undo` fails | Scratch Trash permissions or a record mismatch | Inspect the injected `trash-root` directory and its `.trashinfo` record |
 | `builds_frames_headless` fails | Optics shared libraries not loadable | Run via the workspace harness (rpath relay) or `OPTICS_DYNAMIC=0` |
+| `..._keeps_blocking_reads_off_the_ui_thread` fails | A UI-path change calls `entry::read_dir` synchronously | The span named in the failing frame; `docs/dev/interaction-latency.md` |
+| `a_stalled_ui_thread_is_alerted...` fails | Watchdog not sampling, or span not published on the heartbeat | `crates/arca-engine/src/telemetry/watchdog.rs` |
 
 ---
 
@@ -212,6 +218,24 @@ reads; a fully stripped artifact fails `--expect static` unless
 6. **Portal wire contract.** `chooser_contract::*` plus
    `e2e::portal_prompter::*` cover version refusal, field validation, and the
    one-line response framing.
+7. **`[INV-OBS-01]` — protocol-clean logging.**
+   `e2e::diagnostics::prompter_logs_to_the_state_dir_and_keeps_stdout_protocol_clean`
+   runs the prompter at `ARCA_LOG=trace` and requires exactly one JSON line on
+   stdout while the log file receives the records.
+8. **`[INV-OBS-02]` — freeze evidence.** `watchdog::tests::*` drive the pure
+   `Monitor` with synthetic samples (stall, recovery, back-to-back stalls,
+   storm re-arming, vsync rates, idle windows), and
+   `observability::a_stalled_ui_thread_is_alerted_with_the_blocking_operation`
+   proves the live thread names the blocking span.
+9. **`[INV-OPS-05]` / `[INV-NAV-01]` — reaped launches, deferred history.**
+   `desktop::tests::detached_children_are_reaped`,
+   `state::tests::a_failed_async_back_leaves_the_history_cursor_in_place`,
+   `state::tests::rapid_async_back_clicks_walk_history_and_publish_once`.
+
+Telemetry tests share process-wide registries under plain `cargo test`.
+Assert on deltas or unique metric names, keep heartbeat assertions on the
+test's own thread (heartbeats are per thread), and never assert on the exact
+text of the newest global alert.
 
 ---
 

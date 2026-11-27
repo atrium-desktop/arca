@@ -1,69 +1,62 @@
-# Portal Prompter Protocol Reference
+# Portal Chooser Protocol Reference
 
 This document specifies the private inter-process communication protocol used
-when invoking Arca via `--chooser-prompt` (Tessera Prompter Process Contract v6).
+when `xdg-desktop-portal-atrium` invokes Arca via `--chooser-prompt`
+(Atrium Arca FileChooser Contract v1, ADR-0027).
 
 ---
 
 ## Protocol Overview
 
 - **Transport**: Standard input (`stdin`) and standard output (`stdout`) pipes.
-- **Serialization**: UTF-8 JSON.
-- **Contract Version**: `6`.
-- **Lifecycle**: One-shot per prompt. The calling daemon spawns Arca, writes a single
-  request packet to `stdin`, closes or leaves `stdin` open, and reads a single response
-  packet from `stdout`. Arca exits immediately after writing the response.
+- **Serialization**: UTF-8 JSON (strict envelopes with `deny_unknown_fields`).
+- **Contract Version**: `1` (`ARCA_CONTRACT_VERSION`).
+- **Lifecycle**: One-shot per request. The calling portal backend spawns
+  `arca --chooser-prompt`, writes a single JSON request line to `stdin`,
+  closes `stdin`, and reads a single JSON response line from `stdout`. Arca
+  exits immediately after writing the response.
 
 ---
 
 ## Request Format
 
-The prompter input packet contains a version stamp, the portal request parameters,
-and an optional appearance snapshot.
+The chooser input packet carries the contract version and the flat
+`FileChooserRequest` object:
 
 ```json
 {
-  "version": 6,
-  "prompt": {
-    "kind": "file_chooser",
-    "request": {
-      "mode": "open_file",
-      "app_id": "org.mozilla.firefox",
-      "title": "Open Image",
-      "accept_label": "Choose",
-      "modal": true,
-      "parent_window": "wayland:01234567",
-      "multiple": false,
-      "current_folder": [47, 104, 111, 109, 101, 47, 117, 115, 101, 114],
-      "current_name": null,
-      "current_file": null,
-      "filters": [
-        {
-          "label": "Images (*.png, *.jpg)",
-          "rules": [
-            {"kind": "glob", "value": "*.png"},
-            {"kind": "glob", "value": "*.jpg"},
-            {"kind": "mime", "value": "image/*"}
-          ]
-        }
-      ],
-      "current_filter": null,
-      "choices": [
-        {
-          "id": "read_only",
-          "label": "Open as read-only",
-          "options": [],
-          "selected": "false"
-        }
-      ],
-      "files": []
-    }
-  },
-  "appearance": {
-    "color_scheme": "system",
-    "accent_color": {"red": 64, "green": 128, "blue": 255},
-    "high_contrast": false,
-    "reduced_motion": false
+  "version": 1,
+  "request": {
+    "mode": "open_file",
+    "app_id": "org.mozilla.firefox",
+    "title": "Open Image",
+    "accept_label": "Choose",
+    "modal": true,
+    "parent_window": "wayland:01234567",
+    "multiple": false,
+    "current_folder": [47, 104, 111, 109, 101, 47, 117, 115, 101, 114],
+    "current_name": null,
+    "current_file": null,
+    "filters": [
+      {
+        "label": "Images (*.png, *.jpg)",
+        "rules": [
+          {"kind": "glob", "value": "*.png"},
+          {"kind": "glob", "value": "*.jpg"},
+          {"kind": "mime", "value": "image/*"}
+        ]
+      }
+    ],
+    "current_filter": null,
+    "choices": [
+      {
+        "id": "read_only",
+        "label": "Open as read-only",
+        "options": [],
+        "selected": "false"
+      }
+    ],
+    "files": []
   }
 }
 ```
@@ -72,64 +65,60 @@ and an optional appearance snapshot.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | Integer | Protocol contract version; must match `6`. |
-| `prompt.kind` | String | Prompt kind discriminator; always `"file_chooser"` for file operations. |
-| `prompt.request.mode` | String | Operation mode: `open_file`, `open_directory`, `save_file`, or `save_files`. |
-| `prompt.request.app_id` | String | Calling application's desktop entry ID. |
-| `prompt.request.title` | String | User-visible dialog title bar text. |
-| `prompt.request.accept_label` | String or `null` | Custom text for confirmation button. |
-| `prompt.request.modal` | Boolean | Whether dialog should act modally relative to parent window. |
-| `prompt.request.parent_window`| String or `null` | Wayland surface handle of the parent caller window. |
-| `prompt.request.multiple` | Boolean | Allow selecting multiple files (only in `open_file` mode). |
-| `prompt.request.current_folder` | Byte array or `null` | Initial directory encoded as raw Unix bytes. |
-| `prompt.request.current_name` | String or `null` | Pre-filled filename suggestion in `save_file` mode. |
-| `prompt.request.current_file` | Byte array or `null` | Pre-selected existing file path in raw Unix bytes. |
-| `prompt.request.filters` | Array of Filter | Available file type filters. |
-| `prompt.request.current_filter` | Filter or `null` | The initially selected filter. |
-| `prompt.request.choices` | Array of Choice | Caller-requested checkboxes or dropdown controls. |
-| `prompt.request.files` | Array of Byte array | Suggested basenames for `save_files` mode. |
+| `version` | Integer | Protocol contract version; must equal `1`. Checked before field decoding. |
+| `request.mode` | String | Operation mode: `open_file`, `open_directory`, `save_file`, or `save_files`. |
+| `request.app_id` | String | Calling application's desktop entry ID. |
+| `request.title` | String | User-visible dialog title bar text. |
+| `request.accept_label` | String or `null` | Custom text for confirmation button (GTK mnemonics like `_Open` are stripped). |
+| `request.modal` | Boolean | Whether dialog should act modally relative to parent window. |
+| `request.parent_window`| String or `null` | Wayland surface handle of the parent caller window. |
+| `request.multiple` | Boolean | Allow selecting multiple paths in `open_file` and `open_directory` modes. |
+| `request.current_folder` | Byte array or `null` | Initial directory encoded as raw Unix bytes (`BytePath`). |
+| `request.current_name` | String or `null` | Pre-filled filename suggestion in `save_file` mode. |
+| `request.current_file` | Byte array or `null` | Pre-selected existing file path in raw Unix bytes. |
+| `request.filters` | Array of Filter | Available file type filters (`glob` / `mime` rules). |
+| `request.current_filter` | Filter or `null` | The initially selected filter. |
+| `request.choices` | Array of Choice | Caller-requested checkboxes (`options: []`) or dropdown controls. An empty `selected` string (`""`) defaults to `"false"` for checkboxes or the first option ID for dropdowns. |
+| `request.files` | Array of Byte array | Suggested basenames for `save_files` mode (must be non-empty for `save_files`, empty for all other modes). |
 
 ---
 
 ## Response Format
 
-Arca writes exactly one tagged JSON envelope to `stdout`.
+Arca writes exactly one JSON response line to `stdout`:
 
 ```json
 {
-  "version": 6,
-  "result": {
-    "kind": "file_chooser",
-    "response": <response_object>
-  }
+  "version": 1,
+  "response": <response_object>
 }
 ```
 
 ### 1. Selected (`status: "selected"`)
 
-Emitted when the user confirms their selection:
+Emitted when the user confirms their selection. For `save_files`, Arca resolves
+the suggested basenames inside the chosen folder (avoiding existing files and
+duplicate names) and returns the final `request.files.len()` absolute paths.
+`choices` answers the offered controls in request order.
 
 ```json
 {
-  "version": 6,
-  "result": {
-    "kind": "file_chooser",
-    "response": {
-      "status": "selected",
-      "paths": [
-        [47, 104, 111, 109, 101, 47, 117, 115, 101, 114, 47, 112, 104, 111, 116, 111, 46, 112, 110, 103]
-      ],
-      "current_filter": {
-        "label": "Images (*.png, *.jpg)",
-        "rules": [
-          {"kind": "glob", "value": "*.png"},
-          {"kind": "glob", "value": "*.jpg"}
-        ]
-      },
-      "choices": [
-        ["read_only", "true"]
+  "version": 1,
+  "response": {
+    "status": "selected",
+    "paths": [
+      [47, 104, 111, 109, 101, 47, 117, 115, 101, 114, 47, 112, 104, 111, 116, 111, 46, 112, 110, 103]
+    ],
+    "current_filter": {
+      "label": "Images (*.png, *.jpg)",
+      "rules": [
+        {"kind": "glob", "value": "*.png"},
+        {"kind": "glob", "value": "*.jpg"}
       ]
-    }
+    },
+    "choices": [
+      ["read_only", "true"]
+    ]
   }
 }
 ```
@@ -140,29 +129,24 @@ Emitted when the user dismisses the dialog via `Esc`, window close, or Cancel:
 
 ```json
 {
-  "version": 6,
-  "result": {
-    "kind": "file_chooser",
-    "response": {
-      "status": "cancelled"
-    }
+  "version": 1,
+  "response": {
+    "status": "cancelled"
   }
 }
 ```
 
 ### 3. Failed (`status: "failed"`)
 
-Emitted if request validation fails or an unrecoverable I/O error occurs:
+Emitted if request parsing/validation fails, the contract version is unsupported,
+or an unrecoverable error occurs:
 
 ```json
 {
-  "version": 6,
-  "result": {
-    "kind": "file_chooser",
-    "response": {
-      "status": "failed",
-      "message": "Invalid request: suggested files are valid only for SaveFiles"
-    }
+  "version": 1,
+  "response": {
+    "status": "failed",
+    "message": "unsupported chooser contract version 6 (this build speaks 1)"
   }
 }
 ```

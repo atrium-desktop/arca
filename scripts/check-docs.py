@@ -42,7 +42,7 @@ def ok(message: str) -> None:
 def documented_cli_flags() -> set[str]:
     """Flags the CLI reference claims the binary accepts."""
     text = read(DOCS / "reference" / "cli.md")
-    return set(re.findall(r"`(--[a-zA-Z-]+)`", text))
+    return set(re.findall(r"`(-{1,2}[a-zA-Z0-9][a-zA-Z0-9-]*)`", text))
 
 
 def source_cli_flags() -> set[str]:
@@ -59,10 +59,10 @@ def source_cli_flags() -> set[str]:
     flags: set[str] = set()
     parts = text.split("fn unknown_options", 1)
     if len(parts) == 2:
-        body = parts[1].split("}", 1)[0]
-        flags.update(re.findall(r'"(-{1,2}[a-zA-Z-]+)"', body))
+        body = parts[1].split("\n    }\n", 1)[0]
+        flags.update(re.findall(r'"(-{1,2}[a-zA-Z0-9][a-zA-Z0-9-]*)"', body))
     # Single-letter forms are matched through `matches!` elsewhere in the file.
-    flags.update(re.findall(r'"(-[A-Za-z])"', text))
+    flags.update(re.findall(r'"(-[A-Za-z0-9])"', text))
     return flags
 
 
@@ -85,7 +85,7 @@ def check_cli() -> None:
         undocumented_in_usage = {flag for flag in source if flag not in body}
         if undocumented_in_usage:
             fail(f"--help text omits accepted flags: {sorted(undocumented_in_usage)}")
-    stale = documented - source
+    stale = documented - source - ignorable
     if stale:
         fail(f"CLI flags documented but not parsed by crates/arca: {sorted(stale)}")
     ok(f"CLI reference matches {len(source - ignorable)} parsed flags")

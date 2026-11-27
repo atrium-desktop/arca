@@ -92,7 +92,7 @@ pub fn trash_root_for(path: &Path) -> PathBuf {
         }
     }
 
-    let uid = unsafe { libc_getuid() };
+    let uid = getuid();
     let user_trash = topdir.join(format!(".Trash-{uid}"));
     if user_trash.exists() || fs::create_dir_all(&user_trash).is_ok() {
         return user_trash;
@@ -101,11 +101,10 @@ pub fn trash_root_for(path: &Path) -> PathBuf {
     home_trash
 }
 
-unsafe fn libc_getuid() -> u32 {
-    extern "C" {
-        fn getuid() -> u32;
-    }
-    getuid()
+unsafe extern "C" {
+    /// POSIX `getuid(2)`: always succeeds, is thread-safe, and has no
+    /// preconditions, so it is declared `safe`.
+    safe fn getuid() -> u32;
 }
 
 /// Move every path into the appropriate trash and return the recorded TrashItems.
@@ -219,27 +218,27 @@ pub fn list_trash_in_root(root: &Path) -> io::Result<Vec<TrashItem>> {
             continue;
         }
 
-        if let Ok(content) = fs::read_to_string(&info_path) {
-            if let Some((orig_path, date)) = parse_trashinfo(&content) {
-                let meta = fs::symlink_metadata(&file_path).ok();
-                let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-                let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-                let original_name = orig_path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| stem.to_string());
+        if let Ok(content) = fs::read_to_string(&info_path)
+            && let Some((orig_path, date)) = parse_trashinfo(&content)
+        {
+            let meta = fs::symlink_metadata(&file_path).ok();
+            let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+            let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+            let original_name = orig_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| stem.to_string());
 
-                items.push(TrashItem {
-                    id: stem.to_string(),
-                    original_name,
-                    original_path: orig_path,
-                    deletion_date: date,
-                    file_path,
-                    info_path,
-                    is_dir,
-                    size,
-                });
-            }
+            items.push(TrashItem {
+                id: stem.to_string(),
+                original_name,
+                original_path: orig_path,
+                deletion_date: date,
+                file_path,
+                info_path,
+                is_dir,
+                size,
+            });
         }
     }
 
@@ -371,14 +370,14 @@ fn percent_decode(s: &str) -> Option<String> {
     let chars = s.as_bytes();
     let mut i = 0;
     while i < chars.len() {
-        if chars[i] == b'%' && i + 2 < chars.len() {
-            if let Ok(byte) =
+        if chars[i] == b'%'
+            && i + 2 < chars.len()
+            && let Ok(byte) =
                 u8::from_str_radix(std::str::from_utf8(&chars[i + 1..i + 3]).unwrap_or(""), 16)
-            {
-                bytes.push(byte);
-                i += 3;
-                continue;
-            }
+        {
+            bytes.push(byte);
+            i += 3;
+            continue;
         }
         bytes.push(chars[i]);
         i += 1;

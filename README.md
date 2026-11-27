@@ -10,7 +10,7 @@
 
 Arca is a fast file manager for Wayland and a companion application for the Tessera desktop ecosystem. While its visual language aligns with the Tessera design system, it operates standalone on any standard Wayland compositor. It is built on the Optics graphics and UI stack (**optics-app** application shell · **optics-gfx** Vulkan renderer · **optics-ui** immediate-mode UI · **optics-window** platform runtime · **optics-motion** motion dynamics).
 
-![Rust](https://img.shields.io/badge/rust-1.85%2B-informational)
+![Rust](https://img.shields.io/badge/rust-1.88%2B-informational)
 
 ---
 
@@ -22,7 +22,7 @@ Arca is a fast file manager for Wayland and a companion application for the Tess
 - **Multi-Tab Workspace** — Independent location, history, selection, and filter states across tabs with drag-and-drop reordering (`Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, `Ctrl+1..9`).
 - **Quick Look Inspection** — Press `Space` for an animated preview modal (text excerpts, image dimensions and artwork, embedded album art) with Optics `optics-motion` spring easing; dismiss with `Space`, `Esc`, or a click outside.
 - **Safe File Operations** — Open with default application, new folder creation (`Ctrl+Shift+N`) with automatic collision resolution, safe inline rename (`Ctrl+E`/`F2`) that never clobbers, FreeDesktop-compliant trash/restore/purge (`Del`/`Shift+Del`), copy/cut/paste (`Ctrl+C/X/V`) honouring `text/uri-list` and `x-special/gnome-copied-files`, drag-and-drop within the app and to/from other applications, multi-step undo/redo, and context menus. Large transfers run on a background worker with progress in the status bar.
-- **XDG Desktop Portal File Chooser** — Native portal file chooser prompter (`arca --chooser-prompt`) speaking contract v6, supporting `OpenFile`, `SaveFile`, `SaveFiles`, `OpenDirectory`, multi-select, glob/MIME filters, custom choice controls, and overwrite warnings; the response is validated against the request before it is emitted. Also usable as a standalone CLI picker (`--choose-file`, `--choose-files`, `--choose-dir`, `--save-file`).
+- **XDG Desktop Portal File Chooser** — Native portal file chooser (`arca --chooser-prompt`) speaking Atrium FileChooser contract v1, supporting `OpenFile`, `SaveFile`, `SaveFiles`, `OpenDirectory`, multi-select, glob/MIME filters, custom choice controls, and overwrite warnings; the response is validated against the request before it is emitted. Also usable as a standalone CLI picker (`--choose-file`, `--choose-files`, `--choose-dir`, `--save-file`).
 - **Adaptive Theming** — Follows system light/dark preference live, with toolbar appearance settings supporting System / Light / Dark modes.
 - **Persistent Settings** — View mode, hidden files flag, sort order, theme, and bookmarks remembered in `~/.config/arca/arca.conf`.
 
@@ -61,11 +61,12 @@ cargo build --release
 ./target/release/arca --save-file ~/Documents/report.pdf
 ```
 
-### 4. Run as XDG Desktop Portal Prompter
+### 4. Run as XDG Desktop Portal Chooser
 
 ```bash
-# Reads JSON request from stdin and emits JSON response to stdout
-echo '{"title":"Select File","multiple":false,"directory":false}' | ./target/release/arca --chooser-prompt
+# Reads a contract v1 JSON request from stdin and emits a JSON response to stdout
+printf '%s\n' '{"version":1,"request":{"mode":"open_file","app_id":"io.arca.Test","title":"Select File","accept_label":null,"modal":false,"parent_window":null,"multiple":false,"current_folder":null,"current_name":null,"current_file":null,"filters":[],"current_filter":null,"choices":[],"files":[]}}' \
+  | ./target/release/arca --chooser-prompt
 ```
 
 ---

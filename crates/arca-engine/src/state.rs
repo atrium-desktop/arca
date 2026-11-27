@@ -9,8 +9,8 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::bookmarks::{self, Bookmark};
 use crate::chooser::FileFilter;
@@ -32,8 +32,19 @@ pub use arca_xdg::clipboard::{FileClipboard as Clipboard, TransferAction};
 struct PendingNavigation {
     tab_id: u64,
     target: String,
-    push_history: bool,
+    history: HistoryUpdate,
+    started: std::time::Instant,
     result: std::sync::mpsc::Receiver<std::io::Result<Vec<Entry>>>,
+}
+
+/// How a navigation moves its tab's history — applied only once the read
+/// succeeded, so a failed or superseded request leaves the cursor alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HistoryUpdate {
+    /// A new location: push it.
+    Push,
+    /// Back/forward: move the cursor by this many steps.
+    Step(isize),
 }
 
 /// The complete application state.
@@ -76,6 +87,8 @@ pub struct AppState {
     /// Monotonic request id. A worker that lost the race skips its read
     /// instead of competing for the disk after the user has moved on.
     nav_generation: Arc<AtomicU64>,
+    /// Listing for the Miller preview (right) column; see [`Self::request_miller_preview`].
+    miller_preview: crate::miller_preview::PreviewLoader,
 }
 
 /// One independent browsing session. Navigation, selection and filtering are
@@ -139,15 +152,15 @@ impl TabState {
             .collect();
         self.selected_names
             .retain(|n| visible_names.contains(n.as_str()));
-        if let Some(cursor) = &self.cursor_name {
-            if !visible_names.contains(cursor.as_str()) {
-                self.cursor_name = None;
-            }
+        if let Some(cursor) = &self.cursor_name
+            && !visible_names.contains(cursor.as_str())
+        {
+            self.cursor_name = None;
         }
-        if let Some(anchor) = &self.anchor_name {
-            if !visible_names.contains(anchor.as_str()) {
-                self.anchor_name = None;
-            }
+        if let Some(anchor) = &self.anchor_name
+            && !visible_names.contains(anchor.as_str())
+        {
+            self.anchor_name = None;
         }
         // Keep the cursor/selection invariant: a cursor whose row is not
         // selected would make `selected()` and `selected_entries()` disagree.
@@ -229,8 +242,10 @@ impl TabState {
     }
 }
 
-/// A directory presented in Miller view. The final column is always the
-/// active directory; preceding columns are its nearest ancestors.
+/// A directory presented in Miller view. The model holds at most two
+/// columns: the parent (when the active directory has one) and, always last,
+/// the active directory. The UI centres the active column and fills the
+/// right-hand slot from [`AppState::miller_preview`].
 #[derive(Clone, Debug)]
 pub struct MillerColumn {
     pub path: String,
@@ -287,6 +302,7 @@ impl AppState {
             trash_root: None,
             pending_navigation: None,
             nav_generation: Arc::new(AtomicU64::new(0)),
+            miller_preview: Default::default(),
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
         state.navigate(&path::home_dir());
@@ -332,6 +348,7 @@ impl AppState {
             trash_root,
             pending_navigation: None,
             nav_generation: Arc::new(AtomicU64::new(0)),
+            miller_preview: Default::default(),
         };
         state.rebuild_bookmarks(&cfg.bookmarks);
         state.navigate(start_dir);
@@ -478,14 +495,35 @@ impl AppState {
         self.switch_tab(target);
     }
 
-    /// Navigate to `path` (tilde/relative segments resolved). Records
-    /// history on success; reports and stays put on failure.
+    /// Navigate to `path` (tilde/relative segments and `file://` URIs resolved).
+    /// Records history on success; reports and stays put on failure.
     pub fn navigate(&mut self, raw: &str) {
-        let resolved = if raw.starts_with('/') || raw.starts_with('~') || self.cwd().is_empty() {
-            path::normalize(raw)
-        } else {
-            path::resolve(self.cwd(), raw)
-        };
+        let decoded_uri = raw
+            .starts_with("file://")
+            .then(|| crate::xdg::decode_file_uri(raw))
+            .flatten()
+            .map(|p| p.to_string_lossy().into_owned());
+        let target = decoded_uri.as_deref().unwrap_or(raw);
+        let mut resolved =
+            if target.starts_with('/') || target.starts_with('~') || self.cwd().is_empty() {
+                path::normalize(target)
+            } else {
+                path::resolve(self.cwd(), target)
+            };
+        if !entry::dir_exists(&resolved) {
+            // A `file://` URI (e.g. `OpenURI` for `x-scheme-handler/file`) may
+            // point to a regular file; reveal its parent directory instead of
+            // failing with "Not a directory".
+            if decoded_uri.is_some()
+                && std::path::Path::new(&resolved).is_file()
+                && let Some(parent) = std::path::Path::new(&resolved)
+                    .parent()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .filter(|p| !p.is_empty() && entry::dir_exists(p))
+            {
+                resolved = parent;
+            }
+        }
         if !entry::dir_exists(&resolved) {
             self.set_status(format!("Not a directory: {resolved}"));
             return;
@@ -564,30 +602,49 @@ impl AppState {
         // The directory probe and read happen in the worker: even a `stat`
         // can block on an unresponsive mount. History is recorded only after
         // the read succeeds.
-        self.begin_set_dir(resolved, true)
+        self.begin_set_dir(resolved, HistoryUpdate::Push)
     }
 
     /// Asynchronous [`Self::go_back`].
     pub fn begin_go_back(&mut self) -> bool {
-        let path = self.tabs[self.active_tab]
-            .history
-            .go_back()
-            .map(str::to_string);
-        match path {
-            Some(path) => self.begin_set_dir(path, false),
-            None => false,
-        }
+        self.begin_history_step(-1)
     }
 
     /// Asynchronous [`Self::go_forward`].
     pub fn begin_go_forward(&mut self) -> bool {
-        let path = self.tabs[self.active_tab]
+        self.begin_history_step(1)
+    }
+
+    /// Peek `direction` steps from the cursor — counted from any step still
+    /// in flight for this tab, so rapid Back clicks walk further back instead
+    /// of re-requesting the same entry — without moving the cursor yet.
+    fn begin_history_step(&mut self, direction: isize) -> bool {
+        let tab_id = self.tabs[self.active_tab].id;
+        let in_flight = match &self.pending_navigation {
+            Some(pending) if pending.tab_id == tab_id => match pending.history {
+                HistoryUpdate::Step(steps) => steps,
+                HistoryUpdate::Push => 0,
+            },
+            _ => 0,
+        };
+        let steps = in_flight + direction;
+        let Some(path) = self.tabs[self.active_tab]
             .history
-            .go_forward()
-            .map(str::to_string);
-        match path {
-            Some(path) => self.begin_set_dir(path, false),
-            None => false,
+            .peek(steps)
+            .map(str::to_string)
+        else {
+            return false;
+        };
+        self.begin_set_dir(path, HistoryUpdate::Step(steps))
+    }
+
+    fn apply_history(&mut self, tab_index: usize, update: HistoryUpdate, target: &str) {
+        let history = &mut self.tabs[tab_index].history;
+        match update {
+            HistoryUpdate::Push => history.push(target),
+            HistoryUpdate::Step(steps) => {
+                history.step(steps);
+            }
         }
     }
 
@@ -605,8 +662,13 @@ impl AppState {
         self.pending_navigation = None;
     }
 
-    fn begin_set_dir(&mut self, path: String, push_history: bool) -> bool {
+    fn begin_set_dir(&mut self, path: String, history: HistoryUpdate) -> bool {
         let tab_index = self.active_tab;
+        crate::telemetry::counter("nav.started", 1);
+        if self.pending_navigation.is_some() {
+            crate::telemetry::counter("nav.superseded", 1);
+        }
+        log::debug!(target: "arca_engine::nav", "navigate {path} ({history:?})");
         let tab_id = self.tabs[tab_index].id;
         let generation = self.nav_generation.fetch_add(1, Ordering::Relaxed) + 1;
         let generation_handle = Arc::clone(&self.nav_generation);
@@ -631,9 +693,7 @@ impl AppState {
             self.pending_navigation = None;
             let listing = entry::read_dir(&path, show_hidden, sort_key, sort_ascending);
             if let Ok(entries) = listing {
-                if push_history {
-                    self.tabs[tab_index].history.push(&path);
-                }
+                self.apply_history(tab_index, history, &path);
                 self.apply_listing(tab_index, &path, Ok(entries));
             } else {
                 self.set_status(format!("Cannot open {path}"));
@@ -644,7 +704,8 @@ impl AppState {
         self.pending_navigation = Some(PendingNavigation {
             tab_id,
             target: path.clone(),
-            push_history,
+            history,
+            started: std::time::Instant::now(),
             result: rx,
         });
         self.set_status(format!("Loading {path}…"));
@@ -663,14 +724,26 @@ impl AppState {
         let Some(pending) = self.pending_navigation.take() else {
             return false;
         };
-        match pending.result.try_recv() {
+        let outcome = pending.result.try_recv();
+        if !matches!(outcome, Err(std::sync::mpsc::TryRecvError::Empty)) {
+            let elapsed = pending.started.elapsed();
+            crate::telemetry::observe("nav.latency", elapsed);
+            let ok = matches!(outcome, Ok(Ok(_)));
+            crate::telemetry::counter(if ok { "nav.completed" } else { "nav.failed" }, 1);
+            log::debug!(
+                target: "arca_engine::nav",
+                "navigation to {} {} in {} ms",
+                pending.target,
+                if ok { "published" } else { "failed" },
+                elapsed.as_millis()
+            );
+        }
+        match outcome {
             Ok(Ok(entries)) => {
                 let Some(index) = self.tabs.iter().position(|tab| tab.id == pending.tab_id) else {
                     return false;
                 };
-                if pending.push_history {
-                    self.tabs[index].history.push(&pending.target);
-                }
+                self.apply_history(index, pending.history, &pending.target);
                 self.apply_listing(index, &pending.target, Ok(entries));
                 true
             }
@@ -739,6 +812,7 @@ impl AppState {
     /// change or `Ctrl+R` cannot shift the highlight onto a different file.
     /// Entries that genuinely disappeared are dropped from the selection.
     pub fn refresh(&mut self) {
+        let _span = crate::telemetry::span("state.refresh");
         let cwd = self.cwd().to_string();
         let listing = entry::read_dir(&cwd, self.show_hidden, self.sort_key, self.sort_ascending);
         let tab = &mut self.tabs[self.active_tab];
@@ -850,6 +924,8 @@ impl AppState {
         if changed_paths.is_empty() {
             return false;
         }
+        crate::telemetry::counter("fs.watch.events", changed_paths.len() as u64);
+        log::debug!(target: "arca_engine::watch", "changed: {changed_paths:?}");
 
         let mut refreshed_active = false;
         let active_cwd = PathBuf::from(self.cwd());
@@ -917,6 +993,7 @@ impl AppState {
     /// Only a Trash `files/` listing needs it; anywhere else the map is
     /// dropped so no stale records survive navigation.
     fn rebuild_trash_index(&mut self) {
+        let _span = crate::telemetry::span("state.trash_index");
         self.trash_index = if self.is_showing_trash() {
             Some(
                 self.trash_items()
@@ -1251,16 +1328,18 @@ impl AppState {
         self.save_config();
     }
 
-    /// Rebuild the Miller column model.
+    /// Rebuild the Miller column model: parent, then the active directory.
     ///
-    /// Only meaningful in Miller view: building it otherwise re-reads up to
-    /// four ancestor directories on every navigation, refresh and sort
-    /// (~10 ms for a large directory) for a model nothing renders.
+    /// Only meaningful in Miller view: building it otherwise re-reads the
+    /// parent directory on every navigation, refresh and sort for a model
+    /// nothing renders. Older layouts kept up to three ancestors; with the
+    /// active directory centred only the parent is on screen.
     fn rebuild_miller_columns(&mut self) {
-        const MAX_COLUMNS: usize = 4;
+        const MAX_COLUMNS: usize = 2;
         if self.view_mode != ViewMode::Miller {
             return;
         }
+        let _span = crate::telemetry::span("state.miller_rebuild");
         let cwd = self.cwd().to_string();
         if cwd.is_empty() {
             return;
@@ -1297,6 +1376,54 @@ impl AppState {
             });
         }
         self.tabs[self.active_tab].miller_columns = columns;
+    }
+
+    /// Key for the Miller preview column: the directory under the cursor in
+    /// the active column, or `None` when the cursor is on a file, nothing is
+    /// selected, or the view is not Miller.
+    #[must_use]
+    pub fn miller_preview_key(&self) -> Option<crate::miller_preview::PreviewKey> {
+        if self.view_mode != ViewMode::Miller {
+            return None;
+        }
+        let entry = self.selected_entry()?;
+        if !entry.navigable {
+            return None;
+        }
+        Some(crate::miller_preview::PreviewKey {
+            path: entry::child_path(self.cwd(), &entry.name),
+            show_hidden: self.show_hidden,
+            sort_key: self.sort_key,
+            sort_ascending: self.sort_ascending,
+        })
+    }
+
+    /// Make the preview column's listing current for the cursor. Call once
+    /// per frame in Miller view; it is a no-op while the cursor stays put.
+    /// `asynchronous` reads off-thread (interactive window); otherwise the
+    /// read is inline (tests, embedders without a frame loop).
+    pub fn request_miller_preview(&mut self, asynchronous: bool) {
+        match self.miller_preview_key() {
+            Some(key) => self.miller_preview.request(key, asynchronous),
+            None => self.miller_preview.clear(),
+        }
+    }
+
+    /// Publish a finished preview read. Returns true when it changed.
+    pub fn poll_miller_preview(&mut self) -> bool {
+        self.miller_preview.poll()
+    }
+
+    /// Whether a preview read is in flight (the host keeps painting).
+    #[must_use]
+    pub fn is_loading_miller_preview(&self) -> bool {
+        self.miller_preview.is_loading()
+    }
+
+    /// The preview listing for the current cursor, once it is ready.
+    #[must_use]
+    pub fn miller_preview(&self) -> Option<&crate::miller_preview::MillerPreview> {
+        self.miller_preview.get(&self.miller_preview_key()?)
     }
 
     fn sync_miller_selection(&mut self) {
@@ -1872,6 +1999,9 @@ impl AppState {
     // ---- misc -----------------------------------------------------------
 
     pub fn set_status(&mut self, msg: String) {
+        // The status bar is the user's feedback channel; the log keeps the
+        // same line so a report can be reconstructed after the fact.
+        log::info!(target: "arca::status", "{msg}");
         self.status = Some(msg);
     }
 
@@ -2048,6 +2178,101 @@ mod tests {
         assert!(state.begin_go_forward());
         wait_for_navigation(&mut state);
         assert_eq!(state.cwd(), child.to_str().unwrap());
+    }
+
+    /// Regression: `begin_go_back` used to move the history cursor before the
+    /// read finished, so a Back into a deleted directory left the tab showing
+    /// one location while history claimed another.
+    #[test]
+    fn a_failed_async_back_leaves_the_history_cursor_in_place() {
+        let (dir, mut state) = fixture();
+        let doomed = dir.join("doomed");
+        let current = dir.join("sub");
+        std::fs::create_dir(&doomed).unwrap();
+        state.navigate(doomed.to_str().unwrap());
+        state.navigate(current.to_str().unwrap());
+        std::fs::remove_dir(&doomed).unwrap();
+
+        assert!(state.begin_go_back());
+        wait_for_navigation(&mut state);
+
+        assert_eq!(state.cwd(), current.to_str().unwrap(), "stays put");
+        assert!(!state.can_go_forward(), "the cursor did not move back");
+        assert!(state.can_go_back());
+        assert!(
+            state
+                .status
+                .as_deref()
+                .is_some_and(|s| s.starts_with("Not a directory"))
+        );
+    }
+
+    #[test]
+    fn rapid_async_back_clicks_walk_history_and_publish_once() {
+        let (dir, mut state) = fixture();
+        let a = dir.join("sub");
+        let b = a.join("deeper");
+        std::fs::create_dir(&b).unwrap();
+        state.navigate(a.to_str().unwrap());
+        state.navigate(b.to_str().unwrap());
+
+        assert!(state.begin_go_back());
+        assert!(state.begin_go_back(), "second click stacks on the first");
+        assert!(!state.begin_go_back(), "nothing further back");
+        wait_for_navigation(&mut state);
+
+        assert_eq!(state.cwd(), dir.to_str().unwrap());
+        assert!(!state.can_go_back());
+        assert!(state.begin_go_forward());
+        wait_for_navigation(&mut state);
+        assert_eq!(state.cwd(), a.to_str().unwrap());
+    }
+
+    /// `[INV-UI-04]` asynchronous navigation performs no blocking directory
+    /// read on the UI thread outside Miller view; the synchronous API does.
+    #[test]
+    fn async_navigation_keeps_directory_reads_off_the_ui_thread() {
+        std::thread::spawn(|| {
+            let (dir, mut state) = fixture();
+            crate::telemetry::span::mark_ui_thread();
+            let before = crate::telemetry::span::ui_blocking_io_count();
+            assert!(state.begin_navigate(dir.join("sub").to_str().unwrap()));
+            wait_for_navigation(&mut state);
+            assert!(state.begin_go_back());
+            wait_for_navigation(&mut state);
+            assert_eq!(
+                crate::telemetry::span::ui_blocking_io_count(),
+                before,
+                "async navigation read a directory on the UI thread"
+            );
+
+            state.navigate(dir.join("sub").to_str().unwrap());
+            assert!(
+                crate::telemetry::span::ui_blocking_io_count() > before,
+                "the counter does observe synchronous reads"
+            );
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn navigation_outcomes_are_measured() {
+        let registry = crate::telemetry::metrics::global();
+        let completed = registry.counter_value("nav.completed");
+        let failed = registry.counter_value("nav.failed");
+        let (dir, mut state) = fixture();
+        assert!(state.begin_navigate(dir.join("sub").to_str().unwrap()));
+        wait_for_navigation(&mut state);
+        assert!(state.begin_navigate(dir.join("absent").to_str().unwrap()));
+        wait_for_navigation(&mut state);
+        assert!(registry.counter_value("nav.completed") > completed);
+        assert!(registry.counter_value("nav.failed") > failed);
+        assert!(
+            registry
+                .histogram("nav.latency")
+                .is_some_and(|h| h.count() >= 2)
+        );
     }
 
     #[test]
@@ -2368,10 +2593,11 @@ mod tests {
     fn drop_of_a_non_file_payload_is_reported() {
         let (dir, mut s) = fixture();
         assert!(!s.drop_into("hello world", dir.to_str().unwrap(), TransferAction::Copy));
-        assert!(s
-            .status
-            .as_deref()
-            .is_some_and(|status| status.contains("no usable file paths")));
+        assert!(
+            s.status
+                .as_deref()
+                .is_some_and(|status| status.contains("no usable file paths"))
+        );
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -2441,6 +2667,50 @@ mod tests {
         assert!(!s.move_tab(0, 0));
         assert!(!s.move_tab(0, s.tabs().len()));
         assert!(!s.move_tab(s.tabs().len(), 0));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn miller_model_is_parent_then_active_directory() {
+        let (dir, mut s) = fixture();
+        s.set_view_mode(ViewMode::Miller);
+        s.navigate("sub");
+        let columns = s.miller_columns();
+        assert_eq!(columns.len(), 2, "parent + active, no deeper ancestors");
+        assert_eq!(columns[1].path, s.cwd());
+        s.navigate("/");
+        assert_eq!(s.miller_columns().len(), 1, "the root has no parent column");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn miller_preview_follows_the_cursor() {
+        let (dir, mut s) = fixture();
+        s.set_view_mode(ViewMode::Miller);
+        s.select_by_name("sub");
+        s.request_miller_preview(false);
+        let preview = s
+            .miller_preview()
+            .expect("directory under cursor is previewed");
+        assert_eq!(preview.key.path, entry::child_path(s.cwd(), "sub"));
+        assert!(preview.listing.is_ok());
+
+        // A file under the cursor has no directory preview.
+        let file = s
+            .entries()
+            .iter()
+            .find(|e| !e.navigable)
+            .map(|e| e.name.clone())
+            .expect("fixture has a file");
+        s.select_by_name(&file);
+        s.request_miller_preview(false);
+        assert!(s.miller_preview_key().is_none());
+        assert!(s.miller_preview().is_none());
+
+        // Outside Miller view nothing is previewed.
+        s.select_by_name("sub");
+        s.set_view_mode(ViewMode::List);
+        assert!(s.miller_preview_key().is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -2581,9 +2851,9 @@ mod tests {
         let config = dir.join("cfg/arca.conf");
 
         // Establish a saved default.
-        s.set_view_mode(ViewMode::Grid);
+        s.set_view_mode(ViewMode::List);
         let saved = std::fs::read_to_string(&config).unwrap();
-        assert!(saved.contains("view = grid"), "got {saved:?}");
+        assert!(saved.contains("view = list"), "got {saved:?}");
 
         // A one-shot override changes the live mode only.
         s.override_view_mode(ViewMode::Miller);
@@ -2596,7 +2866,7 @@ mod tests {
 
         // Re-opening from that config still yields the saved default.
         let reopened = config::load(config.to_str().unwrap());
-        assert_eq!(reopened.view_mode, ViewMode::Grid);
+        assert_eq!(reopened.view_mode, ViewMode::List);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -2756,6 +3026,29 @@ mod tests {
         // 7. Undo restores all 3 items at once!
         s.undo();
         assert_eq!(s.entries().len(), 3);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn navigate_decodes_file_uris_and_reveals_file_parent() {
+        let (dir, mut s) = fixture();
+        let sub = dir.join("My Folder");
+        std::fs::create_dir(&sub).unwrap();
+        let file = sub.join("notes.txt");
+        std::fs::write(&file, b"hi").unwrap();
+
+        let dir_uri = crate::xdg::encode_file_uri(&sub);
+        s.navigate(&dir_uri);
+        assert_eq!(s.cwd(), sub.to_string_lossy());
+
+        // Navigating back to dir, then opening a file:// URI pointing at a
+        // regular file must land on its parent directory.
+        s.navigate(&dir.to_string_lossy());
+        assert_eq!(s.cwd(), dir.to_string_lossy());
+        let file_uri = crate::xdg::encode_file_uri(&file);
+        s.navigate(&file_uri);
+        assert_eq!(s.cwd(), sub.to_string_lossy());
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

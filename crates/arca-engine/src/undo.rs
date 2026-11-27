@@ -105,13 +105,12 @@ impl UndoStack {
                 let mut moved = 0;
                 let mut redone_dsts = Vec::new();
                 for (src, dst) in sources.iter().zip(destinations.iter()) {
-                    if dst.exists() {
-                        if let Some(src_parent) = src.parent() {
-                            if let Ok(new_dst) = crate::ops::move_into(dst, src_parent) {
-                                redone_dsts.push(new_dst);
-                                moved += 1;
-                            }
-                        }
+                    if dst.exists()
+                        && let Some(src_parent) = src.parent()
+                        && let Ok(new_dst) = crate::ops::move_into(dst, src_parent)
+                    {
+                        redone_dsts.push(new_dst);
+                        moved += 1;
                     }
                 }
                 self.redo_items.push(UndoAction::Move {
@@ -193,13 +192,12 @@ impl UndoStack {
                 let mut moved = 0;
                 let mut redone_dsts = Vec::new();
                 for (src, dst) in sources.iter().zip(destinations.iter()) {
-                    if src.exists() {
-                        if let Some(dst_parent) = dst.parent() {
-                            if let Ok(new_dst) = crate::ops::move_into(src, dst_parent) {
-                                redone_dsts.push(new_dst);
-                                moved += 1;
-                            }
-                        }
+                    if src.exists()
+                        && let Some(dst_parent) = dst.parent()
+                        && let Ok(new_dst) = crate::ops::move_into(src, dst_parent)
+                    {
+                        redone_dsts.push(new_dst);
+                        moved += 1;
                     }
                 }
                 self.undo_items.push(UndoAction::Move {

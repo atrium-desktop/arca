@@ -45,11 +45,11 @@ filter = 'package(arca-tests)'
 priority = 100
 
 [[profile.default.scripts]]
-filter = 'package(arca-tests) and test(/^(cli|ipc_forward|portal_prompter)::/)'
+filter = 'package(arca-tests) and test(/^(cli|diagnostics|ipc_forward|portal_prompter)::/)'
 platform = "cfg(unix)"
 setup = "workspace-binaries"
 
 [[profile.ci.scripts]]
-filter = 'package(arca-tests) and test(/^(cli|ipc_forward|portal_prompter)::/)'
+filter = 'package(arca-tests) and test(/^(cli|diagnostics|ipc_forward|portal_prompter)::/)'
 platform = "cfg(unix)"
 setup = "workspace-binaries"

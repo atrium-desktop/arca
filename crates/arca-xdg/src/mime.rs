@@ -148,10 +148,10 @@ impl MimeDatabase {
         }
 
         // 3. Built-in fast fallback extensions
-        if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-            if let Some(mime) = builtin_extension_mime(&ext.to_ascii_lowercase()) {
-                return self.canonicalize(mime);
-            }
+        if let Some(ext) = path.extension().and_then(|s| s.to_str())
+            && let Some(mime) = builtin_extension_mime(&ext.to_ascii_lowercase())
+        {
+            return self.canonicalize(mime);
         }
 
         // 4. Content / Magic sniffing on the first 512 bytes

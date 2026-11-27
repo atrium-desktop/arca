@@ -10,7 +10,7 @@
 
 Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 桌面生态系统的核心原生组件。其视觉语言严格契合 Tessera 设计系统，同时完全支持在任何标准 Wayland 混成器（Compositor）上独立运行。Arca 原生基于 Optics 图形与 UI 技术栈构建（**optics-app** 应用外壳 · **optics-gfx** Vulkan 渲染器 · **optics-ui** 即时模式 UI · **optics-window** 平台运行时 · **optics-motion** 动力学动效）。
 
-![Rust](https://img.shields.io/badge/rust-1.85%2B-informational)
+![Rust](https://img.shields.io/badge/rust-1.88%2B-informational)
 
 ---
 
@@ -22,7 +22,7 @@ Arca 是一个专为 Wayland 构建的高性能文件管理器，也是 Tessera 
 - **多标签页工作区**：每个标签页独立维护浏览路径、历史记录、选中状态与过滤条件，并支持平滑拖拽重排（`Ctrl+T`、`Ctrl+W`、`Ctrl+Tab`、`Ctrl+1..9`）。
 - **Quick Look 快速预览**：按下 `Space`（空格键）即可唤起带 Optics `optics-motion` 弹簧动效的弹窗，支持文本摘录、图片尺寸与预览、音频内嵌专辑封面；`Space`、`Esc` 或点击弹窗外部均可关闭。
 - **安全的文件操作**：双击或 `Enter` 使用默认应用打开文件，新建文件夹（`Ctrl+Shift+N`）自动重名规避，原地安全重命名（`Ctrl+E`/`F2`）绝不覆盖既有文件，遵循 FreeDesktop 规范的回收站/恢复/彻底删除（`Del`/`Shift+Del`），复制/剪切/粘贴（`Ctrl+C/X/V`）完整支持 `text/uri-list` 与 `x-special/gnome-copied-files`，支持应用内及跨应用拖放、多步撤销/重做以及右键上下文菜单；8 MiB 以上的传输在后台线程执行并在状态栏显示进度。
-- **XDG 桌面 Portal 文件选择器**：原生支持桌面 Portal 文件选择器（`arca --chooser-prompt`），遵循契约 v6，支持 `OpenFile`、`SaveFile`、`SaveFiles`、`OpenDirectory`、多选、MIME/Glob 过滤、自定义选项控件以及文件覆盖防误触保护；响应在写出前会依据请求进行校验；同时提供独立的命令行文件选择工具（`--choose-file`、`--choose-files`、`--choose-dir`、`--save-file`）。
+- **XDG 桌面 Portal 文件选择器**：原生支持桌面 Portal 文件选择器（`arca --chooser-prompt`），遵循 Atrium FileChooser 契约 v1，支持 `OpenFile`、`SaveFile`、`SaveFiles`、`OpenDirectory`、多选、MIME/Glob 过滤、自定义选项控件以及文件覆盖防误触保护；响应在写出前会依据请求进行校验；同时提供独立的命令行文件选择工具（`--choose-file`、`--choose-files`、`--choose-dir`、`--save-file`）。
 - **自适应主题**：实时跟随系统深色/浅色偏好，工具栏外观设置支持在「跟随系统 / 浅色 / 深色」之间自由切换。
 - **持久化配置**：视图模式、隐藏文件显示、排序规则、主题以及书签统一存储于 `~/.config/arca/arca.conf`。
 
@@ -61,11 +61,12 @@ cargo build --release
 ./target/release/arca --save-file ~/Documents/report.pdf
 ```
 
-### 4. 作为 XDG 桌面 Portal Prompter 运行
+### 4. 作为 XDG 桌面 Portal 文件选择器运行
 
 ```bash
-# 从 stdin 读取 Portal JSON 请求包，并将选取的响应 JSON 输出至 stdout
-echo '{"title":"Select File","multiple":false,"directory":false}' | ./target/release/arca --chooser-prompt
+# 从 stdin 读取契约 v1 JSON 请求包，并将响应 JSON 输出至 stdout
+printf '%s\n' '{"version":1,"request":{"mode":"open_file","app_id":"io.arca.Test","title":"Select File","accept_label":null,"modal":false,"parent_window":null,"multiple":false,"current_folder":null,"current_name":null,"current_file":null,"filters":[],"current_filter":null,"choices":[],"files":[]}}' \
+  | ./target/release/arca --chooser-prompt
 ```
 
 ---

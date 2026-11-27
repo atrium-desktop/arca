@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "crates/arca-xdg",
     "crates/arca-engine",
@@ -14,11 +14,12 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.17"
-edition = "2021"
-# The effective toolchain floor is raised by the optics bindings (edition
-# 2024, rust 1.85), which compile from source in every dependency mode.
-rust-version = "1.85"
+version = "0.2.18"
+edition = "2024"
+# Rust 1.88 is the floor for edition-2024 let chains (`if let .. && ..`).
+# The optics bindings (edition 2024, rust 1.85) compile from source in every
+# dependency mode and sit below it.
+rust-version = "1.88"
 
 [workspace.dependencies]
 # Optics stack official Rust bindings. Canonical and production builds
@@ -29,33 +30,50 @@ rust-version = "1.85"
 # modes.
 #
 # A linked development worktree copies .cargo/optics-local.toml to
-# .cargo/config.toml. That file points the `-sys` build scripts at a sibling
-# `../optics` source/build tree through `OPTICS_SOURCE_DIR` /
-# `OPTICS_BUILD_DIR` and sets `[env] OPTICS_DYNAMIC = "1"` for fast
-# shared-library iteration; it never patches the Cargo graph, so the committed
-# canonical Cargo.lock is valid in every worktree. Downstream packagers that
-# explicitly prefer shared system libraries can set `OPTICS_DYNAMIC=1` in the
-# build environment. See docs/dev/cross-repository-development.md.
-optics-app = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
-optics-window = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
-optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
-optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
+# .cargo/config.toml. That file patches every Optics crate to the sibling
+# `../optics/crates/*` checkout, points the `-sys` build scripts at
+# `OPTICS_SOURCE_DIR` / `OPTICS_BUILD_DIR`, and sets `[env] OPTICS_DYNAMIC = "1"`
+# for fast shared-library iteration without version skew between Rust bindings
+# and native C libraries. `.githooks/pre-commit` keeps the locally patched
+# `Cargo.lock` out of commits; the primary `main` worktree owns the canonical
+# lockfile. Downstream packagers that explicitly prefer shared system libraries
+# can set `OPTICS_DYNAMIC=1` in the build environment. See
+# docs/dev/optics-local-development.md.
+optics-app = { git = "https://github.com/ming2k/optics", tag = "v0.0.90", features = ["static"] }
+optics-window = { git = "https://github.com/ming2k/optics", tag = "v0.0.90", features = ["static"] }
+optics-ui = { git = "https://github.com/ming2k/optics", tag = "v0.0.90", features = ["static"] }
+optics-ui-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.90", features = ["static"] }
 # optics-gfx-sys is the direct FFI surface Arca uses for thumbnail images. The
 # safe `optics-gfx` crate arrives transitively through optics-app/optics-ui; it
 # is not a direct workspace dependency.
-optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.86", features = ["static"] }
+optics-gfx-sys = { git = "https://github.com/ming2k/optics", tag = "v0.0.90", features = ["static"] }
 # Motion stayed a header-only vocabulary on the C side and pure Safe Rust here
 # (Optics ADR-0158), so there is no `optics-motion-sys` FFI crate and no native
 # library to discover or rpath.
-optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.86" }
+optics-motion = { git = "https://github.com/ming2k/optics", tag = "v0.0.90" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-arca-xdg = { path = "crates/arca-xdg", version = "0.2.17" }
-arca-engine = { path = "crates/arca-engine", version = "0.2.17" }
-arca-ui = { path = "crates/arca-ui", version = "0.2.17" }
+# Logging facade (ADR-0021). Libraries log through `log`; the binary installs
+# the single concrete logger, `arca_engine::telemetry::logging::Logger`.
+log = { version = "0.4", features = ["std"] }
+# SVG decoding for Arca's icon artwork. Optics v0.0.88 retired its SVG parser
+# (Optics ADR-0174): applications decode formats themselves and submit
+# format-agnostic vector commands (`optics_ui_icon_desc`). See ADR-0025.
+roxmltree = "0.21"
+svgtypes = "0.16"
+arca-xdg = { path = "crates/arca-xdg", version = "0.2.18" }
+arca-engine = { path = "crates/arca-engine", version = "0.2.18" }
+arca-ui = { path = "crates/arca-ui", version = "0.2.18" }
 # Test-only support crate: scratch directories, environment isolation, polling,
 # and built-binary lookup shared by the root integration and end-to-end suites.
-test-support = { path = "crates/test-support", version = "0.2.17" }
+test-support = { path = "crates/test-support", version = "0.2.18" }
+
+# Dependencies are optimized even in dev builds. Unoptimized `image` decoding
+# is ~70x slower (a 3000x3000 JPEG cover: ~2.4 s debug vs ~33 ms release), so
+# a debug window spent seconds per thumbnail and a large music folder made
+# scrolling lag. Arca's own crates stay at opt-level 0 for debugging.
+[profile.dev.package."*"]
+opt-level = 3
 
 [profile.release]
 opt-level = 3

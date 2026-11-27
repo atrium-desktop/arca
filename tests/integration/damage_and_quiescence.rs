@@ -1,8 +1,8 @@
 //! Integration tests verifying Optics regional damage localization,
 //! OPTICS_UI_NODE_LEAVING departure damage, and animation quiescence.
 
-use arca_engine::config::{Config, ViewMode};
 use arca_engine::AppState;
+use arca_engine::config::{Config, ViewMode};
 use optics_ui::{Align, Frame, Input, LayoutOpts, Rect, SegmentedControl, SegmentedItem};
 
 fn run_frame(app: &mut arca_ui::UiApp, ui: &mut optics_ui::Ui, input: &Input) {
@@ -44,6 +44,8 @@ fn test_trailing_row_removal_emits_regional_damage_and_settles() {
     let mut app =
         arca_ui::UiApp::with_thumb_cache(state, dir.with_extension("cache")).sync_navigation();
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
+    // Mirror the window's start hook: register the icon set on this context.
+    app.start(&mut ui);
     app.state.set_view_mode(ViewMode::List);
 
     let viewport_w = 1040.0;
@@ -119,6 +121,8 @@ fn test_quick_look_modal_preview_damage_and_settling() {
     let mut app =
         arca_ui::UiApp::with_thumb_cache(state, dir.with_extension("cache")).sync_navigation();
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
+    // Mirror the window's start hook: register the icon set on this context.
+    app.start(&mut ui);
     let settled_input = Input::new((1040.0, 700.0), 1.0 / 60.0);
 
     for _ in 0..40 {
@@ -171,8 +175,10 @@ fn test_quick_look_modal_preview_damage_and_settling() {
     let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
 }
 
-#[test]
-fn test_scrolling_virtualized_listing_damages_only_the_viewport_then_settles() {
+/// Opens a 120-row List view at `viewport`, scrolls it by one wheel frame, and
+/// returns that frame's damage rectangles. Asserts the list starts quiescent
+/// and settles back to zero damage afterwards.
+fn scroll_list_once(viewport_w: f32, viewport_h: f32) -> Vec<Rect> {
     let dir = std::env::temp_dir().join(format!(
         "arca-test-scroll-dmg-{}-{}",
         std::process::id(),
@@ -197,37 +203,30 @@ fn test_scrolling_virtualized_listing_damages_only_the_viewport_then_settles() {
     let mut app =
         arca_ui::UiApp::with_thumb_cache(state, dir.with_extension("cache")).sync_navigation();
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
+    // Mirror the window's start hook: register the icon set on this context.
+    app.start(&mut ui);
     app.state.set_view_mode(ViewMode::List);
 
-    let viewport_w = 1040.0;
-    let viewport_h = 700.0;
-    let full_viewport_area = viewport_w * viewport_h;
     let settled_input = Input::new((viewport_w, viewport_h), 1.0 / 60.0);
     for _ in 0..40 {
         run_frame(&mut app, &mut ui, &settled_input);
     }
     assert_eq!(query_damage(&mut ui).0, 0, "list must start quiescent");
 
-    // One wheel frame is one viewport change. Its clip shift and restacked
-    // rows are damage even though no descendant's own state changed
-    // (ADR-0149), and the set stays local rather than widening the window.
+    // One wheel frame is one viewport change. Its clip shift and moved rows
+    // are damage even though no descendant's own state changed (ADR-0149).
     let mut wheel = Input::new((viewport_w, viewport_h), 1.0 / 60.0);
-    wheel.set_cursor(600.0, 420.0);
+    wheel.set_cursor(600.0, viewport_h * 0.6);
     wheel.set_scroll(0.0, -2.0);
     run_frame(&mut app, &mut ui, &wheel);
-    let (scroll_rects, scroll_area) = query_damage(&mut ui);
-    assert!(
-        scroll_rects > 0,
-        "scrolling a virtualized viewport must emit damage"
-    );
-    assert!(
-        scroll_rects <= 64,
-        "scrolling must honour the 64-rect contract"
-    );
-    assert!(
-        scroll_area > 0.0 && scroll_area < full_viewport_area,
-        "scrolling damage must stay localized (area: {scroll_area:.0} vs {full_viewport_area:.0})"
-    );
+    let mut buf = [Rect {
+        x: 0.0,
+        y: 0.0,
+        w: 0.0,
+        h: 0.0,
+    }; 64];
+    let n = ui.damage_rects(&mut buf);
+    let rects = buf[..n].to_vec();
 
     for _ in 0..40 {
         run_frame(&mut app, &mut ui, &settled_input);
@@ -242,6 +241,64 @@ fn test_scrolling_virtualized_listing_damages_only_the_viewport_then_settles() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_file(dir.with_extension("conf"));
     let _ = std::fs::remove_dir_all(dir.with_extension("cache"));
+    rects
+}
+
+#[test]
+fn test_scrolling_virtualized_listing_damages_only_the_viewport_then_settles() {
+    // Since Optics v0.0.87 a moved node reports both the pixels it painted
+    // last frame and the ones it paints now, so every visible row costs about
+    // two rectangles per element. A viewport this short keeps one wheel frame
+    // inside the 64-rect contract, where the set must stay local rather than
+    // widen to the window. (The full-height case is covered below.)
+    let (viewport_w, viewport_h) = (1040.0, VIEWPORT_WITHIN_DAMAGE_BUDGET_H);
+    let rects = scroll_list_once(viewport_w, viewport_h);
+    let area: f32 = rects.iter().map(|r| r.w * r.h).sum();
+    let full_viewport_area = viewport_w * viewport_h;
+    assert!(
+        !rects.is_empty(),
+        "scrolling a virtualized viewport must emit damage"
+    );
+    assert!(
+        !rects.iter().any(|r| r.x <= 0.0 && r.w >= viewport_w),
+        "scrolling damage must not widen to the full window width: {rects:?}"
+    );
+    assert!(
+        area > 0.0 && area < full_viewport_area,
+        "scrolling damage must stay localized (area: {area:.0} vs {full_viewport_area:.0})"
+    );
+}
+
+/// Height at which one List-view wheel frame fits Optics's 64-rect damage
+/// contract with every moved row reported at its old and new position.
+const VIEWPORT_WITHIN_DAMAGE_BUDGET_H: f32 = 320.0;
+
+#[test]
+fn test_scrolling_a_full_height_listing_past_the_damage_budget_reports_one_cover_then_settles() {
+    // A full-height list moves more elements than the bounded rectangle list
+    // can name. Optics then reports exactly one full-viewport cover instead of
+    // a partial list that would leave stale pixels; the frame must still honour
+    // the 64-rect contract and the list must settle afterwards.
+    let (viewport_w, viewport_h) = (1040.0, 700.0);
+    let rects = scroll_list_once(viewport_w, viewport_h);
+    assert!(
+        !rects.is_empty() && rects.len() <= 64,
+        "scrolling must emit damage within the 64-rect contract: {} rects",
+        rects.len()
+    );
+    let area: f32 = rects.iter().map(|r| r.w * r.h).sum();
+    if area >= viewport_w * viewport_h {
+        assert_eq!(
+            rects,
+            vec![Rect {
+                x: 0.0,
+                y: 0.0,
+                w: viewport_w,
+                h: viewport_h,
+            }],
+            "full-window scroll damage must be Optics's single overflow cover"
+        );
+    }
 }
 
 #[test]
@@ -268,6 +325,8 @@ fn test_focused_location_caret_reports_only_phase_flips() {
     let mut app =
         arca_ui::UiApp::with_thumb_cache(state, dir.with_extension("cache")).sync_navigation();
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
+    // Mirror the window's start hook: register the icon set on this context.
+    app.start(&mut ui);
     let viewport_w = 1040.0;
     let viewport_h = 700.0;
     let full_viewport_area = viewport_w * viewport_h;
@@ -395,15 +454,15 @@ fn test_segmented_control_selection_animates_and_terminates() {
     let render_seg = |ui: &mut optics_ui::Ui, idx: &mut usize| {
         ui.frame(&input, |f: &mut Frame| {
             f.size_next(400.0, 60.0);
-            f.row_ex(
-                &LayoutOpts {
+            f.row()
+                .with_opts(&LayoutOpts {
                     width: 400.0,
                     height: 60.0,
                     pad: 8.0,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |f| {
+                })
+                .show(|f| {
                     let items = [
                         SegmentedItem::text("Grid"),
                         SegmentedItem::text("List"),
@@ -414,8 +473,7 @@ fn test_segmented_control_selection_animates_and_terminates() {
                         .min_item_width(32.0)
                         .compact(true);
                     let _ = control.show(f, &items, idx);
-                },
-            );
+                });
         });
         if let Ok(s) = ui.snapshot() {
             let _ = ui.activate(&s);

@@ -9,7 +9,7 @@ Thank you for your interest in contributing to Arca!
 Before starting work, please review the authoritative contributor and architecture documentation:
 
 1. **Engineering Standards & Architecture**: Read [Arca Engineering Standards](docs/dev/standards/README.md), [System Architecture Governance](docs/dev/standards/architecture.md), and the living [Subsystem Blueprint](docs/dev/subsystems.md) for workspace topology, subsystem red-lines, and invariant policies.
-2. **Development Environment & Setup**: See [Setup Guide](docs/dev/setup.md) and [Cross-Repository Development](docs/dev/cross-repository-development.md) for setting up canonical builds or a linked development worktree against sibling Optics checkouts.
+2. **Development Environment & Setup**: See [Setup Guide](docs/dev/setup.md) and [Local Optics Development](docs/dev/optics-local-development.md) for setting up canonical builds or developing against a sibling Optics checkout.
 3. **Automated Testing**: Review [Testing Guide](docs/dev/testing.md) for the four-tier architecture: crate-local unit tests, headless UI frames, the root `arca-tests` integration suite (architecture firewalls, cross-crate flows, stress/virtualization), and the spawned-binary end-to-end suite (`cargo test --workspace`; `cargo nextest run -p arca-tests` for per-test processes and the binary setup script).
 4. **Build, Run & Acceptance**: Review [Build & Run Guide](docs/dev/build-and-run.md) and [Acceptance Guide](docs/dev/acceptance.md) for sandbox-isolated exploratory testing and outside-in user journey verification.
 5. **Distribution Packaging**: See [Distribution Packaging](docs/dev/packaging.md) for packaging requirements, dependencies, and system manifests.

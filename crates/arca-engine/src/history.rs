@@ -62,6 +62,27 @@ impl History {
         }
     }
 
+    /// The entry `offset` steps from the cursor (negative = back), without
+    /// moving. Asynchronous navigation peeks first and only [`Self::step`]s
+    /// once the directory read succeeded.
+    #[must_use]
+    pub fn peek(&self, offset: isize) -> Option<&str> {
+        if self.is_empty() {
+            return None;
+        }
+        let target = self.pos.checked_add_signed(offset)?;
+        self.stack.get(target).map(String::as_str)
+    }
+
+    /// Move the cursor by `offset`; false (and no move) when out of range.
+    pub fn step(&mut self, offset: isize) -> bool {
+        if self.peek(offset).is_none() {
+            return false;
+        }
+        self.pos = self.pos.wrapping_add_signed(offset);
+        true
+    }
+
     fn is_empty(&self) -> bool {
         self.stack.is_empty()
     }
@@ -102,6 +123,26 @@ mod tests {
         assert!(!h.can_go_forward());
         assert_eq!(h.current(), Some("/x"));
         assert_eq!(h.go_back(), Some("/a"));
+    }
+
+    #[test]
+    fn peek_looks_without_moving_and_step_moves() {
+        let mut h = History::new();
+        assert_eq!(h.peek(0), None);
+        h.push("/a");
+        h.push("/b");
+        h.push("/c");
+        assert_eq!(h.peek(-2), Some("/a"));
+        assert_eq!(h.peek(-3), None);
+        assert_eq!(h.peek(1), None);
+        assert_eq!(h.current(), Some("/c"), "peek never moves");
+
+        assert!(h.step(-2));
+        assert_eq!(h.current(), Some("/a"));
+        assert!(!h.step(-1), "out of range");
+        assert_eq!(h.current(), Some("/a"), "a failed step stays put");
+        assert!(h.step(2));
+        assert_eq!(h.current(), Some("/c"));
     }
 
     #[test]

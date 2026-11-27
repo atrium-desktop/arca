@@ -213,4 +213,4 @@ recipe.
 - [ADR 0016: Default-Static Optics Manifest and Worktree-Local Dynamic Override](0016-default-static-optics-manifest-and-dev-dynamic-override.md)
 - [Automated Testing](../dev/testing.md)
 - [Interaction Latency](../dev/interaction-latency.md)
-- [Cross-Repository Development](../dev/cross-repository-development.md)
+- [Local Optics Development](../dev/optics-local-development.md)

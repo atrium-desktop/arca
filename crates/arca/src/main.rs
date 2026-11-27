@@ -7,9 +7,9 @@
 mod cli;
 
 use arca_engine::chooser::{
-    read_prompter_request, write_prompter_response, BytePath, FileChooserRequest,
-    FileChooserResponse,
+    BytePath, FileChooserRequest, FileChooserResponse, read_chooser_request, write_chooser_response,
 };
+use arca_engine::telemetry::{self, Role, diagnostics};
 use arca_engine::{AppState, ViewMode};
 
 use cli::{Command, StartDir};
@@ -18,18 +18,78 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = Command::parse(&args, arca_ui::ipc::try_forward_to_existing);
 
-    for option in Command::unknown_options(&args) {
+    // Long-running surfaces get the logger, watchdog, and (window only) the
+    // diagnostics writer. One-shot commands stay side-effect free. The guard
+    // lives until `main` returns so the final snapshot is written on exit.
+    let role = match &command {
+        Command::Window { .. } => Some(Role::Window),
+        Command::Prompter => Some(Role::Prompter),
+        Command::Chooser(_) => Some(Role::Chooser),
+        _ => None,
+    };
+    let _telemetry = role.map(|role| telemetry::init(telemetry::Options::from_env(role)));
+
+    let unknown = Command::unknown_options(&args);
+    for option in &unknown {
         eprintln!("arca: unknown option: {option}");
+        log::warn!(target: "arca", "unknown option: {option}");
+    }
+    if !unknown.is_empty() && !matches!(command, Command::Help | Command::Version) {
+        log::logger().flush();
+        std::process::exit(2);
     }
 
     match command {
         Command::Help => print!("{}", cli::USAGE),
         Command::Version => println!("arca {}", env!("CARGO_PKG_VERSION")),
+        Command::Diagnostics => print_diagnostics(),
         Command::Prompter => run_prompter_mode(),
         Command::Chooser(invocation) => run_chooser_mode(invocation),
         // `parse` only returns this when a live instance accepted the path.
         Command::Forward { .. } => {}
         Command::Window { view_mode, start } => run_window(view_mode, start),
+    }
+}
+
+/// `--diagnostics`: render the window's latest snapshot. Exit 1 when none
+/// has been written yet (no window has run under this `$XDG_STATE_HOME`).
+fn print_diagnostics() {
+    let path = diagnostics::path_for(&telemetry::state_dir(), Role::Window);
+    match diagnostics::read(&path) {
+        Ok(report) => {
+            let alive = diagnostics::writer_alive(&report);
+            print!("{}", diagnostics::render_text(&report, alive));
+            print_stall_captures();
+            println!("\nSnapshot: {}", path.display());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "arca: no diagnostics recorded yet ({} does not exist); open a window first",
+                path.display()
+            );
+            std::process::exit(1);
+        }
+        Err(error) => {
+            eprintln!("arca: cannot read {}: {error}", path.display());
+            std::process::exit(1);
+        }
+    }
+}
+
+/// The most recent stall captures (newest last), if any were written.
+fn print_stall_captures() {
+    const SHOWN: usize = 5;
+    #[cfg(unix)]
+    {
+        let dir = telemetry::capture::dir_for(&telemetry::state_dir());
+        let captures = telemetry::capture::list(&dir).unwrap_or_default();
+        if captures.is_empty() {
+            return;
+        }
+        println!("\nStall captures ({} in {})", captures.len(), dir.display());
+        for capture in captures.iter().rev().take(SHOWN).rev() {
+            println!("  {}", capture.display());
+        }
     }
 }
 
@@ -45,18 +105,20 @@ fn run_window(view_mode: Option<ViewMode>, start: StartDir) {
         state.navigate(&path);
     }
     if let Err(error) = arca_ui::run(state) {
+        // `arca_ui::run` already logged it; stderr is for the terminal user.
         eprintln!("arca: {error}");
+        log::logger().flush();
         std::process::exit(1);
     }
 }
 
-/// Run as a one-shot portal prompter process speaking JSON on stdin/stdout.
+/// Run as a one-shot portal chooser process speaking JSON on stdin/stdout.
 fn run_prompter_mode() {
-    let (request, appearance) = match read_prompter_request(std::io::stdin()) {
+    let request = match read_chooser_request(std::io::stdin()) {
         Ok(request) => request,
         Err(error) => {
-            eprintln!("arca: invalid prompter request: {error}");
-            let _ = write_prompter_response(
+            eprintln!("arca: invalid chooser request: {error}");
+            let _ = write_chooser_response(
                 std::io::stdout(),
                 FileChooserResponse::Failed { message: error },
             );
@@ -64,15 +126,15 @@ fn run_prompter_mode() {
         }
     };
 
-    let response = match arca_ui::run_chooser(request.clone(), appearance) {
+    let response = match arca_ui::run_chooser(request.clone()) {
         // Validate our own answer against the contract before emitting it: a
-        // prompter that returns the wrong number of paths, a filter it was
+        // chooser that returns the wrong number of paths, a filter it was
         // not offered, or a choice id the caller never defined is worse than
         // an explicit failure, which lets the daemon fall back.
         Ok(response) => match response.validate_for(&request) {
             Ok(()) => response,
             Err(message) => FileChooserResponse::Failed {
-                message: format!("prompter produced an invalid response: {message}"),
+                message: format!("chooser produced an invalid response: {message}"),
             },
         },
         Err(error) => FileChooserResponse::Failed {
@@ -80,7 +142,7 @@ fn run_prompter_mode() {
         },
     };
 
-    if let Err(error) = write_prompter_response(std::io::stdout(), response) {
+    if let Err(error) = write_chooser_response(std::io::stdout(), response) {
         eprintln!("arca: failed to write response: {error}");
         std::process::exit(1);
     }
@@ -105,11 +167,20 @@ fn run_chooser_mode(invocation: cli::ChooserInvocation) {
         files: Vec::new(),
     };
 
-    match arca_ui::run_chooser(request, None) {
+    match arca_ui::run_chooser(request) {
         Ok(FileChooserResponse::Selected { paths, .. }) => {
+            use std::io::Write as _;
+            let mut stdout = std::io::stdout().lock();
             for path in paths {
-                println!("{}", path.to_path_buf().display());
+                if invocation.null_delimited {
+                    let _ = stdout.write_all(&path.0);
+                    let _ = stdout.write_all(&[0]);
+                } else {
+                    let _ = stdout.write_all(&path.0);
+                    let _ = stdout.write_all(b"\n");
+                }
             }
+            let _ = stdout.flush();
         }
         Ok(FileChooserResponse::Cancelled) => std::process::exit(1),
         Ok(FileChooserResponse::Failed { message }) => {

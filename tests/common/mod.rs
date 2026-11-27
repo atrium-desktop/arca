@@ -6,7 +6,11 @@
 //! cannot drift, and it owns the one harness that needs the Optics stack: a
 //! headless `UiApp` frame driver, compiled only with the `native` feature.
 
-#![allow(dead_code, unused_imports)]
+#![expect(
+    dead_code,
+    unused_imports,
+    reason = "shared by several test binaries, each using a different subset"
+)]
 
 pub use test_support::env;
 pub use test_support::fs;

@@ -5,7 +5,7 @@
 //! line-oriented request/response, so the suite can drive both ends in
 //! process: the same code paths the binary and the window use.
 
-use arca_ui::ipc::{try_forward_to, IpcServer};
+use arca_ui::ipc::{IpcServer, try_forward_to};
 use test_support::fs::TestDir;
 use test_support::poll;
 
@@ -24,8 +24,13 @@ fn forwarding_roundtrip_queues_each_path_in_order() {
     for path in ["/tmp/one", "/tmp/two", "/tmp/three"] {
         assert!(try_forward_to(&socket, path));
     }
+    let drained: Vec<String> = server
+        .drain()
+        .into_iter()
+        .map(|req| req.path.to_path_buf().to_string_lossy().into_owned())
+        .collect();
     assert_eq!(
-        server.drain(),
+        drained,
         vec!["/tmp/one", "/tmp/two", "/tmp/three"],
         "the window drains every forwarded path in arrival order"
     );

@@ -1,8 +1,8 @@
-//! End-to-end coverage for the portal prompter process protocol.
+//! End-to-end coverage for the portal chooser process protocol (contract v1).
 //!
-//! `arca --chooser-prompt` is invoked by the portal daemon with one JSON
-//! request on stdin and must answer with exactly one JSON line on stdout. A
-//! malformed or foreign-version request must fail closed *before* opening a
+//! `arca --chooser-prompt` is invoked by `xdg-desktop-portal-atrium` with one
+//! JSON request on stdin and must answer with exactly one JSON line on stdout.
+//! A malformed or foreign-version request must fail closed *before* opening a
 //! window or touching the filesystem; these cases are therefore safe to run on
 //! a headless CI host. The successful selection path is covered by headless
 //! chooser frame tests and an interactive acceptance run.
@@ -11,8 +11,8 @@ use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
 use arca_engine::chooser::{
-    BytePath, FileChooserMode, FileChooserRequest, FileChooserResponse, PromptRequest,
-    PrompterRequest, PrompterResponse, PROCESS_CONTRACT_VERSION,
+    ARCA_CONTRACT_VERSION, BytePath, ChooserRequestEnvelope, ChooserResponseEnvelope,
+    FileChooserMode, FileChooserRequest, FileChooserResponse,
 };
 
 fn run_prompter(flag: &str, input: &[u8]) -> Output {
@@ -39,13 +39,11 @@ fn failed_response(output: &Output) -> String {
         "an invalid request must exit non-zero, got {:?}",
         output.status
     );
-    let decoded: PrompterResponse =
+    let decoded: ChooserResponseEnvelope =
         serde_json::from_slice(&output.stdout).expect("stdout is one response envelope");
-    assert_eq!(decoded.version, PROCESS_CONTRACT_VERSION);
-    match decoded.result {
-        arca_engine::chooser::PromptResult::FileChooser(FileChooserResponse::Failed {
-            message,
-        }) => message,
+    assert_eq!(decoded.version, ARCA_CONTRACT_VERSION);
+    match decoded.response {
+        FileChooserResponse::Failed { message } => message,
         other => panic!("expected a failed response, got {other:?}"),
     }
 }
@@ -68,12 +66,8 @@ fn valid_request(version: u32) -> Vec<u8> {
         files: Vec::new(),
     };
     request.validate().expect("fixture request is valid");
-    serde_json::to_vec(&PrompterRequest {
-        version,
-        prompt: PromptRequest::FileChooser(Box::new(request)),
-        appearance: None,
-    })
-    .expect("serialize fixture request")
+    serde_json::to_vec(&ChooserRequestEnvelope { version, request })
+        .expect("serialize fixture request")
 }
 
 #[test]
@@ -85,7 +79,7 @@ fn malformed_json_fails_closed_with_one_response_line() {
         "the response names the parse failure, got {message:?}"
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("invalid prompter request"),
+        String::from_utf8_lossy(&output.stderr).contains("invalid chooser request"),
         "the process log explains the refusal"
     );
     assert_eq!(
@@ -99,23 +93,34 @@ fn malformed_json_fails_closed_with_one_response_line() {
 fn foreign_contract_versions_are_refused_before_prompting() {
     let output = run_prompter(
         "--chooser-prompt",
-        &valid_request(PROCESS_CONTRACT_VERSION + 1),
+        &valid_request(ARCA_CONTRACT_VERSION + 1),
     );
     let message = failed_response(&output);
     assert!(
         message.contains("contract version"),
         "the response names the version mismatch, got {message:?}"
     );
+
+    // Retired v6 multi-prompt envelope must fail with a version mismatch.
+    let legacy = br#"{"version":6,"prompt":{"kind":"file_chooser","request":{}}}"#;
+    let output = run_prompter("--chooser-prompt", legacy);
+    let message = failed_response(&output);
+    assert!(
+        message.contains("contract version 6"),
+        "retired v6 must report version mismatch, got {message:?}"
+    );
 }
 
 #[test]
-fn a_non_file_chooser_prompt_is_refused() {
-    let raw = format!(r#"{{"version":{PROCESS_CONTRACT_VERSION},"prompt":{{"kind":"unknown"}}}}"#);
+fn unknown_envelope_fields_are_refused() {
+    let raw = format!(
+        r#"{{"version":{ARCA_CONTRACT_VERSION},"prompt":{{"kind":"file_chooser","request":{{}}}}}}"#
+    );
     let output = run_prompter("--chooser-prompt", raw.as_bytes());
     let message = failed_response(&output);
     assert!(
-        message.contains("did not contain a file chooser"),
-        "the response names the missing prompt, got {message:?}"
+        message.contains("decode chooser request envelope"),
+        "the response names the envelope error, got {message:?}"
     );
 }
 

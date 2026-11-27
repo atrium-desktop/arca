@@ -25,6 +25,28 @@ pub fn lock() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Set (`Some`) or remove (`None`) one environment variable.
+///
+/// Every caller holds the [`lock`] guard, so writes made through this module
+/// never race each other.
+fn write_env(key: &str, value: Option<&OsStr>) {
+    // SAFETY: an environment write is sound only while no other thread reads
+    // or writes the environment. That includes `std::env::var`,
+    // `std::env::temp_dir` (`TMPDIR`) and libc `getenv` in C code. `ENV_LOCK`
+    // serialises the writes made through this module, but readers do not
+    // take it. Under plain `cargo test`, a sibling test thread can therefore
+    // race a write: within this crate, `workspace::target_dir` reads
+    // `CARGO_TARGET_DIR` and the `fs` fixtures read `TMPDIR`. This is sound
+    // only under a process-per-test runner. ADR-0019 makes nextest that
+    // runner, and CI uses it. The precondition is documented, not enforced.
+    unsafe {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+}
+
 /// A restoring environment mutation. The variable is restored when the guard
 /// drops, while the environment lock is still held.
 pub struct EnvGuard {
@@ -39,7 +61,7 @@ impl EnvGuard {
         let lock = lock();
         let key = key.into();
         let previous = std::env::var_os(&key);
-        std::env::set_var(&key, value);
+        write_env(&key, Some(value.as_ref()));
         Self {
             key,
             previous,
@@ -52,7 +74,7 @@ impl EnvGuard {
         let lock = lock();
         let key = key.into();
         let previous = std::env::var_os(&key);
-        std::env::remove_var(&key);
+        write_env(&key, None);
         Self {
             key,
             previous,
@@ -69,8 +91,8 @@ impl EnvGuard {
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         match self.previous.take() {
-            Some(value) => std::env::set_var(&self.key, value),
-            None => std::env::remove_var(&self.key),
+            Some(value) => write_env(&self.key, Some(&value)),
+            None => write_env(&self.key, None),
         }
     }
 }
@@ -129,7 +151,7 @@ impl XdgIsolation {
             };
             std::fs::create_dir_all(&directory).expect("create XDG scratch directory");
             previous.push((name.to_string(), std::env::var_os(name)));
-            std::env::set_var(name, directory);
+            write_env(name, Some(directory.as_os_str()));
         }
         Self {
             previous,
@@ -142,8 +164,8 @@ impl Drop for XdgIsolation {
     fn drop(&mut self) {
         for (key, previous) in self.previous.drain(..) {
             match previous {
-                Some(value) => std::env::set_var(key, value),
-                None => std::env::remove_var(key),
+                Some(value) => write_env(&key, Some(&value)),
+                None => write_env(&key, None),
             }
         }
     }
@@ -167,7 +189,12 @@ mod tests {
     #[test]
     fn guard_restores_unset_state() {
         let key = "ARCA_TEST_SUPPORT_ENV_UNSET";
-        std::env::remove_var(key);
+        // Start from an unset variable, written under the lock like every
+        // other mutation.
+        {
+            let _lock = lock();
+            write_env(key, None);
+        }
         {
             let _guard = EnvGuard::unset(key);
             assert!(std::env::var_os(key).is_none());

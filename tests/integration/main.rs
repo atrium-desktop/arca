@@ -14,6 +14,7 @@ mod architecture;
 mod chooser_contract;
 mod file_operations;
 mod navigation;
+mod observability;
 
 #[cfg(feature = "native")]
 mod damage_and_quiescence;
@@ -21,6 +22,8 @@ mod damage_and_quiescence;
 mod interaction_stress;
 #[cfg(feature = "native")]
 mod ipc;
+#[cfg(feature = "native")]
+mod observability_ui;
 #[cfg(feature = "native")]
 mod ui_flows;
 #[cfg(feature = "native")]

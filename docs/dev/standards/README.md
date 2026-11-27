@@ -14,7 +14,7 @@ All engineering standards reside flatly in `docs/dev/standards/`:
 | :--- | :--- |
 | **[`architecture.md`](architecture.md)** | **Workspace Topology & System Boundaries**: Defines the concentric layers, engine headless purity, XDG zero-dependency contract, UI frame arena budget, and portal prompter isolation. |
 | **[`invariants.md`](invariants.md)** | **Invariant Standards & Admissibility**: Codifies true system invariants (mechanisms over exhortations), establishes the classification matrix, and degazettes pseudo-tags. |
-| **[`adr.md`](adr.md)** | **Architectural Decision Records**: The 3-Question Test for ADR qualification, in-place lifecycle (`draft`, `accepted`, `superseded`, `rejected`), frontmatter schema, and template. |
+| **[`adr.md`](adr.md)** | **Architectural Decision Records**: The 3-Question Test for ADR qualification, in-place lifecycle (`draft`, `accepted`, `deprecated`, `superseded`, `rejected`), frontmatter schema, and template. |
 | **[`rfc.md`](rfc.md)** | **Request for Comments (RFC)**: Deliberation and consensus protocol for cross-cutting, high-reversal-cost subsystem redesigns prior to ADR ratification. |
 | **[`taxonomy.md`](taxonomy.md)** | **Documentation Taxonomy**: Four-quadrant Diátaxis layout, audience boundaries (public user vs contributor internal), and knowledge lifecycle. |
 | **[`style.md`](style.md)** | **Documentation & Markdown Style**: Canonical hyperlink conventions, relative routing, formatting consistency, and prose guidelines. |

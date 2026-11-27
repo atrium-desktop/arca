@@ -1,21 +1,21 @@
 ---
 id: ADR-0018
 title: "Canonical Lockfile and Environment-Resolved Optics Checkout"
-status: accepted
+status: superseded
 date: 2026-11-24
 scope: [build/dependencies, build/lockfile, developer-workflow]
-superseded_by: null
+superseded_by: ADR-0024
 negative_knowledge: true
 ---
 
 # 0018. Canonical Lockfile and Environment-Resolved Optics Checkout
 
-- Status: Accepted
+- Status: Superseded by [ADR-0024](0024-local-optics-source-patch-and-readonly-lockfile-guardrail.md)
 - Date: 2026-11-24
 - Deciders: Arca Architecture Working Group
 - Consulted: Optics Build Maintainers, Release Engineering
 - Amends: [ADR-0015](0015-synchronize-with-optics-v0.0.83-and-shared-preferred-linking.md), [ADR-0016](0016-default-static-optics-manifest-and-dev-dynamic-override.md)
-- References: [Cross-Repository Development](../dev/cross-repository-development.md), [Setup](../dev/setup.md)
+- References: [Local Optics Development](../dev/optics-local-development.md), [Setup](../dev/setup.md)
 
 ---
 
@@ -170,5 +170,5 @@ lockfile variant.
 - [ADR 0015: Synchronize with Optics v0.0.83](0015-synchronize-with-optics-v0.0.83-and-shared-preferred-linking.md)
 - [ADR 0016: Default-Static Optics Manifest and Worktree-Local Dynamic Override](0016-default-static-optics-manifest-and-dev-dynamic-override.md)
 - [ADR 0017: Synchronize with Optics v0.0.86 and the Root Test Architecture](0017-synchronize-with-optics-v0.0.86-and-root-test-architecture.md)
-- [Cross-Repository Development](../dev/cross-repository-development.md)
+- [Local Optics Development](../dev/optics-local-development.md)
 - [Setup](../dev/setup.md)

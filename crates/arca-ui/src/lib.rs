@@ -33,7 +33,13 @@ pub fn run(state: AppState) -> Result<(), optics_app::RunError> {
     // `run`'s frame does exactly that: `IpcServer::drop` unlinks the socket
     // before `run` returns.
     let ipc_server = ipc::IpcServer::start();
-    let app = std::rc::Rc::new(std::cell::RefCell::new(UiApp::with_ipc(state, ipc_server)));
+    if ipc_server.is_none() {
+        log::warn!(target: "arca_ui", "single-instance socket unavailable; paths will not be forwarded here");
+    }
+    let app = std::rc::Rc::new(std::cell::RefCell::new(
+        UiApp::with_ipc(state, ipc_server).surface_alerts(),
+    ));
+    let app_start = app.clone();
     let app_build = app.clone();
     let app_stop = app.clone();
     let config = optics_app::Config::new("Arca")?
@@ -41,15 +47,18 @@ pub fn run(state: AppState) -> Result<(), optics_app::RunError> {
         .size(1040, 700);
     let result = optics_app::Application::run_with_lifecycle(
         config,
-        // Borrow the optics-window-owned device for texture uploads (icon glyphs
-        // and thumbnails).
-        Some(|host: optics_app::StartHost| {
+        // Borrow the optics-window-owned device for thumbnail uploads and
+        // register the icon set on the window's ui context.
+        Some(move |host: optics_app::StartHost| {
             device::set_device(host.optics_gfx_device().as_raw());
+            app_start.borrow_mut().start(&mut host.ui());
+            log::info!(target: "arca_ui", "window started");
             true
         }),
-        // Cleanly release GPU textures before the shell tears down the device (ADR-0045).
-        Some(move |_host: optics_app::StopHost| {
-            app_stop.borrow_mut().shutdown();
+        // Cleanly release GPU textures and icons before the shell tears down
+        // the device and ui context (ADR-0045).
+        Some(move |host: optics_app::StopHost| {
+            app_stop.borrow_mut().shutdown(&mut host.ui());
             device::clear_device();
         }),
         move |frame, input| app_build.borrow_mut().build(frame, input),
@@ -58,5 +67,9 @@ pub fn run(state: AppState) -> Result<(), optics_app::RunError> {
         // list to composite under the widgets (Optics ADR-0127).
         None::<fn(optics_app::RecordHost)>,
     );
+    match &result {
+        Ok(()) => log::info!(target: "arca_ui", "window closed"),
+        Err(error) => log::error!(target: "arca_ui", "window failed: {error}"),
+    }
     result
 }

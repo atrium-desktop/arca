@@ -12,10 +12,13 @@ pub mod config;
 pub mod entry;
 pub mod format;
 pub mod history;
+pub mod ipc;
+pub mod miller_preview;
 pub mod ops;
 pub mod path;
 pub mod preview;
 pub mod state;
+pub mod telemetry;
 pub mod thumbs;
 pub mod undo;
 pub mod watch;
@@ -29,15 +32,16 @@ pub use arca_xdg::trash;
 
 pub use bookmarks::{Bookmark, BookmarkKind};
 pub use chooser::{
-    BytePath, Choice, FileChooserMode, FileChooserRequest, FileChooserResponse, FileFilter,
-    FilterRule, FilterRuleKind, PromptAccent, PromptAppearance, PromptColorScheme, PrompterRequest,
-    PrompterResponse,
+    ARCA_CONTRACT_VERSION, BytePath, Choice, ChooserRequestEnvelope, ChooserResponseEnvelope,
+    FileChooserMode, FileChooserRequest, FileChooserResponse, FileFilter, FilterRule,
+    FilterRuleKind, read_chooser_request, write_chooser_response,
 };
 pub use config::{Config, ThemeMode, ViewMode};
 pub use desktop::DesktopEntry;
 pub use entry::{Entry, FileType, SortKey};
+pub use miller_preview::{MillerPreview, PreviewKey};
 pub use mime::MimeDatabase;
-pub use path::{complete_path, PathCompletion};
+pub use path::{PathCompletion, complete_path};
 pub use preview::{Preview, PreviewKind};
 pub use state::{AppState, Clipboard, MillerColumn, TabState, TransferAction};
 pub use thumbs::{Thumb, ThumbService};

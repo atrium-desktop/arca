@@ -93,12 +93,12 @@ The production topology:
   - *Arena Memory Budget & Virtualization*: Enforces the 1 MiB per-frame widget arena budget of `optics-ui`. All listing views (**Grid**, **List**, **Miller columns**) slice the visible viewport window; only in-view items generate layout nodes and draw commands.
   - *Three View Modalities*:
     - **Grid View**: Responsive multi-column layout with icon/thumbnail tiles and centered text labels.
-    - **List View**: Dense tabular rows with sortable column headers (Name, Size, Modified), selection row highlights, and alternating row styling.
-    - **Miller Columns View**: Cascading multi-pane browser tracking ancestor directory breadcrumbs with horizontal keyboard navigation.
+    - **List View**: Dense tabular rows with sortable column headers (Name, Size, Modified) and selection row highlights.
+    - **Miller Columns View**: Parent · active · preview, with the active directory fixed in the centre column; the preview lists the directory under the cursor (read off-thread) or shows a file's details. Spec: [View Modes Reference](../reference/view-modes.md); rationale: ADR-0022.
   - *Tabs Management*: Multi-tab chrome, tab drag-reordering, active tab switching, tab close buttons, and keyboard shortcuts (`Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, `Ctrl+1..9`).
   - *Quick Look Preview*: Animated modal inspection overlay triggered by `Space`. Off-thread thumbnail/text rendering, smooth spring and cubic easing via Optics `optics-motion`, bounded memory usage.
   - *Floating Chrome & Modals*: Borderless surfaces adhering to the Tessera design language (`tessera-design`), subtle titlebar with window controls, appearance settings popup (System/Light/Dark), inline rename editing, batch trash confirmation dialogs.
-  - *Icon Pipeline*: Bundled SVG icons (`assets/icons/*.svg`) registered with optics-ui at runtime via `optics_ui_icon_register_svg`, GPU texture uploads via `optics_gfx_image_update_region` with `premultiply: true`.
+  - *Icon Pipeline*: Bundled SVG icons (`assets/icons/*.svg`) decoded by Arca (`icons/vector.rs`) into optics-ui vector commands and registered per `optics_ui` context via `Ui::register_icon` (ADR-0025), GPU texture uploads via `optics_gfx_image_update_region` with `premultiply: true`.
   - *Headless Frame Verification*: Real frame generation tested via `optics_ui::Ui::headless()`, verifying layouts, keyboard actions, and arena budget without a Wayland compositor.
 - **Subsystem Boundary & Anti-Inversions**:
   - `arca-ui` consumes domain state from `arca-engine`; it never executes disk mutations directly without delegating to `arca-engine::ops`.
@@ -139,7 +139,7 @@ arca (binary)
 | Source Crate | Permitted Dependencies | Forbidden Dependencies |
 | :--- | :--- | :--- |
 | **`arca-xdg`** | Rust `std` only | `arca-engine`, `arca-ui`, `arca`, external crates |
-| **`arca-engine`** | `arca-xdg`, `image`, `serde`, `serde_json` | `arca-ui`, `arca`, any Optics crate (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`, `optics-text`, `optics-material`, `optics-svg`, `optics-scene`, `optics-motion`, `optics`) |
+| **`arca-engine`** | `arca-xdg`, `image`, `serde`, `serde_json` | `arca-ui`, `arca`, any Optics crate (`optics-app`, `optics-gfx`, `optics-ui`, `optics-window`, `optics-text`, `optics-motion`, `optics`) |
 | **`arca-ui`** | `arca-engine`, `arca-xdg`, Optics (`optics-app`, `optics-ui`, `optics-ui-sys`, `optics-window`, `optics-gfx-sys`, `optics-motion`) | `arca` (entrypoint) |
 | **`arca`** | `arca-ui`, `arca-engine`, `optics-app` | Direct internal UI view modules |
 
@@ -155,11 +155,15 @@ arca (binary)
 | **`[INV-UI-01]`** | 1 MiB Frame Arena Budget | Viewport rendering must never exceed the optics-ui 1 MiB arena memory limit. | `virtualization::large_directory_does_not_overflow_frame_arena_in_any_view`, `virtualization::scrolled_large_listing_builds_only_visible_rows` (CI job `test`) |
 | **`[INV-UI-02]`** | Motion Math Centralization | Easing curves and spring dynamics must delegate to `optics-motion`. | Elimination of private approach/clamping math; ADR-0004 |
 | **`[INV-UI-03]`** | Legible Text | Body text must meet WCAG AA (4.5:1) on its surface in both schemes. | `theme::contrast_tests::*` |
-| **`[INV-UI-04]`** | Interaction Latency | A directory open must not request a synchronous XDG activation token or read the directory on the interactive frame thread; double-clicks are identified by entry absolute path; repetitive clicking must stay bounded and return to zero damage. | `app::tests::double_click_into_directory_does_not_panic_on_stale_rows`, `app::tests::double_click_does_not_cross_a_navigation_to_a_different_entry`, `state::tests::async_navigation*`, `ui_flows::asynchronous_navigation_*`, `interaction_stress::*`, `damage_and_quiescence::*`; [Interaction Latency](interaction-latency.md), [ADR-0020](../adr/0020-asynchronous-directory-navigation.md) |
+| **`[INV-UI-04]`** | Interaction Latency | A directory open must not request a synchronous XDG activation token or read the directory on the interactive frame thread; double-clicks are identified by entry absolute path; repetitive clicking must stay bounded and return to zero damage. | `app::tests::double_click_into_directory_does_not_panic_on_stale_rows`, `app::tests::double_click_does_not_cross_a_navigation_to_a_different_entry`, `state::tests::async_navigation*`, `ui_flows::asynchronous_navigation_*`, `observability_ui::interactive_navigation_keeps_blocking_reads_off_the_ui_thread`, `interaction_stress::*`, `damage_and_quiescence::*`; [Interaction Latency](interaction-latency.md), [ADR-0020](../adr/0020-asynchronous-directory-navigation.md) |
 | **`[INV-OPS-01]`** | Non-Destructive Trash | Deletions must generate compliant FreeDesktop `.trashinfo` metadata, recording the deleted path itself (never a symlink's target). | `trash::tests::test_trash_roundtrip`, `trash::tests::trashing_a_symlink_records_the_link_path` |
 | **`[INV-OPS-02]`** | Anti-Clobber File Creation | Renaming and folder creation must never silently overwrite destinations, including dangling symlinks. | `ops::tests::rename_refuses_to_clobber`, `ops::tests::rename_refuses_dangling_symlink_destination` |
 | **`[INV-OPS-03]`** | No Self-Containment | A directory may never be copied or moved into itself or a descendant. | `ops::tests::copy_and_move_reject_self_descendant_targets`, `state::tests::drop_refuses_a_directory_into_its_own_descendant` |
 | **`[INV-OPS-04]`** | Non-Blocking Special Files | FIFOs, devices and sockets are never opened for content. | `preview::tests::preview_of_a_fifo_returns_immediately` |
+| **`[INV-OPS-05]`** | Reaped Launches | Every process Arca launches is waited on; opening files never accumulates zombies. | `desktop::tests::detached_children_are_reaped` |
+| **`[INV-OBS-01]`** | Protocol-Clean Logging | The logger never writes stdout; the prompter's stdout carries exactly one protocol line at any `ARCA_LOG` level. | `diagnostics::prompter_logs_to_the_state_dir_and_keeps_stdout_protocol_clean` (e2e) |
+| **`[INV-OBS-02]`** | Freeze Evidence | A UI frame running past `ARCA_STALL_MS` raises `ui_stall` naming the innermost UI span, and its completion raises `ui_stall_recovered`; an idle window never stalls. | `watchdog::tests::*`, `observability::a_stalled_ui_thread_is_alerted_with_the_blocking_operation`; [ADR-0021](../adr/0021-local-first-observability.md) |
+| **`[INV-NAV-01]`** | Deferred History | Back/Forward move the history cursor only when the target listing publishes; rapid clicks stack. | `state::tests::a_failed_async_back_leaves_the_history_cursor_in_place`, `state::tests::rapid_async_back_clicks_walk_history_and_publish_once` |
 | **`[INV-DATA-01]`** | Selection Identity | Selection is name-based and always a subset of the visible set; the cursor is always selected. | `regression_tests::refresh_keeps_the_selection_highlight`, `regression_tests::sorting_keeps_the_selection_on_the_same_file` |
 | **`[INV-DATA-02]`** | Transfer Payload Parity | Drops accept the same interchange formats the clipboard emits (`text/uri-list`, `x-special/gnome-copied-files`, bare paths). | `state::tests::drop_transfers_every_item_in_a_uri_list_payload`, `clipboard::tests::*` |
 | **`[INV-DOC-01]`** | Code-to-Doc Parity | Every CLI flag, config key, sort value and key binding appears in its reference. | `scripts/check-docs.py` (CI job `docs`) |

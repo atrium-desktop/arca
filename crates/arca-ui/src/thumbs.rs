@@ -7,6 +7,7 @@
 //! a thumbnail, so scrolling a large folder decodes lazily.
 
 use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
 
 use arca_engine::thumbs::{Thumb, ThumbService};
 
@@ -16,6 +17,12 @@ use crate::device;
 /// released. `get`-based re-upload below covers any eviction-order skew
 /// between the two stores.
 const MAX_UPLOADS: usize = 512;
+
+/// GPU upload time allowed per frame. Each upload is ~1 ms; entering a
+/// cached folder can finish dozens of disk-cache hits at once, and uploading
+/// them all in one frame produced 50-80 ms frames. The rest wait for the
+/// next frame (newest first, as those are the rows just scrolled into view).
+const UPLOAD_BUDGET: Duration = Duration::from_millis(4);
 
 /// Extensions the core decoder can produce pixels for (embedded covers or
 /// the image file itself).
@@ -33,6 +40,10 @@ pub(crate) struct ThumbStore {
     /// Mirrors `AppState::show_thumbnails`; when off, no decodes are
     /// requested and cards/overlays fall back to type glyphs.
     enabled: bool,
+    /// Decoded thumbs waiting for an upload slot, oldest first.
+    backlog: VecDeque<(String, Thumb)>,
+    /// Start of this frame's upload budget (set by `drain_uploads`).
+    budget_start: Instant,
 }
 
 impl ThumbStore {
@@ -57,7 +68,14 @@ impl ThumbStore {
             order: VecDeque::new(),
             cwd: String::new(),
             enabled: true,
+            backlog: VecDeque::new(),
+            budget_start: Instant::now(),
         }
+    }
+
+    /// See [`ThumbService::set_wake_fn`].
+    pub fn set_wake_fn(&mut self, wake: Option<arca_engine::watch::WakeFn>) {
+        self.service.set_wake_fn(wake);
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
@@ -74,18 +92,32 @@ impl ThumbStore {
         }
     }
 
-    /// Move finished decodes onto the GPU. Called once per frame; without a
-    /// device (headless) decodes are discarded and nothing was ever
-    /// requested, so this stays a no-op.
+    /// Move finished decodes onto the GPU within this frame's
+    /// [`UPLOAD_BUDGET`], newest first; the rest stay queued and another
+    /// frame is requested. Called once per frame, before the build. Without a
+    /// device (headless) nothing was ever requested, so this is a no-op.
     pub fn drain_uploads(&mut self) {
         if device::device().is_none() {
             return;
         }
-        for (path, thumb) in self.service.drain() {
+        self.budget_start = Instant::now();
+        self.backlog.extend(self.service.drain());
+        while !self.budget_spent() {
+            let Some((path, thumb)) = self.backlog.pop_back() else {
+                break;
+            };
             if let Some(image) = upload(&thumb) {
                 self.insert(path, image);
             }
         }
+        if !self.backlog.is_empty() {
+            arca_engine::telemetry::counter("ui.thumb_upload_deferred", self.backlog.len() as u64);
+            optics_window::request_animation_frame();
+        }
+    }
+
+    fn budget_spent(&self) -> bool {
+        self.budget_start.elapsed() >= UPLOAD_BUDGET
     }
 
     /// The uploaded image for `path`, requesting a decode on miss. Returns
@@ -101,6 +133,11 @@ impl ThumbStore {
         }
         // Decoded earlier but evicted from the GPU side: re-upload from the
         // service cache (also touches its LRU recency).
+        if self.service.get(path).is_some() && self.budget_spent() {
+            // Re-uploads share the frame budget; retry next frame.
+            optics_window::request_animation_frame();
+            return None;
+        }
         if let Some(thumb) = self.service.get(path) {
             let thumb = thumb.clone();
             if let Some(image) = upload(&thumb) {
@@ -119,11 +156,11 @@ impl ThumbStore {
         }
         self.order.push_back(path);
         while self.order.len() > MAX_UPLOADS {
-            if let Some(oldest) = self.order.pop_front() {
-                if let Some(image) = self.images.remove(&oldest) {
-                    // SAFETY: the device is alive during the run.
-                    unsafe { optics_gfx_sys::optics_gfx_image_release(image) };
-                }
+            if let Some(oldest) = self.order.pop_front()
+                && let Some(image) = self.images.remove(&oldest)
+            {
+                // SAFETY: the device is alive during the run.
+                unsafe { optics_gfx_sys::optics_gfx_image_release(image) };
             }
         }
     }
@@ -150,6 +187,7 @@ impl Drop for ThumbStore {
 /// Upload one decode using the optics-gfx premultiplied region upload.
 fn upload(thumb: &Thumb) -> Option<*mut optics_gfx_sys::optics_gfx_image> {
     let device = device::device()?;
+    let _span = arca_engine::telemetry::span("ui.thumb_upload");
     let desc = optics_gfx_sys::optics_gfx_image_desc {
         type_: optics_gfx_sys::optics_gfx_struct_type::OPTICS_GFX_TYPE_IMAGE_DESC,
         next: std::ptr::null(),

@@ -1,7 +1,7 @@
 //! Relay the rpaths published by the `optics-app` crate
 //! (`links = "optics_app_rs"`) so the `arca` binary finds
-//! liboptics_app/liboptics_ui/liboptics_window/liboptics_gfx/liboptics_text/
-//! liboptics_svg at runtime without `LD_LIBRARY_PATH`.
+//! liboptics_app/liboptics_ui/liboptics_window/liboptics_gfx/liboptics_text
+//! at runtime without `LD_LIBRARY_PATH`.
 //!
 //! # Link mode is a build input, not a property of this script
 //!
@@ -9,7 +9,7 @@
 //! and decides per build: by default it links `liboptics_*.so` when the
 //! pkg-config probe finds the shared objects and falls back to
 //! `liboptics_*.a` on a static-only tree (shared-preferred since Optics
-//! v0.0.86). Callers select explicitly with the upstream switches:
+//! v0.0.83). Callers select explicitly with the upstream switches:
 //!
 //! - `OPTICS_STATIC=1` (or the additive `static` Cargo feature) — require
 //!   static; fails when no archive exists.
@@ -31,7 +31,7 @@
 //! Release artifacts are verified with
 //! `scripts/check-optics-link.sh --expect static`.
 //!
-//! Optics v0.0.86 keeps the application shell above the window and UI layers
+//! Optics v0.0.90 keeps the application shell above the window and UI layers
 //! (Optics ADR-0169 / ADR-0170 / ADR-0172), so `optics-app`'s pkg-config probe
 //! walks its window/ui/gfx dependencies and its published rpath list covers
 //! the whole native stack. Pre-1.0 SONAMEs carry the full version, so a stale

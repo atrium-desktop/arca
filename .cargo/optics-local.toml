@@ -1,15 +1,17 @@
-# Local-only Optics checkout discovery for cross-repository development.
+# Local-only Optics source patches and dynamic-linking override for
+# cross-repository development.
 #
 # Enable this file only in a linked Arca worktree:
 #   cp .cargo/optics-local.toml .cargo/config.toml
 #   git config core.hooksPath .githooks
 #
-# This file deliberately does NOT patch Cargo manifests. The committed
-# Cargo.lock always resolves the tagged Optics Git sources, so canonical CI and
-# local development share one lockfile and one dependency graph. The
-# `-sys` build scripts locate the sibling Meson tree through the environment
-# variables below; OPTICS_DYNAMIC=1 selects the shared objects for fast
-# iteration without relinking Rust after C or shader edits.
+# This file patches every Optics crate to the sibling `../optics/crates/*`
+# checkout so Rust bindings, `-sys` crates, C headers, and shared libraries
+# always resolve from the same local commit — even when `../optics` is ahead of
+# the Git tag pinned in `Cargo.toml`. Cargo rewrites `Cargo.lock` locally under
+# a `[patch]`; `.githooks/pre-commit` refuses staged lockfile or release
+# commits while this patch is active, leaving the canonical `Cargo.lock` to the
+# primary `main` worktree (`../arca/`).
 #
 # The paths are relative to the workspace root (the directory containing
 # `.cargo/`). Keep the sibling layout:
@@ -19,8 +21,20 @@
 #   └── optics/     ← source checkout with build/meson-uninstalled
 #
 # Add local build/toolchain overrides (`build.rustc-wrapper`, target linker)
-# alongside these variables if your environment uses them; they are not part of
+# alongside these settings if your environment uses them; they are not part of
 # the Optics discovery contract.
+[patch."https://github.com/ming2k/optics"]
+optics-app = { path = "../optics/crates/optics-app" }
+optics-app-sys = { path = "../optics/crates/optics-app-sys" }
+optics-build = { path = "../optics/crates/optics-build" }
+optics-gfx = { path = "../optics/crates/optics-gfx" }
+optics-gfx-sys = { path = "../optics/crates/optics-gfx-sys" }
+optics-motion = { path = "../optics/crates/optics-motion" }
+optics-ui = { path = "../optics/crates/optics-ui" }
+optics-ui-sys = { path = "../optics/crates/optics-ui-sys" }
+optics-window = { path = "../optics/crates/optics-window" }
+optics-window-sys = { path = "../optics/crates/optics-window-sys" }
+
 [env]
 OPTICS_SOURCE_DIR = { value = "../optics", relative = true }
 OPTICS_BUILD_DIR = { value = "../optics/build", relative = true }

@@ -50,16 +50,20 @@ Arca is optimized for fast, keyboard-first navigation.
 
 Arca provides three distinct viewing styles suited for different workflows:
 
-1. Look at the view switcher buttons in the toolbar.
-2. Click the **Grid** button (or launch with `arca --grid`). Files now appear as
-   large icons with thumbnails. Use `Left Arrow` and `Right Arrow` to move
-   horizontally across the grid.
-3. Click the **List** button. Files now appear in a compact table displaying
+1. Look at the view switcher buttons in the toolbar. Arca starts in **Grid**
+   view: files appear as large icons with thumbnails. Use `Left Arrow` and
+   `Right Arrow` to move horizontally across the grid.
+2. Click the **List** button. Files now appear in a compact table displaying
    file name, size, and last modified date.
-4. Click the **Miller** button (or launch with `arca --miller`). Directories now
-   appear in cascading horizontal columns. Press `Right Arrow` to expand child
-   directories into adjacent columns while keeping your full ancestry path
-   visible.
+3. Click the **Miller** button (or launch with `arca --miller`). The current
+   folder sits in the centre column, its parent on the left, and the right
+   column previews the selected folder's contents (or the selected file's
+   details). Press `Right Arrow` to step into the selected folder and
+   `Left Arrow` to step back out: the folder you are in always stays in the
+   centre.
+4. Click the **Grid** button to return to the default view. The
+   [View Modes Reference](../reference/view-modes.md) describes every mode in
+   detail.
 
 ---
 

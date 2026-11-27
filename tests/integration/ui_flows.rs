@@ -6,10 +6,10 @@
 //! composition of chrome, engine state, and optics-ui input handling shows up
 //! before a release.
 
-use arca_engine::config::ViewMode;
 use arca_engine::SortKey;
+use arca_engine::config::ViewMode;
 
-use crate::common::ui::{Harness, FIRST_LIST_ROW, LIST_ROW_PITCH};
+use crate::common::ui::{FIRST_LIST_ROW, Harness, LIST_ROW_PITCH};
 
 #[test]
 fn every_view_builds_and_settles() {

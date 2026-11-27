@@ -111,10 +111,7 @@ impl DesktopEntry {
             if let Some(token) = activation_token {
                 cmd.env("XDG_ACTIVATION_TOKEN", token);
             }
-            cmd.stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()?;
+            spawn_detached(&mut cmd)?;
         } else {
             let mut cmd = Command::new(&args[0]);
             if args.len() > 1 {
@@ -123,10 +120,7 @@ impl DesktopEntry {
             if let Some(token) = activation_token {
                 cmd.env("XDG_ACTIVATION_TOKEN", token);
             }
-            cmd.stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()?;
+            spawn_detached(&mut cmd)?;
         }
         Ok(())
     }
@@ -267,12 +261,11 @@ pub fn discover_applications() -> HashMap<String, DesktopEntry> {
         };
         for entry in read_dir.flatten() {
             let p = entry.path();
-            if p.extension().is_some_and(|ext| ext == "desktop") {
-                if let Some(app) = parse_desktop_file(&p) {
-                    if !app.hidden {
-                        apps.insert(app.id.clone(), app);
-                    }
-                }
+            if p.extension().is_some_and(|ext| ext == "desktop")
+                && let Some(app) = parse_desktop_file(&p)
+                && !app.hidden
+            {
+                apps.insert(app.id.clone(), app);
             }
         }
     }
@@ -366,10 +359,11 @@ pub fn resolve_default_application(
             {
                 continue;
             }
-            if let Some(app) = apps.get(id) {
-                if !app.no_display && !app.hidden {
-                    return Some(app.clone());
-                }
+            if let Some(app) = apps.get(id)
+                && !app.no_display
+                && !app.hidden
+            {
+                return Some(app.clone());
             }
         }
     }
@@ -383,10 +377,11 @@ pub fn resolve_default_application(
             {
                 continue;
             }
-            if let Some(app) = apps.get(id) {
-                if !app.no_display && !app.hidden {
-                    return Some(app.clone());
-                }
+            if let Some(app) = apps.get(id)
+                && !app.no_display
+                && !app.hidden
+            {
+                return Some(app.clone());
             }
         }
     }
@@ -440,10 +435,12 @@ pub fn resolve_applications_for_mime(
             {
                 continue;
             }
-            if let Some(app) = apps.get(id) {
-                if !app.no_display && !app.hidden && seen_ids.insert(app.id.clone()) {
-                    matches.push(app.clone());
-                }
+            if let Some(app) = apps.get(id)
+                && !app.no_display
+                && !app.hidden
+                && seen_ids.insert(app.id.clone())
+            {
+                matches.push(app.clone());
             }
         }
     }
@@ -457,10 +454,12 @@ pub fn resolve_applications_for_mime(
             {
                 continue;
             }
-            if let Some(app) = apps.get(id) {
-                if !app.no_display && !app.hidden && seen_ids.insert(app.id.clone()) {
-                    matches.push(app.clone());
-                }
+            if let Some(app) = apps.get(id)
+                && !app.no_display
+                && !app.hidden
+                && seen_ids.insert(app.id.clone())
+            {
+                matches.push(app.clone());
             }
         }
     }
@@ -496,10 +495,10 @@ pub fn resolve_applications_for_mime(
 /// Open a path with the desktop default application, or fall back to `xdg-open`.
 pub fn open_path_with_token(path: &Path, token: Option<&str>) -> std::io::Result<()> {
     let mime_type = guess_mime_type(path);
-    if let Some(app) = default_application_for_mime(&mime_type) {
-        if app.spawn_with_token(&[path], token).is_ok() {
-            return Ok(());
-        }
+    if let Some(app) = default_application_for_mime(&mime_type)
+        && app.spawn_with_token(&[path], token).is_ok()
+    {
+        return Ok(());
     }
 
     let mut cmd = Command::new("xdg-open");
@@ -507,11 +506,31 @@ pub fn open_path_with_token(path: &Path, token: Option<&str>) -> std::io::Result
     if let Some(t) = token {
         cmd.env("XDG_ACTIVATION_TOKEN", t);
     }
-    cmd.stdin(std::process::Stdio::null())
+    spawn_detached(&mut cmd)?;
+    Ok(())
+}
+
+/// Spawn `cmd` with null stdio and reap it on a background thread.
+///
+/// A launched application outlives the click that started it, but its exit
+/// status must still be collected: a dropped `Child` is never waited on, so
+/// every file opened from Arca used to leave a zombie process behind until
+/// Arca itself exited. Returns the child's pid.
+pub fn spawn_detached(cmd: &mut Command) -> std::io::Result<u32> {
+    let mut child = cmd
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()?;
-    Ok(())
+    let pid = child.id();
+    // The launch already succeeded; failing to start the reaper only costs
+    // one zombie, so it must not be reported as a launch failure.
+    let _ = std::thread::Builder::new()
+        .name("arca-reaper".into())
+        .spawn(move || {
+            let _ = child.wait();
+        });
+    Ok(pid)
 }
 
 /// Open a path with the desktop default application, or fall back to `xdg-open`.
@@ -566,6 +585,23 @@ fn load_mimeapps_list() -> MimeAssociations {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: launched children were never waited on and lingered as
+    /// zombies (`/proc/<pid>` with state `Z`) for the life of the window.
+    #[test]
+    fn detached_children_are_reaped() {
+        let pid = spawn_detached(&mut Command::new("true")).expect("spawn true");
+        let proc_dir = std::path::PathBuf::from(format!("/proc/{pid}"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while proc_dir.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child {pid} was not reaped: {:?}",
+                std::fs::read_to_string(proc_dir.join("stat")).ok()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 
     #[test]
     fn test_exec_field_code_expansion() {

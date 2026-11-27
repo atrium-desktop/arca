@@ -60,30 +60,35 @@ TARGET=$(arca --save-file --name "report.pdf" --title "Export PDF" ~/Documents)
 
 ## Integrate with XDG Desktop Portal
 
-Arca complies with `org.freedesktop.impl.portal.FileChooser` version 3 and the Tessera
-prompter protocol contract v6.
+Arca complies with `org.freedesktop.impl.portal.FileChooser` version 3 and the Atrium
+Arca FileChooser contract v1 (see [Portal Chooser Protocol Reference](../reference/portal-protocol.md)).
 
-### Run in Prompter Mode
+### Run in Chooser Prompt Mode
 
-When invoked by a portal daemon (e.g., `xdg-desktop-portal-tessera`), Arca runs with:
+When invoked by `xdg-desktop-portal-atrium`, Arca runs with:
 
 ```bash
 arca --chooser-prompt
 ```
 
-The daemon provides a JSON payload on standard input specifying:
-- Operation mode (`open_file`, `open_directory`, `save_file`)
+The portal backend writes one versioned JSON request envelope to standard input:
+- Operation mode (`open_file`, `open_directory`, `save_file`, `save_files`)
 - Filter lists (glob patterns such as `*.png`, MIME types such as `image/*`)
 - Custom choices (checkboxes and dropdowns declared by portal clients)
-- Proposed directory and current filename
+- Proposed directory, filename, or `save_files` suggested basenames
 
-Arca responds on standard output with a JSON object:
+Arca responds on standard output with a versioned JSON envelope containing raw
+Unix byte paths (`BytePath`):
 
 ```json
 {
-  "status": "success",
-  "uris": ["file:///home/user/Documents/notes.txt"],
-  "choices": []
+  "version": 1,
+  "response": {
+    "status": "selected",
+    "paths": [[47, 116, 109, 112, 47, 110, 111, 116, 101, 115, 46, 116, 120, 116]],
+    "current_filter": null,
+    "choices": []
+  }
 }
 ```
 
@@ -91,18 +96,22 @@ If cancelled:
 
 ```json
 {
-  "status": "cancelled"
+  "version": 1,
+  "response": {
+    "status": "cancelled"
+  }
 }
 ```
 
 ### Desktop Environment Configuration
 
-To configure your Wayland desktop session to use Arca for all portal file chooser
-requests, add or edit `/etc/xdg/xdg-desktop-portal/portals.conf` (or user-level
+To configure your Wayland desktop session to route `FileChooser` requests
+through `xdg-desktop-portal-atrium` (which spawns `arca --chooser-prompt`),
+add or edit `/etc/xdg/xdg-desktop-portal/tessera-portals.conf` (or user-level
 `~/.config/xdg-desktop-portal/portals.conf`):
 
 ```ini
 [preferred]
-default=tessera
-org.freedesktop.impl.portal.FileChooser=arca
+default=atrium
+org.freedesktop.impl.portal.FileChooser=atrium
 ```

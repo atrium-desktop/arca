@@ -7,8 +7,8 @@
 //! the public `UiApp` constructor an embedder uses, and lets CI name it as an
 //! architectural invariant.
 
-use arca_engine::config::{Config, ViewMode};
 use arca_engine::AppState;
+use arca_engine::config::{Config, ViewMode};
 use test_support::fs::TestDir;
 
 #[test]
@@ -26,6 +26,8 @@ fn large_directory_does_not_overflow_frame_arena_in_any_view() {
     let mut app =
         arca_ui::UiApp::with_thumb_cache(state, config.with_extension("cache")).sync_navigation();
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
+    // Mirror the window's start hook: register the icon set on this context.
+    app.start(&mut ui);
     let input = optics_ui::Input::new((1280.0, 760.0), 1.0 / 60.0);
 
     for mode in [ViewMode::Grid, ViewMode::List, ViewMode::Miller] {
@@ -58,6 +60,8 @@ fn scrolled_large_listing_builds_only_visible_rows() {
         arca_ui::UiApp::with_thumb_cache(state, config.with_extension("cache")).sync_navigation();
     app.state.set_view_mode(ViewMode::List);
     let mut ui = optics_ui::Ui::headless().expect("headless ui");
+    // Mirror the window's start hook: register the icon set on this context.
+    app.start(&mut ui);
     let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
     for _ in 0..3 {
         ui.frame(&settle, |frame| app.build(frame, &settle));

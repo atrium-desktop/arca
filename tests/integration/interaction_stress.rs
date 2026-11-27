@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use arca_engine::config::ViewMode;
 
-use crate::common::ui::{Harness, FIRST_LIST_ROW, LIST_ROW_PITCH, TOOLBAR_GEAR};
+use crate::common::ui::{FIRST_LIST_ROW, Harness, LIST_ROW_PITCH, TOOLBAR_GEAR};
 
 #[test]
 fn hundreds_of_row_clicks_are_bounded_and_keep_one_selection() {

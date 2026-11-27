@@ -40,7 +40,8 @@ scrolling. To toggle thumbnails:
 
 ## Set Default View Mode
 
-To configure whether Arca opens folders in Grid, List, or Miller column view:
+Arca opens folders in **Grid** view by default. To choose Grid, List, or Miller
+column view instead (see [View Modes Reference](../reference/view-modes.md)):
 
 1. In the toolbar, click your preferred view button (**Grid**, **List**, or
    **Miller**).
@@ -78,7 +79,7 @@ sort_ascending = true
 theme = system
 
 # Default view mode: grid | list | miller
-view = list
+view = grid
 
 # Off-thread thumbnail generation: true | false
 show_thumbnails = true
@@ -94,9 +95,10 @@ bookmark = /mnt/data/storage
 
 Decoded thumbnails are written to the standard FreeDesktop Thumbnail Managing
 Standard location, `$XDG_CACHE_HOME/thumbnails/normal/` (typically
-`~/.cache/thumbnails/normal/`), as 128 px PNGs keyed by `MD5(file URI)`. Other
-desktop applications read and write the same cache, so covers survive restarts and
-are shared across the desktop.
+`~/.cache/thumbnails/normal/`), as 128 px PNGs keyed by `MD5(file URI)` and tagged
+with `Thumb::URI`/`Thumb::MTime`. Other desktop applications read and write the same
+cache, so covers survive restarts and are shared across the desktop. Arca never
+prunes this shared cache itself.
 
 To purge thumbnail cache files and free disk space:
 

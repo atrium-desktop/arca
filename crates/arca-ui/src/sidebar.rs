@@ -1,36 +1,39 @@
 //! Persistent places sidebar with interactive split dragging.
 
 use arca_engine::bookmarks::BookmarkKind;
-use optics_ui::patterns::{split_handle_v, SplitOpts};
-use optics_ui::{Align, Frame, LayoutOpts};
+use optics_ui::patterns::{SplitOpts, split_handle_v};
+use optics_ui::{Align, CornerRadii, Frame, LayoutOpts};
 
 use crate::app::UiApp;
-use crate::icons::{self, ids};
+use crate::icons::{bookmark_icon, ids};
 use crate::theme::{self, Tones};
 
 pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
+    let icons = app.icons;
     let sidebar_w = app.sidebar_width.clamp(160.0, 360.0);
     frame.size_next(sidebar_w, 0.0);
-    frame.column_ex(
-        &LayoutOpts {
+    frame
+        .column()
+        .with_opts(&LayoutOpts {
             width: sidebar_w,
             gap: 2.0,
             pad: 6.0,
             cross: Align::Stretch,
             bg: tones.sidebar,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             frame.flex(1.0);
             frame.scroll("sidebar-scroll", |frame| {
-                frame.column_ex(
-                    &LayoutOpts {
+                frame
+                    .column()
+                    .with_opts(&LayoutOpts {
                         gap: 2.0,
                         pad: 2.0,
                         cross: Align::Stretch,
                         ..Default::default()
-                    },
-                    |frame| {
+                    })
+                    .show(|frame| {
                         section_label(frame, tones, "PLACES");
                         let bookmarks = app.state.bookmarks.clone();
                         let mut target = None;
@@ -40,9 +43,9 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             }
                             let place_id = format!("place-{index}");
                             frame.push_id(&place_id);
-                            let _ = icons::selectable_icon(
+                            let _ = icons.selectable(
                                 frame,
-                                icons::bookmark_icon(bookmark.kind),
+                                bookmark_icon(bookmark.kind),
                                 &bookmark.name,
                                 app.state.cwd() == bookmark.path,
                             );
@@ -52,21 +55,21 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             } else if resp.right_clicked {
                                 app.open_sidebar_menu(&bookmark.path, false, resp.rect);
                             }
-                            if let Some(drop) = frame.dnd_drop_target(&place_id, 1) {
-                                if let Some(payload) = drop.payload {
-                                    app.state.drop_into(
-                                        &payload,
-                                        &bookmark.path,
-                                        arca_engine::TransferAction::Move,
-                                    );
-                                }
+                            if let Some(drop) = frame.dnd_drop_target(&place_id, 1)
+                                && let Some(payload) = drop.payload
+                            {
+                                app.state.drop_into(
+                                    &payload,
+                                    &bookmark.path,
+                                    arca_engine::TransferAction::Move,
+                                );
                             }
                             app.drop_targets.push(crate::app::DropTargetZone {
                                 rect: resp.rect,
                                 target_path: bookmark.path.clone(),
                                 is_bookmark_zone: false,
                             });
-                            crate::content::suppress_item_pointer_cursor(frame);
+                            crate::content::suppress_item_pointer_cursor(frame, resp.hovered);
                             frame.pop_id();
                         }
 
@@ -82,7 +85,7 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                         for (index, bookmark) in user_bookmarks {
                             let b_id = format!("bookmark-{index}");
                             frame.push_id(&b_id);
-                            let _ = icons::selectable_icon(
+                            let _ = icons.selectable(
                                 frame,
                                 ids::Folder,
                                 &bookmark.name,
@@ -94,30 +97,30 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             } else if resp.right_clicked {
                                 app.open_sidebar_menu(&bookmark.path, true, resp.rect);
                             }
-                            if let Some(drop) = frame.dnd_drop_target(&b_id, 1) {
-                                if let Some(payload) = drop.payload {
-                                    app.state.drop_into(
-                                        &payload,
-                                        &bookmark.path,
-                                        arca_engine::TransferAction::Move,
-                                    );
-                                }
+                            if let Some(drop) = frame.dnd_drop_target(&b_id, 1)
+                                && let Some(payload) = drop.payload
+                            {
+                                app.state.drop_into(
+                                    &payload,
+                                    &bookmark.path,
+                                    arca_engine::TransferAction::Move,
+                                );
                             }
                             app.drop_targets.push(crate::app::DropTargetZone {
                                 rect: resp.rect,
                                 target_path: bookmark.path.clone(),
                                 is_bookmark_zone: false,
                             });
-                            crate::content::suppress_item_pointer_cursor(frame);
+                            crate::content::suppress_item_pointer_cursor(frame, resp.hovered);
                             frame.pop_id();
                         }
 
                         let drop_id = "sidebar-bookmark-drop-zone";
                         let drop_info = frame.dnd_drop_target(drop_id, 1);
-                        if let Some(drop) = &drop_info {
-                            if let Some(payload) = &drop.payload {
-                                app.state.add_bookmark(payload);
-                            }
+                        if let Some(drop) = &drop_info
+                            && let Some(payload) = &drop.payload
+                        {
+                            app.state.add_bookmark(payload);
                         }
 
                         let is_drag_active = app.active_drag.as_ref().is_some_and(|d| d.started);
@@ -140,11 +143,11 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                 } else {
                                     optics_ui::Color::TRANSPARENT
                                 },
-                                radius: 6.0,
+                                corner_radii: CornerRadii::uniform(6.0),
                                 ..Default::default()
                             })
                             .show(|frame| {
-                                icons::icon(frame, ids::Plus, 13.0);
+                                icons.icon(frame, ids::Plus, 13.0);
                                 theme::label_colored_sized(
                                     frame,
                                     "Drop to bookmark",
@@ -152,7 +155,7 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                                     tones.muted,
                                 );
                             });
-                        crate::content::suppress_item_pointer_cursor(frame);
+                        crate::content::suppress_item_pointer_cursor(frame, resp.hovered);
 
                         app.bookmark_drop_rect = Some(resp.rect);
                         app.drop_targets.push(crate::app::DropTargetZone {
@@ -168,11 +171,9 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
                             app.location_focused_now = false;
                             app.location_completion = None;
                         }
-                    },
-                );
+                    });
             });
-        },
-    );
+        });
 
     // Interactive draggable split divider
     let split_opts = SplitOpts {
@@ -191,17 +192,17 @@ pub(crate) fn build_sidebar(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
 
 fn section_label(frame: &mut Frame, tones: &Tones, title: &str) {
     frame.size_next(0.0, 18.0);
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             height: 18.0,
             pad: 2.0,
             cross: Align::Center,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             theme::label_colored_sized(frame, title, 10.0, tones.muted);
-        },
-    );
+        });
 }
 
 #[cfg(test)]
@@ -216,6 +217,8 @@ mod tests {
     #[test]
     fn drag_and_drop_to_bookmark_and_folder() {
         let (dir, mut app) = fixture();
+        // List rows record `sub_row_rect`; Grid is the default view.
+        app.state.override_view_mode(arca_engine::ViewMode::List);
         let mut ui = optics_ui::Ui::headless().expect("headless ui");
         let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
@@ -290,6 +293,59 @@ mod tests {
             ui.cursor_hint(),
             optics_ui::CursorHint::Default,
             "hovering sidebar item must preserve standard desktop arrow cursor (not web pointer hand)"
+        );
+    }
+
+    #[test]
+    fn sidebar_unhover_damages_full_place_row() {
+        let (_dir, mut app) = fixture();
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let input = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        for _ in 0..2 {
+            frame(&mut app, &mut ui, &input);
+        }
+
+        let place = app
+            .drop_targets
+            .iter()
+            .find(|t| {
+                !t.is_bookmark_zone
+                    && t.rect.x < app.sidebar_width
+                    && t.target_path != app.state.cwd()
+            })
+            .expect("must have at least one unselected sidebar place")
+            .clone();
+
+        // Hover over the place so it paints its full-width hover pill, then activate.
+        let mut hover_in = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        hover_in.set_cursor(place.rect.x + 10.0, place.rect.y + 10.0);
+        frame(&mut app, &mut ui, &hover_in);
+
+        // Move cursor off the place; damage rects before activation must cover
+        // the entire previously-hovered row, not just the inner icon+text box.
+        let mut leave_in = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
+        leave_in.set_cursor(place.rect.x + 10.0, place.rect.y + place.rect.h + 200.0);
+        ui.frame(&leave_in, |f| app.build(f, &leave_in));
+
+        let mut rects = [optics_ui::Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 0.0,
+            h: 0.0,
+        }; 32];
+        let n = ui.damage_rects(&mut rects);
+        assert!(n >= 1, "unhovering sidebar place must report damage");
+        let covers_row = rects[..n].iter().any(|r| {
+            r.x <= place.rect.x
+                && r.y <= place.rect.y
+                && r.x + r.w >= place.rect.x + place.rect.w
+                && r.y + r.h >= place.rect.y + place.rect.h
+        });
+        assert!(
+            covers_row,
+            "unhover damage {:?} must cover full sidebar row {:?}",
+            &rects[..n],
+            place.rect
         );
     }
 }

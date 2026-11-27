@@ -79,6 +79,8 @@ pub fn read_dir(
     key: SortKey,
     ascending: bool,
 ) -> io::Result<Vec<Entry>> {
+    let _span = crate::telemetry::span("fs.read_dir");
+    crate::telemetry::span::note_ui_blocking_io();
     let mut entries = Vec::new();
     for item in std::fs::read_dir(path)? {
         let item = item?;
@@ -154,11 +156,7 @@ pub fn sort_entries(entries: &mut [Entry], key: SortKey, ascending: bool) {
         } else {
             ord
         };
-        if ascending {
-            ord
-        } else {
-            ord.reverse()
-        }
+        if ascending { ord } else { ord.reverse() }
     });
 }
 

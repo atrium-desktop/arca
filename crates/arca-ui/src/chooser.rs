@@ -9,13 +9,14 @@ use std::sync::{Arc, Mutex};
 
 use arca_engine::chooser::{
     BytePath, Choice, FileChooserMode, FileChooserRequest, FileChooserResponse, FileFilter,
-    PromptAppearance, PromptColorScheme,
 };
 use arca_engine::state::AppState;
-use optics_ui::{Align, Band, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf};
+use optics_ui::{
+    Align, Band, CornerRadii, Frame, Input, LayoutOpts, PlaceMode, PlaceOpts, TextBuf, TextEditOpts,
+};
 
 use crate::app::UiApp;
-use crate::icons::{self, ids};
+use crate::icons::ids;
 use crate::theme::{self, Tones};
 
 pub(crate) const CHOOSER_OVERWRITE_MODAL: &str = "chooser-overwrite-modal";
@@ -23,7 +24,6 @@ pub(crate) const CHOOSER_FILTER_DROPDOWN: &str = "chooser-filter-dropdown";
 
 pub struct ChooserState {
     pub request: FileChooserRequest,
-    pub appearance: Option<PromptAppearance>,
     pub save_name: TextBuf,
     pub save_name_id: optics_ui_sys::optics_ui_id,
     pub save_name_focused: bool,
@@ -42,7 +42,7 @@ pub struct ChooserState {
 }
 
 impl ChooserState {
-    pub fn new(request: FileChooserRequest, appearance: Option<PromptAppearance>) -> ChooserState {
+    pub fn new(request: FileChooserRequest) -> ChooserState {
         let initial_save_name = if let Some(name) = request.current_name.as_deref() {
             name.to_string()
         } else if let Some(file) = &request.current_file {
@@ -56,10 +56,10 @@ impl ChooserState {
         let save_name = TextBuf::new(1024, &initial_save_name);
 
         let mut filters = request.filters.clone();
-        if filters.is_empty() {
-            if let Some(cf) = &request.current_filter {
-                filters.push(cf.clone());
-            }
+        if filters.is_empty()
+            && let Some(cf) = &request.current_filter
+        {
+            filters.push(cf.clone());
         }
 
         let filter_index = if let Some(cf) = &request.current_filter {
@@ -68,15 +68,35 @@ impl ChooserState {
             0
         };
 
+        // Per freedesktop FileChooser spec, an empty `selected` string means
+        // "pick a default": `"false"` for boolean checkbuttons, or the first
+        // option id for comboboxes. Normalizing upfront guarantees that
+        // accepting without editing the control still emits a contract-valid
+        // answer.
         let choices = request
             .choices
             .iter()
-            .map(|c| (c.id.clone(), c.selected.clone()))
+            .map(|c| {
+                let value = if c.options.is_empty() {
+                    if c.selected == "true" {
+                        "true".to_owned()
+                    } else {
+                        "false".to_owned()
+                    }
+                } else if c.selected.is_empty() {
+                    c.options
+                        .first()
+                        .map(|(id, _)| id.clone())
+                        .unwrap_or_default()
+                } else {
+                    c.selected.clone()
+                };
+                (c.id.clone(), value)
+            })
             .collect();
 
         ChooserState {
             request,
-            appearance,
             save_name,
             save_name_id: 0,
             save_name_focused: false,
@@ -151,6 +171,7 @@ pub(crate) fn build_chooser_header(
     input: &Input,
     tones: &Tones,
 ) {
+    let icons = app.icons;
     let title = app
         .chooser
         .as_ref()
@@ -164,29 +185,29 @@ pub(crate) fn build_chooser_header(
 
     let mut close_clicked = false;
     frame.size_next(0.0, 42.0);
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             height: 42.0,
             pad: 6.0,
             gap: 8.0,
             cross: Align::Center,
             bg: tones.tab_bar,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             frame.size_next(4.0, 0.0);
             frame.spacer(4.0);
 
-            icons::icon(frame, ids::Folder, 18.0);
-            frame.label_compact(title);
+            icons.icon(frame, ids::Folder, 18.0);
+            frame.label(title);
 
             // Center drag region
             frame.flex(1.0);
             frame.spacer(0.0);
 
-            close_clicked = icons::icon_button(frame, ids::X, 26.0);
-        },
-    );
+            close_clicked = icons.button(frame, ids::X, 26.0);
+        });
 
     if close_clicked {
         if let Some(chooser) = &mut app.chooser {
@@ -227,8 +248,9 @@ pub(crate) fn build_chooser_footer(app: &mut UiApp, frame: &mut Frame, tones: &T
     let mut trigger_accepted = false;
     let mut cancel_clicked = false;
 
-    frame.column_ex(
-        &LayoutOpts {
+    frame
+        .column()
+        .with_opts(&LayoutOpts {
             pad: 10.0,
             gap: 8.0,
             cross: Align::Stretch,
@@ -236,73 +258,82 @@ pub(crate) fn build_chooser_footer(app: &mut UiApp, frame: &mut Frame, tones: &T
             border: tones.popover_border,
             border_width: 1.0,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             // In SaveFile mode, show save name input row
             if mode == FileChooserMode::SaveFile {
-                frame.row_ex(
-                    &LayoutOpts {
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
                         gap: 8.0,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |frame| {
-                        frame.label_compact("File name:");
+                    })
+                    .show(|frame| {
+                        frame.label("File name:");
                         frame.flex(1.0);
                         frame.size_next(0.0, 32.0);
-                        let resp = frame.textfield_ex("##save-name", &mut chooser.save_name, false);
+                        let resp = frame.textedit(
+                            "##save-name",
+                            &mut chooser.save_name,
+                            &TextEditOpts {
+                                select_all_on_focus: true,
+                                submit_on_enter: true,
+                                ..Default::default()
+                            },
+                        );
                         capture_save_name(chooser, frame);
                         if resp.submitted {
                             trigger_accepted = true;
                         }
-                    },
-                );
+                    });
             }
 
             // In SaveFiles mode, show summary of files to be saved
             if mode == FileChooserMode::SaveFiles {
-                frame.row_ex(
-                    &LayoutOpts {
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
                         gap: 8.0,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |frame| {
+                    })
+                    .show(|frame| {
                         let count = chooser.request.files.len();
                         let text = if count == 1 {
                             "Saving 1 file to selected folder".to_string()
                         } else {
                             format!("Saving {count} files to selected folder")
                         };
-                        frame.label_compact(&text);
-                    },
-                );
+                        frame.label(&text);
+                    });
             }
 
             // Choices row (if choices are configured)
             if !choice_defs.is_empty() {
-                frame.row_ex(
-                    &LayoutOpts {
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
                         gap: 16.0,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |frame| {
+                    })
+                    .show(|frame| {
                         for choice in &choice_defs {
                             build_choice_widget(chooser, frame, choice, tones);
                         }
-                    },
-                );
+                    });
             }
 
             // Action row: Filter dropdown on left, Cancel / Accept buttons on right
-            frame.row_ex(
-                &LayoutOpts {
+            frame
+                .row()
+                .with_opts(&LayoutOpts {
                     gap: 8.0,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |frame| {
+                })
+                .show(|frame| {
                     // Filter dropdown
                     if !chooser.filters.is_empty() {
                         let current_label = chooser
@@ -335,10 +366,8 @@ pub(crate) fn build_chooser_footer(app: &mut UiApp, frame: &mut Frame, tones: &T
                     if accepted {
                         trigger_accepted = true;
                     }
-                },
-            );
-        },
-    );
+                });
+        });
 
     if cancel_clicked {
         if let Some(chooser) = &mut app.chooser {
@@ -408,7 +437,7 @@ fn build_choice_widget(
                     bg: tones.popover,
                     border: tones.popover_border,
                     border_width: 1.0,
-                    radius: 8.0,
+                    corner_radii: CornerRadii::uniform(8.0),
                     min_width: anchor.w.max(140.0),
                     ..Default::default()
                 },
@@ -461,7 +490,7 @@ pub(crate) fn build_filter_popover(app: &mut UiApp, frame: &mut Frame, tones: &T
                 bg: tones.popover,
                 border: tones.popover_border,
                 border_width: 1.0,
-                radius: 12.0,
+                corner_radii: CornerRadii::uniform(12.0),
                 min_width: 260.0,
                 ..Default::default()
             },
@@ -491,6 +520,7 @@ pub(crate) fn build_filter_popover(app: &mut UiApp, frame: &mut Frame, tones: &T
 
 /// Render the overwrite confirmation modal if needed.
 pub(crate) fn build_overwrite_modal(app: &mut UiApp, frame: &mut Frame, tones: &Tones) {
+    let icons = app.icons;
     let Some(chooser) = &mut app.chooser else {
         return;
     };
@@ -520,7 +550,7 @@ pub(crate) fn build_overwrite_modal(app: &mut UiApp, frame: &mut Frame, tones: &
                 bg: tones.card,
                 border: tones.popover_border,
                 border_width: 1.0,
-                radius: 14.0,
+                corner_radii: CornerRadii::uniform(14.0),
                 min_width: 360.0,
                 ..Default::default()
             },
@@ -528,29 +558,24 @@ pub(crate) fn build_overwrite_modal(app: &mut UiApp, frame: &mut Frame, tones: &
             ..Default::default()
         },
         |frame| {
-            frame.row_ex(
-                &LayoutOpts {
+            frame.row().with_opts(&LayoutOpts {
                     gap: 8.0,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |frame| {
-                    icons::icon(frame, ids::AlertCircle, 24.0);
-                    frame.label_compact("Replace existing file?");
-                },
-            );
+                }).show(|frame| {
+                    icons.icon(frame, ids::AlertCircle, 24.0);
+                    frame.label("Replace existing file?");
+                });
 
             frame.label(&format!(
                 "A file named \"{target_name}\" already exists. Replacing it will overwrite its contents."
             ));
 
-            frame.row_ex(
-                &LayoutOpts {
+            frame.row().with_opts(&LayoutOpts {
                     gap: 8.0,
                     cross: Align::Center,
                     ..Default::default()
-                },
-                |frame| {
+                }).show(|frame| {
                     frame.flex(1.0);
                     frame.spacer(0.0);
 
@@ -565,8 +590,7 @@ pub(crate) fn build_overwrite_modal(app: &mut UiApp, frame: &mut Frame, tones: &
                         action = Some(true);
                     }
                     frame.set_theme(theme);
-                },
-            );
+                });
         },
     );
 
@@ -626,16 +650,31 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
             optics_window::window_close();
         }
         FileChooserMode::OpenDirectory => {
-            let path = if let Some(entry) = app.state.selected_entry() {
-                if entry.navigable {
-                    Path::new(app.state.cwd()).join(&entry.name)
+            let paths = if chooser.allows_multiple() && !chooser.selected_paths.is_empty() {
+                let staged: Vec<PathBuf> = chooser
+                    .selected_paths
+                    .iter()
+                    .filter(|p| p.is_dir())
+                    .cloned()
+                    .collect();
+                if !staged.is_empty() {
+                    staged
                 } else {
-                    PathBuf::from(app.state.cwd())
+                    vec![PathBuf::from(app.state.cwd())]
                 }
             } else {
-                PathBuf::from(app.state.cwd())
+                let path = if let Some(entry) = app.state.selected_entry() {
+                    if entry.navigable {
+                        Path::new(app.state.cwd()).join(&entry.name)
+                    } else {
+                        PathBuf::from(app.state.cwd())
+                    }
+                } else {
+                    PathBuf::from(app.state.cwd())
+                };
+                vec![path]
             };
-            chooser.accept_paths(vec![path]);
+            chooser.accept_paths(paths);
             optics_window::window_close();
         }
         FileChooserMode::SaveFile => {
@@ -643,17 +682,17 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
             if name.is_empty() || name.contains('/') || name.contains('\0') {
                 return;
             }
-            if !name.contains('.') {
-                if let Some(filter) = chooser.active_filter() {
-                    for rule in &filter.rules {
-                        if rule.kind == arca_engine::chooser::FilterRuleKind::Glob {
-                            if let Some(ext) = rule.value.strip_prefix("*.") {
-                                if !ext.contains('*') && !ext.contains('?') {
-                                    name = format!("{name}.{ext}");
-                                    break;
-                                }
-                            }
-                        }
+            if !name.contains('.')
+                && let Some(filter) = chooser.active_filter()
+            {
+                for rule in &filter.rules {
+                    if rule.kind == arca_engine::chooser::FilterRuleKind::Glob
+                        && let Some(ext) = rule.value.strip_prefix("*.")
+                        && !ext.contains('*')
+                        && !ext.contains('?')
+                    {
+                        name = format!("{name}.{ext}");
+                        break;
                     }
                 }
             }
@@ -691,7 +730,6 @@ pub(crate) fn trigger_accept(app: &mut UiApp) {
 /// Run Arca in FileChooser portal mode.
 pub fn run_chooser(
     request: FileChooserRequest,
-    appearance: Option<PromptAppearance>,
 ) -> Result<FileChooserResponse, optics_app::RunError> {
     let start_dir = if let Some(folder) = &request.current_folder {
         folder.to_path_buf().to_string_lossy().into_owned()
@@ -705,17 +743,10 @@ pub fn run_chooser(
     };
 
     let config_file = arca_engine::config::config_path();
-    let mut cfg = arca_engine::config::load(&config_file);
-    if let Some(appr) = &appearance {
-        match appr.color_scheme {
-            PromptColorScheme::Dark => cfg.theme = arca_engine::ThemeMode::Dark,
-            PromptColorScheme::Light => cfg.theme = arca_engine::ThemeMode::Light,
-            PromptColorScheme::System => cfg.theme = arca_engine::ThemeMode::System,
-        }
-    }
+    let cfg = arca_engine::config::load(&config_file);
 
     let mut state = AppState::with_config(config_file, cfg, &start_dir);
-    let chooser_state = ChooserState::new(request.clone(), appearance);
+    let chooser_state = ChooserState::new(request.clone());
     if let Some(filter) = chooser_state.active_filter() {
         state.set_file_filter(Some(filter));
     }
@@ -747,26 +778,29 @@ pub fn run_chooser(
         .size(960, 640);
 
     let app = std::rc::Rc::new(std::cell::RefCell::new(app));
+    let app_start = app.clone();
     let app_build = app.clone();
     let app_stop = app.clone();
 
     optics_app::Application::run_with_lifecycle(
         config,
-        Some(|host: optics_app::StartHost| {
+        Some(move |host: optics_app::StartHost| {
             crate::device::set_device(host.optics_gfx_device().as_raw());
+            app_start.borrow_mut().start(&mut host.ui());
             true
         }),
-        Some(move |_host: optics_app::StopHost| {
-            app_stop.borrow_mut().shutdown();
+        Some(move |host: optics_app::StopHost| {
+            app_stop.borrow_mut().shutdown(&mut host.ui());
             crate::device::clear_device();
         }),
         move |frame, input| {
             let mut app = app_build.borrow_mut();
             app.build(frame, input);
-            if let Some(chooser) = &app.chooser {
-                if chooser.done && chooser.result.is_some() {
-                    *result_clone.lock().unwrap() = chooser.result.clone();
-                }
+            if let Some(chooser) = &app.chooser
+                && chooser.done
+                && chooser.result.is_some()
+            {
+                *result_clone.lock().unwrap() = chooser.result.clone();
             }
         },
         // Pure optics-ui chrome: no host canvas recording (Optics ADR-0127).
@@ -821,7 +855,7 @@ mod tests {
             }],
             files: Vec::new(),
         };
-        app.chooser = Some(ChooserState::new(req, None));
+        app.chooser = Some(ChooserState::new(req));
         let mut ui = optics_ui::Ui::headless().expect("headless ui");
         let input = optics_ui::Input::new((960.0, 640.0), 1.0 / 60.0);
         for _ in 0..3 {
@@ -851,7 +885,7 @@ mod tests {
             choices: Vec::new(),
             files: Vec::new(),
         };
-        app.chooser = Some(ChooserState::new(req, None));
+        app.chooser = Some(ChooserState::new(req));
         let mut ui = optics_ui::Ui::headless().expect("headless ui");
         let input = optics_ui::Input::new((960.0, 640.0), 1.0 / 60.0);
         for _ in 0..2 {
@@ -897,7 +931,7 @@ mod tests {
             choices: Vec::new(),
             files: Vec::new(),
         };
-        app.chooser = Some(ChooserState::new(req, None));
+        app.chooser = Some(ChooserState::new(req));
         let mut ui = optics_ui::Ui::headless().expect("headless ui");
         let input = optics_ui::Input::new((960.0, 640.0), 1.0 / 60.0);
         for _ in 0..2 {
@@ -957,7 +991,7 @@ mod tests {
             choices: Vec::new(),
             files: Vec::new(),
         };
-        app.chooser = Some(ChooserState::new(request, None));
+        app.chooser = Some(ChooserState::new(request));
         frame(&mut app, &mut ui, &settle);
 
         // Stage the two files (directories sort first, so rows 1 and 2).
@@ -1013,7 +1047,7 @@ mod tests {
             choices: Vec::new(),
             files: Vec::new(),
         };
-        app.chooser = Some(ChooserState::new(request, None));
+        app.chooser = Some(ChooserState::new(request));
         frame(
             &mut app,
             &mut ui,
@@ -1065,7 +1099,7 @@ mod tests {
             choices: Vec::new(),
             files: Vec::new(),
         };
-        app.chooser = Some(ChooserState::new(request, None));
+        app.chooser = Some(ChooserState::new(request));
         app.state.select_all();
         app.state.select_visible(1);
         frame(&mut app, &mut ui, &settle);
@@ -1084,5 +1118,48 @@ mod tests {
             }
             other => panic!("expected a selection, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn chooser_normalizes_empty_initial_choice_values_for_validation() {
+        let req = arca_engine::chooser::FileChooserRequest {
+            mode: arca_engine::chooser::FileChooserMode::OpenFile,
+            app_id: "io.arca.Test".into(),
+            title: "Open".into(),
+            accept_label: None,
+            modal: true,
+            parent_window: None,
+            multiple: false,
+            current_folder: None,
+            current_name: None,
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: vec![
+                Choice {
+                    id: "read_only".into(),
+                    label: "Read only".into(),
+                    options: Vec::new(),
+                    selected: String::new(),
+                },
+                Choice {
+                    id: "encoding".into(),
+                    label: "Encoding".into(),
+                    options: vec![
+                        ("utf8".into(), "UTF-8".into()),
+                        ("latin1".into(), "Latin-1".into()),
+                    ],
+                    selected: String::new(),
+                },
+            ],
+            files: Vec::new(),
+        };
+        let mut state = ChooserState::new(req.clone());
+        state.accept_paths(vec![PathBuf::from("/tmp/example.txt")]);
+        let response = state.result.expect("response recorded");
+        assert!(
+            response.validate_for(&req).is_ok(),
+            "normalized empty initial choices must satisfy contract validation: {response:?}"
+        );
     }
 }

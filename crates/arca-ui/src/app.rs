@@ -2,13 +2,13 @@
 
 use std::time::Instant;
 
-use arca_engine::chooser::{FileChooserMode, PromptColorScheme};
+use arca_engine::chooser::FileChooserMode;
 use arca_engine::config::{ThemeMode, ViewMode};
 use arca_engine::state::AppState;
-use optics_ui::{Align, Frame, Input, LayoutOpts, Rect, TextBuf};
+use optics_ui::{Align, CornerRadii, Frame, Input, LayoutOpts, Rect, TextBuf, Ui};
 
 use crate::chooser::{self, ChooserState};
-use crate::icons::ids;
+use crate::icons::{IconSet, ids};
 use crate::menus;
 use crate::preview::PreviewOverlay;
 use crate::theme::{self, Tones};
@@ -81,6 +81,12 @@ pub(crate) struct LocationCompletionState {
 pub struct UiApp {
     pub state: AppState,
 
+    /// Show Warning/Critical telemetry alerts in the status bar. Only the
+    /// interactive window opts in ([`Self::surface_alerts`]); headless tests
+    /// keep it off so alerts raised by sibling tests cannot leak into their
+    /// status assertions.
+    pub(crate) alerts_in_status: bool,
+
     /// The single-instance endpoint, when this process owns one. Held here so
     /// forwarded paths drain from this window's own mailbox and the socket is
     /// unlinked when the app is dropped.
@@ -113,6 +119,8 @@ pub struct UiApp {
     pub(crate) sidebar_width: f32,
     pub(crate) viewport: (f32, f32),
     pub(crate) miller_seeded_for: Option<String>,
+    /// Preview directory whose column scroll was last reset to the top.
+    pub(crate) miller_preview_seeded_for: Option<String>,
     pub(crate) thumbs: ThumbStore,
     pub(crate) observed_tab_id: u64,
     /// Per-MIME "Open with" snapshot. Resolving an association scans and
@@ -147,6 +155,10 @@ pub struct UiApp {
     /// Whether navigation reads happen on a worker. Production enables this;
     /// deterministic tests and the chooser opt into synchronous reads.
     pub(crate) async_navigation: bool,
+    /// Arca's glyphs, registered on the `optics_ui` context that builds this
+    /// app's frames ([`UiApp::start`]). Ids are only meaningful on that
+    /// context; until registration every glyph is `OPTICS_UI_ICON_NONE`.
+    pub(crate) icons: IconSet,
     /// Test-only observation point: an activation token must never be requested
     /// merely to navigate into a directory (the request can block the UI thread
     /// until the compositor answers).
@@ -223,6 +235,23 @@ impl UiApp {
         self.async_navigation = enabled;
     }
 
+    /// Route Warning/Critical telemetry alerts (UI stalls, render-loop spins)
+    /// into the status bar. The interactive window enables this.
+    pub fn surface_alerts(mut self) -> UiApp {
+        self.alerts_in_status = true;
+        self
+    }
+
+    fn show_alert_notice(&mut self) {
+        if !self.alerts_in_status {
+            return;
+        }
+        if let Some(alert) = arca_engine::telemetry::alerts::global().take_notice() {
+            // Direct assignment: the alert was already logged when raised.
+            self.state.status = Some(format!("⚠ {}", alert.summary));
+        }
+    }
+
     fn assemble(
         mut state: AppState,
         ipc: Option<crate::ipc::IpcServer>,
@@ -231,11 +260,21 @@ impl UiApp {
         state.set_fs_event_listener(Some(std::sync::Arc::new(|| {
             optics_window::post_to_main_thread(|| {});
         })));
+        let mut thumbs = match thumb_cache {
+            Some(cache_dir) => ThumbStore::with_cache_dir(cache_dir),
+            None => ThumbStore::new(),
+        };
+        // A finished decode wakes the event loop so the card repaints with
+        // its thumbnail instead of waiting for the next pointer motion.
+        thumbs.set_wake_fn(Some(std::sync::Arc::new(|| {
+            optics_window::post_to_main_thread(|| {});
+        })));
         let location = TextBuf::new(4096, state.cwd());
         let filter = TextBuf::new(512, state.filter());
         let observed_tab_id = state.active_tab_id();
         UiApp {
             state,
+            alerts_in_status: false,
             ipc,
             location,
             location_focused: false,
@@ -255,6 +294,7 @@ impl UiApp {
             next_hovered_grid_index: None,
             current_grid_columns: 0,
             async_navigation: true,
+            icons: IconSet::EMPTY,
             #[cfg(test)]
             activation_token_requests: 0,
             filter,
@@ -272,10 +312,8 @@ impl UiApp {
             sidebar_width: 220.0,
             viewport: (1040.0, 700.0),
             miller_seeded_for: None,
-            thumbs: match thumb_cache {
-                Some(cache_dir) => ThumbStore::with_cache_dir(cache_dir),
-                None => ThumbStore::new(),
-            },
+            miller_preview_seeded_for: None,
+            thumbs,
             observed_tab_id,
             open_with_cache: std::collections::HashMap::new(),
             preview: PreviewOverlay::new(),
@@ -283,13 +321,27 @@ impl UiApp {
         }
     }
 
+    /// Start callback invoked from the optics-app lifecycle start hook, once
+    /// the window has created `ui` and before the first frame: registers the
+    /// icon set on that context (Optics ADR-0174, ADR-0025).
+    pub fn start(&mut self, ui: &mut Ui) {
+        self.icons = IconSet::register(ui);
+    }
+
     /// Shutdown callback invoked from the optics-app lifecycle stop hook (ADR-0045).
-    /// Releases GPU-backed thumbnail textures cleanly before device teardown.
-    pub fn shutdown(&mut self) {
+    /// Releases GPU-backed thumbnail textures and the context's icons cleanly
+    /// before the window tears down the device and `ui`.
+    pub fn shutdown(&mut self, ui: &mut Ui) {
         self.thumbs.release_all();
+        self.icons.unregister(ui);
     }
 
     pub fn build(&mut self, frame: &mut Frame, input: &Input) {
+        // The heartbeat the watchdog samples: a frame that never reaches the
+        // end of this function is a stall, named by the innermost span.
+        arca_engine::telemetry::span::mark_ui_thread();
+        let _frame = arca_engine::telemetry::watchdog::FrameGuard::begin();
+        self.show_alert_notice();
         let display = input.as_raw().display_size;
         self.viewport = (display.x, display.y);
         self.cursor_pos = (input.as_raw().cursor.x, input.as_raw().cursor.y);
@@ -335,11 +387,11 @@ impl UiApp {
 
         self.sync_caret_blink(frame);
         self.apply_theme(frame);
-        if self.pending_paste {
-            if let Some(text) = frame.take_paste() {
-                self.pending_paste = false;
-                self.state.paste_text(&text);
-            }
+        if self.pending_paste
+            && let Some(text) = frame.take_paste()
+        {
+            self.pending_paste = false;
+            self.state.paste_text(&text);
         }
         self.handle_keys(frame, input);
         let forwarded = self
@@ -347,9 +399,21 @@ impl UiApp {
             .as_ref()
             .map(crate::ipc::IpcServer::drain)
             .unwrap_or_default();
-        for path in forwarded {
+        for req in forwarded {
+            let path = req.path.to_path_buf().to_string_lossy().into_owned();
             self.new_tab_at(&path);
             optics_window::window_restore();
+            if let Some(ref token) = req.activation_token {
+                // `arca-ipc-v2` forwards `XDG_ACTIVATION_TOKEN` to the UI
+                // boundary; `optics-window` v0.0.90 does not yet expose
+                // `xdg_activation_v1::activate(token)`, so fall back to
+                // `window_focus()` until that binding lands (ADR-0023).
+                log::debug!(
+                    target: "arca_ui",
+                    "received forwarded activation token ({} bytes); falling back to window_focus",
+                    token.len()
+                );
+            }
             optics_window::window_focus();
         }
         let nav_changed = self.state.poll_navigation();
@@ -373,15 +437,16 @@ impl UiApp {
 
         let tones = Tones::from_theme(&frame.theme());
         frame.size_next(display.x, display.y);
-        frame.column_ex(
-            &LayoutOpts {
+        frame
+            .column()
+            .with_opts(&LayoutOpts {
                 width: display.x,
                 height: display.y,
                 cross: Align::Stretch,
                 bg: tones.window,
                 ..Default::default()
-            },
-            |frame| {
+            })
+            .show(|frame| {
                 if self.chooser.is_some() {
                     chooser::build_chooser_header(self, frame, input, &tones);
                 } else {
@@ -400,8 +465,7 @@ impl UiApp {
                 } else {
                     statusbar::build_statusbar(self, frame, &tones);
                 }
-            },
-        );
+            });
 
         if self.chooser.is_some() {
             chooser::build_filter_popover(self, frame, &tones);
@@ -411,7 +475,14 @@ impl UiApp {
             menus::build_settings_menu(self, frame, &tones);
             menus::build_sidebar_menu(self, frame, &tones);
             self.preview.sync_selection(&self.state);
-            preview::build_preview(&mut self.preview, &mut self.thumbs, frame, input, &tones);
+            preview::build_preview(
+                &mut self.preview,
+                &mut self.thumbs,
+                frame,
+                &self.icons,
+                input,
+                &tones,
+            );
         }
         self.build_drag_preview(frame, &tones);
         self.finish_frame();
@@ -451,6 +522,7 @@ impl UiApp {
     }
 
     fn build_drag_preview(&self, frame: &mut Frame, tones: &Tones) {
+        let icons = self.icons;
         let Some(drag) = &self.active_drag else {
             return;
         };
@@ -479,25 +551,25 @@ impl UiApp {
                     bg: optics_ui::Color::rgba(22, 27, 40, 225),
                     border: tones.selected,
                     border_width: 1.0,
-                    radius: 7.0,
+                    corner_radii: CornerRadii::uniform(7.0),
                     ..Default::default()
                 },
                 ..Default::default()
             },
             |frame| {
-                frame.row_ex(
-                    &LayoutOpts {
+                frame
+                    .row()
+                    .with_opts(&LayoutOpts {
                         gap: 6.0,
                         cross: Align::Center,
                         ..Default::default()
-                    },
-                    |frame| {
+                    })
+                    .show(|frame| {
                         let icon_id = if drag.is_dir { ids::Folder } else { ids::File };
-                        crate::icons::icon(frame, icon_id, 16.0);
+                        icons.icon(frame, icon_id, 16.0);
                         let fg = frame.theme().fg();
                         theme::label_colored_sized(frame, &drag.name, 12.0, fg);
-                    },
-                );
+                    });
             },
         );
     }
@@ -522,17 +594,6 @@ impl UiApp {
     }
 
     fn apply_theme(&mut self, frame: &mut Frame) {
-        if let Some(chooser) = &self.chooser {
-            if let Some(appr) = &chooser.appearance {
-                let dark = match appr.color_scheme {
-                    PromptColorScheme::System => optics_window::system_prefers_dark(),
-                    PromptColorScheme::Light => false,
-                    PromptColorScheme::Dark => true,
-                };
-                frame.set_theme(theme::branded_theme_with_accent(dark, appr.accent_color));
-                return;
-            }
-        }
         let dark = match self.state.theme {
             ThemeMode::System => optics_window::system_prefers_dark(),
             ThemeMode::Light => false,
@@ -576,6 +637,7 @@ impl UiApp {
         self.ctx_menu = None;
         self.settings_menu = None;
         self.miller_seeded_for = None;
+        self.miller_preview_seeded_for = None;
         self.preview.reset();
     }
 
@@ -686,29 +748,28 @@ impl UiApp {
         self.pending_focus = Some(FocusTarget::Location);
         let current = self.location.as_str().into_owned();
 
-        if let Some(state) = &mut self.location_completion {
-            if !state.candidates.is_empty()
-                && (current == state.last_input || state.candidates.contains(&current))
-            {
-                let next_idx = (state.candidate_idx + 1) % state.candidates.len();
-                let next = state.candidates[next_idx].clone();
-                state.candidate_idx = next_idx;
-                self.location.set(&next);
-                frame.textfield_set_caret("##location", next.len() as u32);
-                self.state.set_status(format!(
-                    "[{}/{}] {} (Tab to cycle)",
-                    next_idx + 1,
-                    state.candidates.len(),
-                    next
-                ));
-                return;
-            }
+        if let Some(state) = &mut self.location_completion
+            && !state.candidates.is_empty()
+            && (current == state.last_input || state.candidates.contains(&current))
+        {
+            let next_idx = (state.candidate_idx + 1) % state.candidates.len();
+            let next = state.candidates[next_idx].clone();
+            state.candidate_idx = next_idx;
+            self.location.set(&next);
+            frame.textedit_set_caret("##location", next.len() as u32);
+            self.state.set_status(format!(
+                "[{}/{}] {} (Tab to cycle)",
+                next_idx + 1,
+                state.candidates.len(),
+                next
+            ));
+            return;
         }
 
         if let Some(comp) = arca_engine::complete_path(self.state.cwd(), &current) {
             if comp.completed != current {
                 self.location.set(&comp.completed);
-                frame.textfield_set_caret("##location", comp.completed.len() as u32);
+                frame.textedit_set_caret("##location", comp.completed.len() as u32);
                 let cand_len = comp.candidates.len();
                 if cand_len > 1 {
                     self.state.set_status(format!(
@@ -735,7 +796,7 @@ impl UiApp {
             } else if !comp.candidates.is_empty() {
                 let first = comp.candidates[0].clone();
                 self.location.set(&first);
-                frame.textfield_set_caret("##location", first.len() as u32);
+                frame.textedit_set_caret("##location", first.len() as u32);
                 self.state.set_status(format!(
                     "[1/{}] {} (Tab to cycle)",
                     comp.candidates.len(),
@@ -764,6 +825,8 @@ impl UiApp {
         {
             self.activation_token_requests += 1;
         }
+        // Synchronous: polls a private Wayland queue for up to ~1 s.
+        let _span = arca_engine::telemetry::span("ui.activation_token");
         optics_window::window_create_activation_token(None)
     }
 
@@ -847,11 +910,12 @@ impl UiApp {
         if ctrl {
             self.state.toggle_select_visible(visible_idx);
             self.last_click = Some((identity.clone(), now));
-            if let Some(chooser) = &mut self.chooser {
-                if chooser.request.mode == FileChooserMode::OpenFile && chooser.allows_multiple() {
-                    let path = std::path::Path::new(self.state.cwd()).join(name);
-                    chooser.toggle_selected_path(path);
-                }
+            if let Some(chooser) = &mut self.chooser
+                && chooser.request.mode == FileChooserMode::OpenFile
+                && chooser.allows_multiple()
+            {
+                let path = std::path::Path::new(self.state.cwd()).join(name);
+                chooser.toggle_selected_path(path);
             }
             return;
         }
@@ -925,7 +989,10 @@ impl UiApp {
         if let Some(cached) = self.open_with_cache.get(mime) {
             return cached.clone();
         }
-        let resolved = arca_xdg::desktop::applications_for_mime(mime);
+        let resolved = {
+            let _span = arca_engine::telemetry::span("xdg.applications_for_mime");
+            arca_xdg::desktop::applications_for_mime(mime)
+        };
         self.open_with_cache
             .insert(mime.to_string(), resolved.clone());
         resolved
@@ -1018,7 +1085,7 @@ impl UiApp {
                     frame.consume_key(optics_ui::key::ESCAPE);
                     if let Some(comp) = self.location_completion.take() {
                         self.location.set(&comp.original_input);
-                        frame.textfield_set_caret("##location", comp.original_input.len() as u32);
+                        frame.textedit_set_caret("##location", comp.original_input.len() as u32);
                         self.state.set_status(String::new());
                     } else {
                         self.location.set(self.state.cwd());
@@ -1234,7 +1301,7 @@ mod tests {
     //! Migrated out of the former monolithic `lib.rs::tests` block so each
     //! test lives next to the code it constrains.
 
-    use crate::test_support::{fixture, fixture_two_files, frame, press};
+    use crate::test_support::{fixture, fixture_two_files, frame, press, settle};
     use arca_engine::TransferAction;
 
     #[test]
@@ -1297,6 +1364,8 @@ mod tests {
     #[test]
     fn double_click_into_directory_does_not_panic_on_stale_rows() {
         let (_dir, mut app) = fixture();
+        // List rows record `sub_row_rect`; Grid is the default view.
+        app.state.override_view_mode(arca_engine::ViewMode::List);
         let mut ui = optics_ui::Ui::headless().expect("headless ui");
         let settle = optics_ui::Input::new((1040.0, 700.0), 1.0 / 60.0);
         for _ in 0..2 {
@@ -1702,8 +1771,16 @@ mod tests {
     #[test]
     fn app_shutdown_cleans_up_resources() {
         let (_dir, mut app) = fixture();
-        app.shutdown();
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        app.start(&mut ui);
+        assert!(app.icons.is_registered_on(&mut ui));
+        app.shutdown(&mut ui);
         assert!(crate::device::device().is_none());
+        assert_eq!(
+            app.icons,
+            crate::icons::IconSet::EMPTY,
+            "shutdown releases the context's icons"
+        );
     }
 
     #[test]
@@ -1715,7 +1792,14 @@ mod tests {
         // Frame 1: resolve layout so node has prev_rect
         ui.frame(&input, |f| {
             f.size_next(200.0, 36.0);
-            f.textfield_placeholder("##tf", &mut tf_buf, "placeholder");
+            f.textedit(
+                "##tf",
+                &mut tf_buf,
+                &optics_ui::TextEditOpts {
+                    placeholder: Some("placeholder"),
+                    ..Default::default()
+                },
+            );
         });
         if let Ok(snap) = ui.snapshot() {
             let _ = ui.activate(&snap);
@@ -1726,10 +1810,65 @@ mod tests {
         hover_input.set_cursor(50.0, 18.0);
         ui.frame(&hover_input, |f| {
             f.size_next(200.0, 36.0);
-            f.textfield_placeholder("##tf", &mut tf_buf, "placeholder");
+            f.textedit(
+                "##tf",
+                &mut tf_buf,
+                &optics_ui::TextEditOpts {
+                    placeholder: Some("placeholder"),
+                    ..Default::default()
+                },
+            );
         });
 
         assert_eq!(ui.cursor_hint(), optics_ui::CursorHint::Text);
+    }
+
+    #[test]
+    fn every_build_beats_the_watchdog_heartbeat_and_marks_the_ui_thread() {
+        let (_dir, mut app) = fixture();
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+        let heartbeat = arca_engine::telemetry::watchdog::heartbeat();
+        let before = heartbeat.frames();
+        settle(&mut app, &mut ui);
+        assert!(heartbeat.frames() > before, "frames were counted");
+        assert!(arca_engine::telemetry::span::is_ui_thread());
+        assert!(
+            arca_engine::telemetry::metrics::global()
+                .histogram("ui.frame")
+                .is_some_and(|h| h.count() > 0)
+        );
+    }
+
+    #[test]
+    fn alerts_reach_the_status_bar_only_when_the_window_opts_in() {
+        use arca_engine::telemetry::alerts::{self, Alert, AlertKind, Severity};
+        let mut ui = optics_ui::Ui::headless().expect("headless ui");
+
+        let (_dir, quiet) = fixture();
+        let (_dir2, loud) = fixture();
+        let mut loud = loud.surface_alerts();
+        let mut quiet = quiet;
+        // Unique summary: the global log deduplicates by summary stem.
+        let summary = "UI unresponsive (status-bar routing test)";
+        alerts::global().raise(Alert::new(AlertKind::UiStall, Severity::Critical, summary));
+
+        settle(&mut quiet, &mut ui);
+        assert!(
+            !quiet.state.status.as_deref().unwrap_or("").starts_with('⚠'),
+            "opted-out windows never show alerts"
+        );
+        // The notice is still pending (the quiet window did not consume it).
+        // Sibling tests in this process may raise a newer warning meanwhile,
+        // so assert the routing, not the exact text.
+        settle(&mut loud, &mut ui);
+        assert!(
+            loud.state
+                .status
+                .as_deref()
+                .is_some_and(|s| s.starts_with('⚠')),
+            "status was {:?}",
+            loud.state.status
+        );
     }
 
     /// Deleting the last remaining tab is documented as exiting the app; the

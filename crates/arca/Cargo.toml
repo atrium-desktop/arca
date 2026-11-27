@@ -9,3 +9,4 @@ rust-version.workspace = true
 optics-app.workspace = true
 arca-engine.workspace = true
 arca-ui.workspace = true
+log.workspace = true

@@ -1,16 +1,21 @@
 //! Stable contract and helper types for FileChooser portal operations.
 //!
-//! Conforms to `org.freedesktop.impl.portal.FileChooser` v3 and the Tessera
-//! portal prompter process protocol (JSON over anonymous stdin/stdout pipes).
+//! Conforms to `org.freedesktop.impl.portal.FileChooser` v3 and the Atrium
+//! Arca FileChooser stdio contract v1 (ADR-0027: flat JSON envelopes over
+//! anonymous stdin/stdout pipes).
 
 use std::ffi::{OsStr, OsString};
-use std::io;
+use std::io::{self, Read};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Component, Path, PathBuf};
 
-/// Version of the private stdin/stdout process contract (matches Tessera
-/// prompter contract v6).
-pub const PROCESS_CONTRACT_VERSION: u32 = 6;
+/// Version of the `arca --chooser-prompt` stdio contract (matches
+/// `atrium-arca-contract::ARCA_CONTRACT_VERSION`).
+pub const ARCA_CONTRACT_VERSION: u32 = 1;
+
+/// Maximum serialized byte length accepted on `arca --chooser-prompt`'s stdin
+/// (matches `xdg-desktop-portal-atrium`'s `MAX_REQUEST_BYTES` of 1 MiB).
+pub const MAX_CHOOSER_REQUEST_BYTES: usize = 1024 * 1024;
 
 /// One filesystem path encoded as native Unix bytes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -119,33 +124,7 @@ pub struct Choice {
     pub selected: String,
 }
 
-/// The compositor appearance snapshot for dialog styling.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PromptAppearance {
-    pub color_scheme: PromptColorScheme,
-    pub accent_color: Option<PromptAccent>,
-    pub high_contrast: bool,
-    pub reduced_motion: bool,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PromptColorScheme {
-    #[default]
-    System,
-    Dark,
-    Light,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PromptAccent {
-    pub red: u8,
-    pub green: u8,
-    pub blue: u8,
-}
-
-/// One complete request sent from the D-Bus backend to the prompter.
+/// One complete request sent from the D-Bus backend to the chooser.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileChooserRequest {
     pub mode: FileChooserMode,
@@ -275,42 +254,28 @@ impl FileChooserResponse {
     }
 }
 
-/// Envelope for prompter requests (versioned wire format).
+/// Versioned request envelope written to `arca --chooser-prompt`'s stdin.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PrompterRequest {
+#[serde(deny_unknown_fields)]
+pub struct ChooserRequestEnvelope {
     pub version: u32,
-    pub prompt: PromptRequest,
-    #[serde(default)]
-    pub appearance: Option<PromptAppearance>,
+    pub request: FileChooserRequest,
 }
 
+/// Versioned response envelope emitted on `arca --chooser-prompt`'s stdout.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", content = "request", rename_all = "snake_case")]
-pub enum PromptRequest {
-    FileChooser(Box<FileChooserRequest>),
-    #[serde(other)]
-    Unknown,
-}
-
-/// Envelope for prompter responses (versioned wire format).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PrompterResponse {
+#[serde(deny_unknown_fields)]
+pub struct ChooserResponseEnvelope {
     pub version: u32,
-    pub result: PromptResult,
+    pub response: FileChooserResponse,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", content = "response", rename_all = "snake_case")]
-pub enum PromptResult {
-    FileChooser(FileChooserResponse),
-}
-
-impl PrompterResponse {
+impl ChooserResponseEnvelope {
     #[must_use]
     pub fn new(response: FileChooserResponse) -> Self {
         Self {
-            version: PROCESS_CONTRACT_VERSION,
-            result: PromptResult::FileChooser(response),
+            version: ARCA_CONTRACT_VERSION,
+            response,
         }
     }
 }
@@ -365,13 +330,15 @@ fn validate_choices(choices: &[Choice]) -> Result<(), String> {
             ));
         }
         if choice.options.is_empty() {
-            if choice.selected != "true" && choice.selected != "false" {
+            if !matches!(choice.selected.as_str(), "" | "true" | "false") {
                 return Err(format!(
-                    "boolean choice {:?} selected value must be 'true' or 'false'",
+                    "boolean choice {:?} selected value must be '', 'true', or 'false'",
                     choice.id
                 ));
             }
-        } else if !choice.options.iter().any(|(id, _)| id == &choice.selected) {
+        } else if !choice.selected.is_empty()
+            && !choice.options.iter().any(|(id, _)| id == &choice.selected)
+        {
             return Err(format!(
                 "choice {:?} initial value {:?} is not among its options",
                 choice.id, choice.selected
@@ -381,29 +348,29 @@ fn validate_choices(choices: &[Choice]) -> Result<(), String> {
     Ok(())
 }
 
+/// Check the answered choice values against the offered controls, in order.
 fn validate_choice_answers(answers: &[(String, String)], choices: &[Choice]) -> Result<(), String> {
     if answers.len() != choices.len() {
         return Err(format!(
-            "prompter returned {} choice answer(s), expected {}",
+            "chooser returned {} choice answer(s), expected {}",
             answers.len(),
             choices.len()
         ));
     }
-    let mut seen = std::collections::BTreeSet::new();
-    for (id, value) in answers {
-        if !seen.insert(id.as_str()) {
-            return Err(format!("prompter returned duplicate answer for {id:?}"));
+    for ((id, value), choice) in answers.iter().zip(choices) {
+        if id != &choice.id {
+            return Err(format!(
+                "chooser returned unexpected choice id {id:?} (expected {:?})",
+                choice.id
+            ));
         }
-        let Some(choice) = choices.iter().find(|c| &c.id == id) else {
-            return Err(format!("prompter answered unoffered choice {id:?}"));
-        };
         if choice.options.is_empty() {
             if value != "true" && value != "false" {
                 return Err(format!("boolean choice {id:?} answered with {value:?}"));
             }
         } else if !choice.options.iter().any(|(opt_id, _)| opt_id == value) {
             return Err(format!(
-                "prompter answered choice {id:?} with unoffered option {value:?}"
+                "chooser answered choice {id:?} with unoffered option {value:?}"
             ));
         }
     }
@@ -486,17 +453,17 @@ fn glob_recursive(pattern: &[char], name: &[char]) -> bool {
             }
         },
         Some(&literal) => {
-            if let Some(&nc) = name.first() {
-                if nc.eq_ignore_ascii_case(&literal) {
-                    return glob_recursive(&pattern[1..], &name[1..]);
-                }
+            if let Some(&nc) = name.first()
+                && nc.eq_ignore_ascii_case(&literal)
+            {
+                return glob_recursive(&pattern[1..], &name[1..]);
             }
             false
         }
     }
 }
 
-fn parse_class(pattern: &[char]) -> Option<(impl Fn(char) -> bool + 'static, &[char])> {
+fn parse_class(pattern: &[char]) -> Option<(impl Fn(char) -> bool + use<>, &[char])> {
     debug_assert_eq!(pattern.first(), Some(&'['));
     let mut items: Vec<(char, char)> = Vec::new();
     let mut index = 1;
@@ -571,44 +538,55 @@ fn strip_mnemonics(label: &str) -> String {
     out
 }
 
-/// Read and decode one request envelope from `reader`.
-pub fn read_prompter_request<R: io::Read>(
-    reader: R,
-) -> Result<(FileChooserRequest, Option<PromptAppearance>), String> {
-    let req: PrompterRequest = serde_json::from_reader(reader)
-        .map_err(|e| format!("failed to parse prompter request JSON: {e}"))?;
-    // The contract is versioned for a reason: a daemon speaking a different
-    // revision may send fields this build would silently misread. Refuse
-    // rather than guess — the caller can then fall back to another prompter.
-    if req.version != PROCESS_CONTRACT_VERSION {
+/// Read and decode one versioned FileChooser request envelope from `reader`.
+///
+/// The input stream is strictly capped at [`MAX_CHOOSER_REQUEST_BYTES`] so an
+/// unbounded pipe cannot exhaust memory. The version stamp is checked before
+/// decoding the envelope fields so that a peer speaking another revision (such
+/// as the retired v6 multi-prompt envelope) receives a version-mismatch error
+/// rather than a missing-field parse failure.
+pub fn read_chooser_request<R: io::Read>(reader: R) -> Result<FileChooserRequest, String> {
+    let mut bytes = Vec::new();
+    reader
+        .take((MAX_CHOOSER_REQUEST_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("failed to read chooser request: {e}"))?;
+    if bytes.len() > MAX_CHOOSER_REQUEST_BYTES {
         return Err(format!(
-            "unsupported prompter contract version {} (this build speaks {})",
-            req.version, PROCESS_CONTRACT_VERSION
+            "chooser request exceeds the {MAX_CHOOSER_REQUEST_BYTES}-byte limit"
         ));
     }
-    match req.prompt {
-        PromptRequest::FileChooser(mut fc) => {
-            if let Some(label) = fc.accept_label.as_deref() {
-                fc.accept_label = Some(strip_mnemonics(label));
-            }
-            fc.validate()?;
-            Ok((*fc, req.appearance))
-        }
-        _ => Err("request did not contain a file chooser prompt".into()),
+    let raw: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("failed to parse chooser request JSON: {e}"))?;
+    let Some(version) = raw.get("version").and_then(serde_json::Value::as_u64) else {
+        return Err("chooser request is missing an integer 'version' field".into());
+    };
+    if version != u64::from(ARCA_CONTRACT_VERSION) {
+        return Err(format!(
+            "unsupported chooser contract version {version} (this build speaks {ARCA_CONTRACT_VERSION})"
+        ));
     }
+    let mut envelope: ChooserRequestEnvelope = serde_json::from_value(raw)
+        .map_err(|e| format!("failed to decode chooser request envelope: {e}"))?;
+    if let Some(label) = envelope.request.accept_label.as_deref() {
+        let stripped = strip_mnemonics(label);
+        envelope.request.accept_label = (!stripped.is_empty()).then_some(stripped);
+    }
+    envelope.request.validate()?;
+    Ok(envelope.request)
 }
 
-/// Write one response envelope to `writer` as JSON.
-pub fn write_prompter_response<W: io::Write>(
+/// Write one versioned FileChooser response envelope to `writer` as a single JSON line.
+pub fn write_chooser_response<W: io::Write>(
     mut writer: W,
     response: FileChooserResponse,
 ) -> Result<(), String> {
-    let res = PrompterResponse::new(response);
+    let res = ChooserResponseEnvelope::new(response);
     serde_json::to_writer(&mut writer, &res)
-        .map_err(|e| format!("failed to serialize prompter response: {e}"))?;
+        .map_err(|e| format!("failed to serialize chooser response: {e}"))?;
     writer
         .write_all(b"\n")
-        .map_err(|e| format!("failed to flush prompter response: {e}"))?;
+        .map_err(|e| format!("failed to flush chooser response: {e}"))?;
     Ok(())
 }
 
@@ -619,32 +597,65 @@ mod tests {
     /// A daemon speaking another contract revision must be rejected, not
     /// silently parsed against this build's field meanings.
     #[test]
-    fn prompter_rejects_unknown_contract_versions() {
+    fn chooser_rejects_unknown_contract_versions() {
         let request_json = |version: u32| {
             format!(
-                r#"{{"version":{version},"prompt":{{"kind":"file_chooser","request":{{
+                r#"{{"version":{version},"request":{{
                     "mode":"open_file","app_id":"x","title":"t","accept_label":null,
                     "modal":false,"parent_window":null,"multiple":false,
                     "current_folder":null,"current_name":null,"current_file":null,
-                    "filters":[],"current_filter":null,"choices":[],"files":[]}}}}}}"#
+                    "filters":[],"current_filter":null,"choices":[],"files":[]}}}}"#
             )
         };
 
-        assert!(read_prompter_request(request_json(PROCESS_CONTRACT_VERSION).as_bytes()).is_ok());
-        for version in [
-            1,
-            5,
-            PROCESS_CONTRACT_VERSION - 1,
-            PROCESS_CONTRACT_VERSION + 1,
-            99,
-        ] {
-            let error = read_prompter_request(request_json(version).as_bytes())
+        assert!(read_chooser_request(request_json(ARCA_CONTRACT_VERSION).as_bytes()).is_ok());
+        for version in [0, ARCA_CONTRACT_VERSION + 1, 6, 99] {
+            let error = read_chooser_request(request_json(version).as_bytes())
                 .expect_err("a foreign contract version must be refused");
             assert!(
                 error.contains("contract version"),
                 "the error must name the version mismatch, got {error:?}"
             );
         }
+
+        // Retired v6 multi-prompt envelope must also be refused with a version
+        // mismatch error before field decoding.
+        let legacy_v6 = r#"{"version":6,"prompt":{"kind":"file_chooser","request":{}}}"#;
+        let error = read_chooser_request(legacy_v6.as_bytes())
+            .expect_err("legacy v6 envelope must be refused");
+        assert!(
+            error.contains("contract version 6"),
+            "legacy v6 refusal must report version 6, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn chooser_rejects_oversized_stdin_before_parsing() {
+        let oversized = vec![b' '; MAX_CHOOSER_REQUEST_BYTES + 1];
+        let error = read_chooser_request(oversized.as_slice())
+            .expect_err("oversized stdin must be refused");
+        assert!(
+            error.contains("exceeds"),
+            "error must report size bound, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn chooser_rejects_unknown_envelope_fields() {
+        let with_extra = format!(
+            r#"{{"version":{ARCA_CONTRACT_VERSION},"request":{{
+                "mode":"open_file","app_id":"x","title":"t","accept_label":null,
+                "modal":false,"parent_window":null,"multiple":false,
+                "current_folder":null,"current_name":null,"current_file":null,
+                "filters":[],"current_filter":null,"choices":[],"files":[]}},
+                "appearance":null}}"#
+        );
+        let error = read_chooser_request(with_extra.as_bytes())
+            .expect_err("unknown top-level fields must be rejected");
+        assert!(
+            error.contains("unknown field"),
+            "expected deny_unknown_fields error, got {error:?}"
+        );
     }
 
     #[test]
@@ -718,14 +729,81 @@ mod tests {
             choices: Vec::new(),
             files: Vec::new(),
         };
-        let json = serde_json::to_string(&PrompterRequest {
-            version: PROCESS_CONTRACT_VERSION,
-            prompt: PromptRequest::FileChooser(Box::new(req)),
-            appearance: None,
+        let json = serde_json::to_string(&ChooserRequestEnvelope {
+            version: ARCA_CONTRACT_VERSION,
+            request: req.clone(),
         })
         .unwrap();
-        let (decoded, _) = read_prompter_request(json.as_bytes()).unwrap();
+        let decoded = read_chooser_request(json.as_bytes()).unwrap();
         assert_eq!(decoded.accept_label.as_deref(), Some("Open"));
+
+        // A lone mnemonic marker normalizes to None so the UI uses its default label.
+        let mut bare = req;
+        bare.accept_label = Some("_".into());
+        let json = serde_json::to_string(&ChooserRequestEnvelope {
+            version: ARCA_CONTRACT_VERSION,
+            request: bare,
+        })
+        .unwrap();
+        let decoded = read_chooser_request(json.as_bytes()).unwrap();
+        assert_eq!(decoded.accept_label, None);
+    }
+
+    #[test]
+    fn empty_initial_choice_selection_is_valid_and_answers_must_match_order() {
+        let req = FileChooserRequest {
+            mode: FileChooserMode::OpenFile,
+            app_id: "org.example.App".into(),
+            title: "Open".into(),
+            accept_label: None,
+            modal: false,
+            parent_window: None,
+            multiple: false,
+            current_folder: None,
+            current_name: None,
+            current_file: None,
+            filters: Vec::new(),
+            current_filter: None,
+            choices: vec![
+                Choice {
+                    id: "read_only".into(),
+                    label: "Read only".into(),
+                    options: Vec::new(),
+                    selected: String::new(),
+                },
+                Choice {
+                    id: "encoding".into(),
+                    label: "Encoding".into(),
+                    options: vec![
+                        ("utf8".into(), "UTF-8".into()),
+                        ("latin1".into(), "Latin-1".into()),
+                    ],
+                    selected: String::new(),
+                },
+            ],
+            files: Vec::new(),
+        };
+        assert!(req.validate().is_ok());
+
+        let ordered = FileChooserResponse::Selected {
+            paths: vec![BytePath::from_path("/tmp/doc.txt")],
+            current_filter: None,
+            choices: vec![
+                ("read_only".into(), "false".into()),
+                ("encoding".into(), "utf8".into()),
+            ],
+        };
+        assert!(ordered.validate_for(&req).is_ok());
+
+        let reordered = FileChooserResponse::Selected {
+            paths: vec![BytePath::from_path("/tmp/doc.txt")],
+            current_filter: None,
+            choices: vec![
+                ("encoding".into(), "utf8".into()),
+                ("read_only".into(), "false".into()),
+            ],
+        };
+        assert!(reordered.validate_for(&req).is_err());
     }
 
     #[test]
@@ -757,31 +835,20 @@ mod tests {
             }],
             files: Vec::new(),
         };
-        let prompter_req = PrompterRequest {
-            version: PROCESS_CONTRACT_VERSION,
-            prompt: PromptRequest::FileChooser(Box::new(req.clone())),
-            appearance: Some(PromptAppearance {
-                color_scheme: PromptColorScheme::Dark,
-                accent_color: Some(PromptAccent {
-                    red: 88,
-                    green: 101,
-                    blue: 242,
-                }),
-                high_contrast: false,
-                reduced_motion: false,
-            }),
+        let envelope = ChooserRequestEnvelope {
+            version: ARCA_CONTRACT_VERSION,
+            request: req.clone(),
         };
 
-        let json = serde_json::to_string(&prompter_req).unwrap();
+        let json = serde_json::to_string(&envelope).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["version"], PROCESS_CONTRACT_VERSION);
-        assert_eq!(value["prompt"]["kind"], "file_chooser");
-        assert!(value["prompt"]["request"].is_object());
+        assert_eq!(value["version"], ARCA_CONTRACT_VERSION);
+        assert!(value["request"].is_object());
+        assert!(value.get("prompt").is_none());
 
-        let (decoded_fc, appearance) = read_prompter_request(json.as_bytes()).unwrap();
+        let decoded_fc = read_chooser_request(json.as_bytes()).unwrap();
         assert_eq!(decoded_fc.app_id, req.app_id);
         assert_eq!(decoded_fc.title, req.title);
-        assert_eq!(appearance.unwrap().color_scheme, PromptColorScheme::Dark);
 
         let response = FileChooserResponse::Selected {
             paths: vec![BytePath::from_path("/home/user/document.txt")],
@@ -789,14 +856,14 @@ mod tests {
             choices: vec![("read_only".into(), "true".into())],
         };
         let mut resp_buf = Vec::new();
-        write_prompter_response(&mut resp_buf, response).unwrap();
+        write_chooser_response(&mut resp_buf, response).unwrap();
 
         let resp_value: serde_json::Value = serde_json::from_slice(&resp_buf).unwrap();
-        assert_eq!(resp_value["version"], PROCESS_CONTRACT_VERSION);
-        assert_eq!(resp_value["result"]["kind"], "file_chooser");
-        assert!(resp_value["result"]["response"].is_object());
+        assert_eq!(resp_value["version"], ARCA_CONTRACT_VERSION);
+        assert!(resp_value["response"].is_object());
+        assert!(resp_value.get("result").is_none());
 
-        let resp_parsed: PrompterResponse = serde_json::from_slice(&resp_buf).unwrap();
-        assert_eq!(resp_parsed.version, PROCESS_CONTRACT_VERSION);
+        let resp_parsed: ChooserResponseEnvelope = serde_json::from_slice(&resp_buf).unwrap();
+        assert_eq!(resp_parsed.version, ARCA_CONTRACT_VERSION);
     }
 }

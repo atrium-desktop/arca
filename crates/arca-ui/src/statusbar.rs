@@ -63,22 +63,22 @@ pub(crate) fn build_statusbar(app: &mut UiApp, frame: &mut Frame, tones: &Tones)
         })
     };
     frame.size_next(0.0, 32.0);
-    frame.row_ex(
-        &LayoutOpts {
+    frame
+        .row()
+        .with_opts(&LayoutOpts {
             height: 32.0,
             gap: 12.0,
             pad: 8.0,
             cross: Align::Center,
             bg: tones.status_bar,
             ..Default::default()
-        },
-        |frame| {
+        })
+        .show(|frame| {
             theme::label_colored_sized(frame, &left, 11.5, tones.muted);
             frame.flex(1.0);
             frame.spacer(0.0);
             theme::label_colored_sized(frame, &right, 11.5, tones.muted);
-        },
-    );
+        });
 }
 
 #[cfg(test)]

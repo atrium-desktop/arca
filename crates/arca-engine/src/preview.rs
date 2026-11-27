@@ -39,6 +39,7 @@ pub struct Preview {
 
 impl Preview {
     pub fn load(path: &str) -> Preview {
+        let _span = crate::telemetry::span("preview.load");
         let source = Path::new(path);
         let title = source
             .file_name()
@@ -110,10 +111,10 @@ impl Preview {
         ];
 
         let bytes = read_prefix(source);
-        if kind == PreviewKind::Image {
-            if let Some((width, height)) = image_dimensions(&mime, &bytes) {
-                facts.insert(1, ("Dimensions".into(), format!("{width} × {height}")));
-            }
+        if kind == PreviewKind::Image
+            && let Some((width, height)) = image_dimensions(&mime, &bytes)
+        {
+            facts.insert(1, ("Dimensions".into(), format!("{width} × {height}")));
         }
 
         let text = if matches!(kind, PreviewKind::Text) || looks_like_text(&bytes) {

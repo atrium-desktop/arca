@@ -9,6 +9,7 @@
 //! - [XDG MIME Applications Specification](https://specifications.freedesktop.org/mime-apps-spec/latest/)
 //! - [XDG Trash Specification v1.0](https://specifications.freedesktop.org/trash-spec/latest/)
 //! - [RFC 1321 MD5 Specification](https://datatracker.ietf.org/doc/html/rfc1321) (Thumbnail Standard)
+//! - [Thumbnail Managing Standard](https://specifications.freedesktop.org/thumbnail-spec/latest/)
 //! - Standard Linux Desktop Clipboard interchange protocols
 
 pub mod base;
@@ -16,6 +17,7 @@ pub mod clipboard;
 pub mod desktop;
 pub mod md5;
 pub mod mime;
+pub mod thumbnail;
 pub mod trash;
 pub mod uri;
 pub mod user_dirs;
@@ -27,15 +29,15 @@ pub use base::{
 };
 pub use clipboard::{FileClipboard, TransferAction};
 pub use desktop::{
-    applications_for_mime, default_application_for_mime, discover_applications, open_path,
-    parse_desktop_file, DesktopEntry,
+    DesktopEntry, applications_for_mime, default_application_for_mime, discover_applications,
+    open_path, parse_desktop_file,
 };
 pub use md5::md5_hex;
-pub use mime::{default_database, guess_mime_type, MimeDatabase};
+pub use mime::{MimeDatabase, default_database, guess_mime_type};
 pub use trash::{
-    empty_trash, home_trash_files_dir, home_trash_root, is_trash_files_dir, list_trash,
+    TrashItem, empty_trash, home_trash_files_dir, home_trash_root, is_trash_files_dir, list_trash,
     list_trash_in_root, purge_trash_item, restore_trash_item, trash_paths, trash_root,
-    trash_root_for, TrashItem,
+    trash_root_for,
 };
 pub use uri::{decode_file_uri, encode_file_uri};
-pub use user_dirs::{load_user_dirs, user_dir, UserDirKind};
+pub use user_dirs::{UserDirKind, load_user_dirs, user_dir};

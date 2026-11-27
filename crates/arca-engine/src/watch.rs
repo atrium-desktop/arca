@@ -7,8 +7,8 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -154,8 +154,9 @@ mod linux_impl {
         | IN_DELETE_SELF
         | IN_MOVE_SELF;
 
-    extern "C" {
-        fn inotify_init1(flags: c_int) -> c_int;
+    unsafe extern "C" {
+        /// Creates a fresh descriptor and touches no caller memory.
+        safe fn inotify_init1(flags: c_int) -> c_int;
         fn inotify_add_watch(fd: c_int, pathname: *const c_char, mask: u32) -> c_int;
         fn inotify_rm_watch(fd: c_int, wd: c_int) -> c_int;
         fn poll(fds: *mut PollFd, nfds: usize, timeout: c_int) -> c_int;
@@ -171,7 +172,7 @@ mod linux_impl {
     }
 
     pub fn start_watcher(initial_wake_fn: Option<WakeFn>) -> io::Result<FsWatcher> {
-        let inotify_fd = unsafe { inotify_init1(IN_CLOEXEC | IN_NONBLOCK) };
+        let inotify_fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
         if inotify_fd < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -290,15 +291,22 @@ mod linux_impl {
 
                         // Add new paths not currently watched
                         for path in new_set.keys() {
-                            if !path_to_wd.contains_key(path) {
-                                if let Ok(c_path) = CString::new(path.as_os_str().as_bytes()) {
-                                    let wd = unsafe {
-                                        inotify_add_watch(inotify_fd, c_path.as_ptr(), WATCH_MASK)
-                                    };
-                                    if wd >= 0 {
-                                        path_to_wd.insert(path.clone(), wd);
-                                        wd_to_path.insert(wd, path.clone());
-                                    }
+                            if !path_to_wd.contains_key(path)
+                                && let Ok(c_path) = CString::new(path.as_os_str().as_bytes())
+                            {
+                                let wd = unsafe {
+                                    inotify_add_watch(inotify_fd, c_path.as_ptr(), WATCH_MASK)
+                                };
+                                if wd >= 0 {
+                                    path_to_wd.insert(path.clone(), wd);
+                                    wd_to_path.insert(wd, path.clone());
+                                } else {
+                                    log::debug!(
+                                        target: "arca_engine::watch",
+                                        "cannot watch {}: {}",
+                                        path.display(),
+                                        io::Error::last_os_error()
+                                    );
                                 }
                             }
                         }
@@ -349,6 +357,12 @@ mod linux_impl {
 
                         if mask & IN_Q_OVERFLOW != 0 {
                             // Queue overflow: mark all watched directories dirty
+                            log::warn!(
+                                target: "arca_engine::watch",
+                                "inotify queue overflowed; re-reading {} watched directories",
+                                path_to_wd.len()
+                            );
+                            crate::telemetry::counter("fs.watch.overflows", 1);
                             let now = Instant::now();
                             for path in path_to_wd.keys() {
                                 dirty_paths.insert(

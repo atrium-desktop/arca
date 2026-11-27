@@ -65,10 +65,11 @@ impl UserDirKind {
 pub fn user_dir(kind: UserDirKind) -> Option<PathBuf> {
     let home = home_dir();
     let user_dirs = load_user_dirs();
-    if let Some(path) = user_dirs.iter().find(|(k, _)| *k == kind).map(|(_, p)| p) {
-        if path.is_dir() && path != &home {
-            return Some(path.clone());
-        }
+    if let Some(path) = user_dirs.iter().find(|(k, _)| *k == kind).map(|(_, p)| p)
+        && path.is_dir()
+        && path != &home
+    {
+        return Some(path.clone());
     }
     // Fallback: $HOME/<DefaultName>
     let fallback = home.join(kind.default_name());

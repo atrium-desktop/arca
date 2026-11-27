@@ -198,6 +198,6 @@ comments describe the shared-preferred default, the `static` feature, and the
 
 - [ADR 0013: Synchronize with Optics v0.0.82](0013-synchronize-with-optics-v0.0.82-semantic-module-naming.md)
 - [ADR 0014: Optics Link Mode and Static Release Artifact](0014-optics-link-mode-and-static-release.md)
-- [Cross-Repository Development Workflow](../dev/cross-repository-development.md)
+- [Local Optics Development](../dev/optics-local-development.md)
 - [Build & Run Guide](../dev/build-and-run.md)
 - [Distribution Packaging](../dev/packaging.md)

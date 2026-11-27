@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Arca Architecture Working Group
 - Consulted: Optics/Lens/Iris Maintainers
 - Amends: [ADR-0010](0010-synchronize-with-optics-v0.0.78-and-record-only-host-canvas.md)
+- Amended by: [ADR-0025](0025-synchronize-with-optics-v0.0.88-and-app-owned-icon-decoding.md) (Optics v0.0.88 retired the shared SVG compiler; Arca decodes its icons and registers them per `optics_ui` context)
 - Extends: Optics ADR-0158 (header-only transit), ADR-0159 (unified bindings workspace and `optics` facade), ADR-0160 (C umbrella facade), ADR-0161 (reticle compiler and vista boundary)
 
 ---

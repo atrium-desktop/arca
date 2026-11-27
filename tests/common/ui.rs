@@ -4,10 +4,10 @@
 //! fields. This harness is deliberately built only from the public API, so an
 //! integration test proves the same surface an embedder or a future shell
 //! would use: `AppState::with_config` + `UiApp::with_thumb_cache` +
-//! `Ui::headless()`.
+//! `Ui::headless()` + `UiApp::start`.
 
-use arca_engine::config::{Config, ViewMode};
 use arca_engine::AppState;
+use arca_engine::config::{Config, ViewMode};
 use arca_ui::UiApp;
 use optics_ui::{Frame, Input, Ui};
 use test_support::fs::TestDir;
@@ -53,8 +53,10 @@ impl Harness {
             Config::default(),
             dir.str(),
         );
-        let app = UiApp::with_thumb_cache(state, cache_dir.path()).sync_navigation();
-        let ui = Ui::headless().expect("headless optics-ui");
+        let mut app = UiApp::with_thumb_cache(state, cache_dir.path()).sync_navigation();
+        let mut ui = Ui::headless().expect("headless optics-ui");
+        // Mirror the window's start hook, so suites draw production glyphs.
+        app.start(&mut ui);
         Self {
             dir,
             _config_dir: config_dir,
